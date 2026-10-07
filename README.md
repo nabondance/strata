@@ -28,3 +28,7 @@ pnpm dev --help
 ```
 
 The npm package name is `context-strata`, with `strata` as the executable. The package is private while the first release is being built and has not been published. Registry availability was checked on 2026-10-08 and must be checked again before publication.
+
+## Agent-assisted development
+
+[AGENTS.md](AGENTS.md) gives coding agents the repository's purpose, code map, and checks. [CLAUDE.md](CLAUDE.md) imports that same guidance for Claude Code. Optional `strata_reviewer` for Codex and `strata-reviewer` for Claude Code focus on the correctness and privacy of analysis changes; their definitions live in [.codex/agents](.codex/agents/strata_reviewer.toml) and [.claude/agents](.claude/agents/strata-reviewer.md). Invoke a reviewer when that focused check is useful.
