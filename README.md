@@ -14,6 +14,12 @@ node dist/cli.js analyze /path/to/git/repository
 
 The CLI writes an offline HTML report to a private temporary directory and prints its path. Add `--open` to launch it in a browser, or `--output report.html` to save it where you choose. For machine-readable data, use `--format json`, optionally with `--output report.json`. The CLI prints scan progress to stderr. The first slice tracks documented Claude and Codex instruction, skill, agent, rule, and configuration paths. It uses a clearly labeled stored-token estimate for instructional files and source bytes for structured or supporting files; it does not measure actual session context. The report contains paths and measurements but no source text.
 
+In the HTML report, select any baseline and target revision to compare signed estimated-token and file-count changes by provider, category, and component. The timeline controls the target revision. Comparison is based on stored files at those two points; a moved file may appear as a removal and an addition.
+
+The tracked-components table can be filtered by provider, category, and a case-insensitive path search. Filters stay active as you move along the timeline. The chart, summary, and comparison always use the full revision, while the inventory shows its own filtered file count.
+
+The treemap shows the selected revision's instructional components with rectangle area proportional to each stored-text token estimate and color by category. Select a rectangle to locate its file in the inventory. Source-only and zero-token files stay in the inventory and receive no invented area; the treemap does not represent which files an agent loaded in a session.
+
 To give your own coding agent guidance for interpreting Strata JSON, print the bundled skill with `node dist/cli.js skill`, or save it to a skill directory:
 
 ```sh

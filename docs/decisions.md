@@ -46,3 +46,13 @@ Schema version 2 adds provider labels, an `other` category for visible unsupport
 ```
 
 The actual `categoryTotals` has an entry for every category. Default HTML and JSON contain commit IDs, dates, paths, provider/category labels, blob IDs, byte sizes, and estimates. They contain no source text. Paths and blob IDs can still disclose repository structure. Generated reports are local artifacts; the CLI sets output mode `0600`. No telemetry or content upload is used.
+
+## Revision comparison
+
+The offline HTML report compares any two revisions already present in schema version 2, so the JSON schema is unchanged. The timeline and target selector refer to the same revision; the baseline selector stays fixed when the target changes. The comparison shows signed differences in estimated stored-text tokens and tracked file counts, grouped by provider and category. A zero-token baseline has no meaningful percentage change and is shown without a percentage.
+
+Components are matched by provider, category, and path. A changed blob at the same identity is shown as edited even if its token estimate is unchanged. A renamed or reorganized file may appear as a removal and addition; the comparison does not assert that instructions survived or that a refactor occurred. Source-only files affect file counts but contribute zero to estimated-token deltas.
+
+## Composition treemap
+
+The HTML report uses schema version 2 component measurements to draw a category-grouped treemap at the selected revision. Each positive-token instructional component receives a rectangle with area proportional to its estimated stored-text tokens; categories are contiguous and color-coded. Source-only and zero-token components have no area and remain in the inventory, with their counts stated beside the treemap. The treemap is a stored-configuration composition view, not a map of runtime dependencies or loaded context. Keyboard-accessible rectangles locate the corresponding inventory row; the table remains the text alternative.

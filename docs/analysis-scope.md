@@ -35,4 +35,6 @@ Structured configuration, MCP, permission rules, and supporting files are invent
 
 Changes compare adjacent first-parent revisions. Git rename detection (`-M`) supports a rename label when Git finds sufficient content similarity; otherwise the report shows a removal and addition. A merge is compared with its first parent. The report does not infer a refactor or architecture dependency from paths alone.
 
+The HTML comparison view can compare any two sampled revisions, including earlier targets. Its provider, category, and component deltas use the stored measurements at each endpoint. Component identity is provider, category, and path, so an arbitrary-range move can appear as a removal and addition even when an adjacent revision's `changes` array labels a Git-detected rename.
+
 The generated HTML and JSON contain full commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no file contents. Paths and blob IDs may still reveal project structure, so treat generated reports as local artifacts. Use `--output` to choose where the report is written; Strata does not write to the repository it analyzes unless that path is chosen explicitly.

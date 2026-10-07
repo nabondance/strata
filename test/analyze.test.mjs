@@ -5,8 +5,80 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { analyzeRepository, categories } from "../dist/analyze.js";
+import { compareRevisions } from "../dist/compare.js";
 import { renderHtml } from "../dist/report.js";
+import { layoutTreemap } from "../dist/treemap.js";
+
+function exerciseReportUi(html, report) {
+  class Element {
+    constructor(tag) {
+      this.tag = tag;
+      this.children = [];
+      this.style = {};
+      this.listeners = {};
+      this.classList = { add() {}, toggle() {} };
+    }
+    append(...children) { this.children.push(...children); }
+    prepend(...children) { this.children.unshift(...children); }
+    replaceChildren(...children) { this.children = children; }
+    addEventListener(event, listener) { this.listeners[event] = listener; }
+    setAttribute() {}
+    focus() { this.focused = true; }
+    scrollIntoView() { this.scrolled = true; }
+  }
+  const elements = new Map();
+  const document = {
+    createElement: (tag) => new Element(tag),
+    getElementById: (id) => {
+      if (!elements.has(id)) elements.set(id, new Element(id));
+      return elements.get(id);
+    },
+  };
+  const script = html.match(/<script>\n([\s\S]*?)\n  <\/script>/)?.[1];
+  assert.ok(script);
+  runInNewContext(script, { document, Intl });
+  const get = (id) => elements.get(id);
+  assert.equal(get("target").value, String(report.revisions.length - 1));
+  assert.equal(get("baseline").value, "0");
+  assert.equal(get("compare-components").children.length, compareRevisions(report.revisions[0], report.revisions.at(-1)).components.length);
+  get("baseline").value = "2";
+  get("baseline").listeners.change();
+  get("target").value = "3";
+  get("target").listeners.change();
+  const expected = compareRevisions(report.revisions[2], report.revisions[3]);
+  assert.match(get("compare-tokens").textContent, new RegExp(String(expected.deltaTokens)));
+  assert.equal(get("compare-components").children.length, expected.components.length);
+  assert.equal(get("slider").value, 3);
+  get("provider-filter").value = "claude";
+  get("provider-filter").listeners.change();
+  const claudeFiles = report.revisions[3].components.filter((component) => component.provider === "claude").length;
+  assert.equal(get("files").children.length, claudeFiles);
+  get("target").value = "4";
+  get("target").listeners.change();
+  assert.equal(get("provider-filter").value, "claude");
+  assert.equal(get("files").children.length, report.revisions[4].components.filter((component) => component.provider === "claude").length);
+  const fullTokens = get("tokens").textContent;
+  get("path-search").value = "does-not-exist";
+  get("path-search").listeners.input();
+  assert.equal(get("files").children.length, 1);
+  assert.equal(get("files").children[0].children[0].textContent, "No files match these filters.");
+  assert.match(get("inventory-count").textContent, /Showing 0 of/);
+  assert.equal(get("tokens").textContent, fullTokens);
+  get("clear-filters").listeners.click();
+  assert.equal(get("files").children.length, report.revisions[4].components.length);
+  assert.equal(get("provider-filter").value, "");
+  assert.equal(get("path-search").value, "");
+  assert.equal(get("path-search").focused, true);
+  const firstLeaf = get("treemap").children.find((child) => child.className === "treemap-leaf");
+  assert.ok(firstLeaf);
+  firstLeaf.listeners.click();
+  assert.equal(get("files").children.length, 1);
+  assert.equal(get("files").children[0].scrolled, true);
+  assert.equal(get("files").children[0].focused, true);
+  assert.match(get("treemap-note").textContent, /source-only files/);
+}
 
 test("tracks configuration across first-parent history without reading untracked files", () => {
   const repo = mkdtempSync(join(tmpdir(), "strata-history-"));
@@ -110,6 +182,7 @@ test("tracks configuration across first-parent history without reading untracked
       }
     }
     const html = renderHtml(report);
+    exerciseReportUi(html, report);
     assert.ok(!html.includes("Follow the project conventions."));
     const hostileName = "<img onerror=alert(1)>.md";
     report.revisions[0].components[0].path = hostileName;
@@ -123,6 +196,18 @@ test("tracks configuration across first-parent history without reading untracked
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);
+
+    const renamedComparison = compareRevisions(report.revisions[3], report.revisions[4]);
+    assert.equal(renamedComparison.deltaFiles, 0);
+    assert.equal(renamedComparison.deltaTokens, 0);
+    assert.ok(renamedComparison.components.some((component) => component.kind === "removed" && component.path === ".claude/skills/review/SKILL.md"));
+    assert.ok(renamedComparison.components.some((component) => component.kind === "added" && component.path === ".claude/skills/code-review/SKILL.md"));
+    const identicalComparison = compareRevisions(report.revisions[4], report.revisions[4]);
+    assert.deepEqual(identicalComparison.components, []);
+    assert.equal(identicalComparison.deltaTokens, 0);
+    const reverseComparison = compareRevisions(report.revisions[2], report.revisions[0]);
+    assert.ok(reverseComparison.deltaTokens < 0);
+    assert.equal(reverseComparison.deltaTokens, report.revisions[0].estimatedTokens - report.revisions[2].estimatedTokens);
 
     const defaultCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo], { encoding: "utf8" });
     assert.equal(defaultCli.status, 0, defaultCli.stderr);
@@ -166,6 +251,44 @@ test("tracks configuration across first-parent history without reading untracked
         rmSync(openDir, { recursive: true, force: true });
       }
     }
+
+    put("CLAUDE.md", "Root.\nFollow project conventions and review every change.\n");
+    commit("Grow root guidance before split");
+    put("CLAUDE.md", "Root.\n");
+    put(".claude/skills/project-review/SKILL.md", "---\nname: project-review\ndescription: Review project changes\n---\nFollow project conventions and review every change.\n");
+    commit("Split guidance into a skill");
+    const splitReport = analyzeRepository(repo);
+    const beforeSplit = splitReport.revisions.at(-2);
+    const afterSplit = splitReport.revisions.at(-1);
+    const split = compareRevisions(beforeSplit, afterSplit);
+    const treemap = layoutTreemap(afterSplit.components);
+    assert.equal(treemap.totalTokens, afterSplit.estimatedTokens);
+    assert.equal(treemap.sourceOnlyCount, afterSplit.components.filter((component) => component.estimatedTokens === null).length);
+    const leaves = treemap.groups.flatMap((group) => group.leaves);
+    assert.ok(leaves.length > 0);
+    for (const leaf of leaves) {
+      assert.ok(Math.abs(leaf.width * leaf.height / 10000 - leaf.estimatedTokens / treemap.totalTokens) < 1e-9);
+    }
+    assert.ok(Math.abs(treemap.groups.reduce((sum, group) => sum + group.width * group.height, 0) - 10000) < 1e-8);
+    const withEmpty = layoutTreemap([...afterSplit.components, { path: "empty.md", provider: "shared", category: "instructions", blob: "empty", bytes: 0, estimatedTokens: 0 }]);
+    assert.equal(withEmpty.zeroTokenCount, 1);
+    assert.equal(withEmpty.totalTokens, treemap.totalTokens);
+    assert.equal(splitReport.revisions.length, 11);
+    assert.equal(split.deltaFiles, 1);
+    assert.ok(split.byCategory.find((item) => item.key === "instructions")?.deltaTokens < 0);
+    assert.ok(split.byCategory.find((item) => item.key === "skills")?.deltaTokens > 0);
+    assert.ok(split.components.some((component) => component.kind === "edited" && component.path === "CLAUDE.md"));
+    assert.ok(split.components.some((component) => component.kind === "added" && component.path === ".claude/skills/project-review/SKILL.md"));
+    assert.equal(split.byProvider.reduce((sum, item) => sum + item.deltaTokens, 0), split.deltaTokens);
+    assert.equal(split.byCategory.reduce((sum, item) => sum + item.deltaFiles, 0), split.deltaFiles);
+    const reverseSplit = compareRevisions(afterSplit, beforeSplit);
+    assert.equal(reverseSplit.deltaTokens, -split.deltaTokens);
+    assert.equal(reverseSplit.deltaFiles, -split.deltaFiles);
+
+    const blank = { ...beforeSplit, components: [], estimatedTokens: 0 };
+    const fromBlank = compareRevisions(blank, afterSplit);
+    assert.equal(fromBlank.percentChange, null);
+    assert.ok(fromBlank.components.some((component) => component.path === ".claude/settings.json" && component.beforeTokens === null && component.afterTokens === null));
 
     const shallow = mkdtempSync(join(tmpdir(), "strata-shallow-"));
     try {
