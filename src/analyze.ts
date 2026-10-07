@@ -1,22 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { basename, resolve } from "node:path";
+import { categories, classify, type Category, type Provider } from "./adapters.js";
 
-export const categories = [
-  "instructions",
-  "skills",
-  "agents",
-  "rules",
-  "commands",
-  "memory",
-  "settings",
-  "tools",
-] as const;
-
-export type Category = (typeof categories)[number];
+export { categories } from "./adapters.js";
 
 export interface Component {
   path: string;
-  provider: "claude" | "shared";
+  provider: Provider;
   category: Category;
   blob: string;
   bytes: number;
@@ -37,13 +27,13 @@ export interface Revision {
   date: string;
   firstParent: string | null;
   components: Component[];
-  categoryTotals: Record<Category, { count: number; bytes: number; estimatedTokens: number }>;
+  categoryTotals: Record<Category, { count: number; bytes: number; estimatedTokens: number; sourceOnlyCount: number }>;
   estimatedTokens: number;
   changes: Change[];
 }
 
 export interface Report {
-  schemaVersion: 1;
+  schemaVersion: 2;
   repository: string;
   branch: string;
   shallow: boolean;
@@ -75,33 +65,6 @@ function git(repo: string, args: string[]): Buffer {
 
 function gitText(repo: string, args: string[]): string {
   return git(repo, args).toString("utf8").trim();
-}
-
-function classify(path: string): Pick<Component, "category" | "provider"> | null {
-  const parts = path.split("/");
-  const filename = parts.at(-1);
-  if (filename === "CLAUDE.md") return { category: "instructions", provider: "claude" };
-  if (filename === "AGENTS.md") return { category: "instructions", provider: "shared" };
-  if (path === ".mcp.json") return { category: "tools", provider: "claude" };
-
-  const claudeIndex = parts.indexOf(".claude");
-  if (claudeIndex < 0) return null;
-  const within = parts.slice(claudeIndex + 1);
-  if (within.length === 1 && /^settings(?:\.local)?\.json$/.test(within[0] ?? "")) {
-    return { category: "settings", provider: "claude" };
-  }
-  if (within[0] === "skills" && within.length === 3 && filename === "SKILL.md") {
-    return { category: "skills", provider: "claude" };
-  }
-  if (within.length >= 2 && filename?.endsWith(".md")) {
-    if (within[0] === "agents") return { category: "agents", provider: "claude" };
-    if (within[0] === "rules") return { category: "rules", provider: "claude" };
-    if (within[0] === "commands") return { category: "commands", provider: "claude" };
-    if (within[0] === "agent-memory" && within.length >= 3) {
-      return { category: "memory", provider: "claude" };
-    }
-  }
-  return null;
 }
 
 function treeEntries(repo: string, revision: string): TreeEntry[] {
@@ -217,23 +180,23 @@ export function analyzeRepository(repoPath: string): Report {
       return {
         path,
         blob,
-        ...classification,
+        provider: classification.provider,
+        category: classification.category,
         bytes: measured.bytes,
-        estimatedTokens: classification.category === "settings" || classification.category === "tools"
-          ? null
-          : measured.estimatedTokens,
+        estimatedTokens: classification.instructionalText ? measured.estimatedTokens : null,
       } satisfies Component;
     });
     components.sort((a, b) => a.path.localeCompare(b.path));
 
     const categoryTotals = Object.fromEntries(
-      categories.map((category) => [category, { count: 0, bytes: 0, estimatedTokens: 0 }]),
+      categories.map((category) => [category, { count: 0, bytes: 0, estimatedTokens: 0, sourceOnlyCount: 0 }]),
     ) as Revision["categoryTotals"];
     for (const component of components) {
       const total = categoryTotals[component.category];
       total.count += 1;
       total.bytes += component.bytes;
       total.estimatedTokens += component.estimatedTokens ?? 0;
+      if (component.estimatedTokens === null) total.sourceOnlyCount += 1;
     }
     const previous = revisions.at(-1);
     const changes = buildChanges(
@@ -253,14 +216,14 @@ export function analyzeRepository(repoPath: string): Report {
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     repository: basename(root),
     branch,
     shallow,
     measurement: {
       label: "Estimated stored-text tokens",
-      method: "UTF-8 bytes / 4, rounded up per instructional file",
-      limitations: "Comparison estimate only. This is not a Claude tokenizer or measured session context. Settings and MCP files are counted in bytes, not prompt tokens.",
+      method: "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file",
+      limitations: "Comparison estimate only. This is not a provider tokenizer or measured session context. Structured configuration and supporting files are counted in bytes, not prompt tokens.",
     },
     revisions,
   };

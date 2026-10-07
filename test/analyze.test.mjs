@@ -27,6 +27,15 @@ test("tracks configuration across first-parent history without reading untracked
     git("config", "user.email", "strata-test@example.invalid");
 
     put("CLAUDE.md", "Root instructions.\n");
+    put(".claude/CLAUDE.md", "Claude-specific project instructions.\n");
+    put("AGENTS.md", "Shared project instructions.\n");
+    put("packages/app/AGENTS.override.md", "Codex override for this package.\n");
+    put(".agents/skills/release/SKILL.md", "---\nname: release\ndescription: Prepare a release\n---\nCheck the changelog.\n");
+    put(".agents/skills/release/references/checklist.md", "Supporting checklist.\n");
+    put(".codex/config.toml", "model = \"gpt-6-sol\"\n");
+    put(".codex/agents/reviewer.toml", "name = \"reviewer\"\ndeveloper_instructions = \"Review the diff.\"\n");
+    put(".codex/rules/permissions.rules", "prefix_rule(pattern = [\"git\", \"status\"], decision = \"allow\")\n");
+    put("notes/SKILL.md", "Unrelated Markdown.\n");
     put(".claude/settings.json", '{"hooks":{}}\n');
     const first = commit("Initial configuration");
 
@@ -66,9 +75,19 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions[0].id, first);
     assert.equal(report.revisions.at(-1).id, merge);
     assert.equal(report.revisions.at(-1).firstParent, beforeMerge);
-    assert.equal(report.revisions[0].categoryTotals.settings.count, 1);
+    assert.equal(report.schemaVersion, 2);
+    assert.equal(report.revisions[0].categoryTotals.settings.count, 2);
+    assert.equal(report.revisions[0].categoryTotals.settings.sourceOnlyCount, 2);
     assert.equal(report.revisions[0].categoryTotals.settings.estimatedTokens, 0);
-    assert.equal(report.revisions[1].categoryTotals.skills.count, 1);
+    assert.equal(report.revisions[0].categoryTotals.other.count, 1);
+    assert.equal(report.revisions[0].categoryTotals.other.sourceOnlyCount, 1);
+    assert.equal(report.revisions[0].categoryTotals.rules.sourceOnlyCount, 1);
+    assert.equal(report.revisions[0].categoryTotals.agents.sourceOnlyCount, 1);
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".agents/skills/release/SKILL.md")?.provider, "codex");
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".agents/skills/release/references/checklist.md")?.provider, "unknown");
+    assert.equal(report.revisions[0].components.find((component) => component.path === "packages/app/AGENTS.override.md")?.provider, "codex");
+    assert.ok(!report.revisions[0].components.some((component) => component.path === "notes/SKILL.md"));
+    assert.equal(report.revisions[1].categoryTotals.skills.count, 2);
     assert.ok(report.revisions[2].estimatedTokens > report.revisions[1].estimatedTokens);
     assert.ok(report.revisions[3].estimatedTokens < report.revisions[2].estimatedTokens);
     assert.ok(report.revisions[4].changes.some((change) =>
@@ -77,12 +96,17 @@ test("tracks configuration across first-parent history without reading untracked
       change.kind === "renamed" && change.previousPath === ".claude/agents/reviewer.md" && change.path === ".claude/agents/code-reviewer.md"));
     assert.ok(report.revisions[6].changes.some((change) =>
       change.kind === "removed" && change.path === ".claude/agents/code-reviewer.md"));
-    assert.equal(report.revisions.at(-1).categoryTotals.rules.count, 1);
+    assert.equal(report.revisions.at(-1).categoryTotals.rules.count, 2);
     assert.equal(report.revisions.at(-1).categoryTotals.commands.count, 1);
     assert.ok(!report.revisions.at(-1).components.some((component) => component.path.includes("untracked")));
     for (const revision of report.revisions) {
       assert.equal(revision.estimatedTokens, categories.reduce((sum, category) =>
         sum + revision.categoryTotals[category].estimatedTokens, 0));
+      for (const category of categories) {
+        const components = revision.components.filter((component) => component.category === category);
+        assert.equal(revision.categoryTotals[category].sourceOnlyCount,
+          components.filter((component) => component.estimatedTokens === null).length);
+      }
     }
     const html = renderHtml(report);
     assert.ok(!html.includes("Follow the project conventions."));

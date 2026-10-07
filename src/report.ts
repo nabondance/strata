@@ -85,16 +85,16 @@ export function renderHtml(report: Report): string {
       <input id="slider" type="range" aria-label="Select revision">
     </section>
     <div class="grid">
-      <section class="panel"><h2>Composition</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Files</th><th class="num">Est. tokens</th></tr></thead><tbody id="categories"></tbody></table></div></section>
+      <section class="panel"><h2>Composition</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Files</th><th class="num">Est. tokens</th><th class="num">Source only</th></tr></thead><tbody id="categories"></tbody></table></div></section>
       <section class="panel"><h2>Changes at this revision</h2><div id="changes"></div></section>
     </div>
-    <section class="panel"><h2>Tracked components</h2><div class="table-wrap"><table><thead><tr><th>Path</th><th>Category</th><th class="num">Est. tokens</th><th class="num">Bytes</th></tr></thead><tbody id="files"></tbody></table></div></section>
-    <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Settings and MCP source bytes are listed separately from instructional token estimates.</footer>
+    <section class="panel"><h2>Tracked components</h2><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Est. tokens</th><th class="num">Bytes</th></tr></thead><tbody id="files"></tbody></table></div></section>
+    <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Source-only files are listed by byte size and excluded from instruction token estimates.</footer>
   </main>
   <script>
     const data = ${serialized};
     const categories = ${categoryNames};
-    const colors = {instructions:'#7aa9ef', skills:'#72d5be', agents:'#d4a1ef', rules:'#edbd77', commands:'#e890a3', memory:'#9bc283', settings:'#8595ac', tools:'#a5a7d8'};
+    const colors = {instructions:'#7aa9ef', skills:'#72d5be', agents:'#d4a1ef', rules:'#edbd77', commands:'#e890a3', memory:'#9bc283', settings:'#8595ac', tools:'#a5a7d8', other:'#80929c'};
     const $ = (id) => document.getElementById(id);
     const fmt = (n) => new Intl.NumberFormat().format(n);
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
@@ -161,7 +161,7 @@ export function renderHtml(report: Report): string {
         const total = revision.categoryTotals[category];
         if (!total.count) continue;
         const row = document.createElement('tr');
-        row.append(text('td', category), text('td', fmt(total.count), 'num'), text('td', category === 'settings' || category === 'tools' ? '—' : fmt(total.estimatedTokens), 'num'));
+        row.append(text('td', category), text('td', fmt(total.count), 'num'), text('td', total.count === total.sourceOnlyCount ? '—' : fmt(total.estimatedTokens), 'num'), text('td', fmt(total.sourceOnlyCount), 'num'));
         categoryBody.append(row);
       }
 
@@ -181,7 +181,7 @@ export function renderHtml(report: Report): string {
       const sorted = [...revision.components].sort((a, b) => (b.estimatedTokens ?? -1) - (a.estimatedTokens ?? -1) || a.path.localeCompare(b.path));
       for (const component of sorted) {
         const row = document.createElement('tr');
-        row.append(text('td', component.path, 'path'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
+        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
         files.append(row);
       }
     }

@@ -12,7 +12,7 @@ Usage:
   strata --help
   strata --version
 
-Analyzes Git-tracked Claude configuration across first-parent history.
+Analyzes Git-tracked Claude and Codex configuration across first-parent history.
 The default output format is an offline HTML report.
 `;
 
