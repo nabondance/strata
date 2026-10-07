@@ -21,7 +21,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "pnpm build && node dist/cli.js"
+    "dev": "pnpm build && node dist/cli.js",
+    "test": "pnpm build && node --test test/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
