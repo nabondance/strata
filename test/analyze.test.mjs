@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { renderHtml } from "../dist/report.js";
@@ -122,6 +123,49 @@ test("tracks configuration across first-parent history without reading untracked
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);
+
+    const defaultCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo], { encoding: "utf8" });
+    assert.equal(defaultCli.status, 0, defaultCli.stderr);
+    const defaultPath = defaultCli.stdout.match(/^Report: (.+)$/m)?.[1];
+    assert.ok(defaultPath);
+    assert.ok(defaultPath.startsWith(tmpdir()));
+    assert.match(readFileSync(defaultPath, "utf8"), /<html/);
+    assert.equal(statSync(defaultPath).mode & 0o777, 0o600);
+    rmSync(join(defaultPath, ".."), { recursive: true, force: true });
+
+    const skill = spawnSync(process.execPath, ["dist/cli.js", "skill"], { encoding: "utf8" });
+    assert.equal(skill.status, 0, skill.stderr);
+    assert.match(skill.stdout, /^---\nname: strata-interpret\n/);
+    const skillPath = join(repo, "installed-skill", "SKILL.md");
+    const installedSkill = spawnSync(process.execPath, ["dist/cli.js", "skill", "--output", skillPath], { encoding: "utf8" });
+    assert.equal(installedSkill.status, 0, installedSkill.stderr);
+    assert.equal(readFileSync(skillPath, "utf8"), skill.stdout);
+    assert.equal(statSync(skillPath).mode & 0o777, 0o600);
+    const duplicateSkill = spawnSync(process.execPath, ["dist/cli.js", "skill", "--output", skillPath], { encoding: "utf8" });
+    assert.equal(duplicateSkill.status, 2);
+
+    const badOpen = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--format", "json", "--open"], { encoding: "utf8" });
+    assert.equal(badOpen.status, 2);
+    assert.match(badOpen.stderr, /--open requires HTML output/);
+    if (process.platform !== "win32") {
+      const openDir = mkdtempSync(join(tmpdir(), "strata-open-"));
+      try {
+        const opener = join(openDir, process.platform === "darwin" ? "open" : "xdg-open");
+        const openLog = join(openDir, "opened-url");
+        writeFileSync(opener, '#!/bin/sh\nprintf "%s" "$1" > "$STRATA_OPEN_LOG"\n');
+        chmodSync(opener, 0o700);
+        const opened = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--open"], {
+          encoding: "utf8", env: { ...process.env, PATH: `${openDir}:${process.env.PATH}`, STRATA_OPEN_LOG: openLog },
+        });
+        assert.equal(opened.status, 0, opened.stderr);
+        const openedPath = opened.stdout.match(/^Report: (.+)$/m)?.[1];
+        assert.ok(openedPath);
+        assert.equal(readFileSync(openLog, "utf8"), pathToFileURL(openedPath).href);
+        rmSync(join(openedPath, ".."), { recursive: true, force: true });
+      } finally {
+        rmSync(openDir, { recursive: true, force: true });
+      }
+    }
 
     const shallow = mkdtempSync(join(tmpdir(), "strata-shallow-"));
     try {
