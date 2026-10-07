@@ -39,7 +39,7 @@ The token method and version belong in report metadata. A fixed method must be u
 
 The [Strata GitHub Project](https://github.com/users/nabondance/projects/4) is **private**, owned by `nabondance`, and linked to `nabondance/strata`. It is the live task tracker; this file holds the release boundary and durable design decisions. Early planning work is in project draft items, so a public repository issue is created only when that task is ready to be public.
 
-Configured fields: the built-in Status (`Todo`, `In Progress`, `Done`), Priority (`P0`, `P1`, `P2`), and Stage (`0 Decisions`, `1 History`, `2 Measurement`, `3 Report`, `4 Release`, `Later`). The initial batch contains 13 draft items:
+Configured fields: the built-in Status (`Todo`, `In Progress`, `Done`), Priority (`P0`, `P1`, `P2`), Stage (`0 Decisions`, `1 History`, `2 Measurement`, `3 Report`, `4 Release`, `Later`), and Work type (`Study`, `Setup`, `Core`, `Feature`, `Docs`, `Bug`). The initial batch contains 13 draft items plus a pnpm setup task:
 
 | Priority | Stage | Draft item | Done when |
 | --- | --- | --- | --- |
@@ -47,6 +47,7 @@ Configured fields: the built-in Status (`Todo`, `In Progress`, `Done`), Priority
 | P0 | 0 | Verify Claude Code and Codex path conventions | Initial recognition table links to current official docs and states what is excluded. |
 | P0 | 0 | Choose token measurement and labels | Method, version, treatment of non-instruction files, and limitations are documented. |
 | P0 | 0 | Define report schema and privacy defaults | Example fixture output and default HTML contents are reviewable. |
+| P0 | 0 | Set up pnpm TypeScript CLI package | A clean install, typecheck, build, and installed CLI smoke check pass. |
 | P0 | 1 | Build synthetic Git history fixture | Fixture contains addition, growth, reduction, deletion, rename, and merge cases. |
 | P0 | 1 | Extract revisions and candidate blobs | First-parent sequence and files match Git; shallow history is signaled. |
 | P0 | 2 | Classify components through provider adapters | Claude and Codex fixtures classify to documented categories. |
@@ -59,7 +60,7 @@ Configured fields: the built-in Status (`Todo`, `In Progress`, `Done`), Priority
 
 ## Decisions to make during Stage 0
 
-1. **Package and command:** check npm directly; choose names that are available and clear. Repository name alone does not reserve a package.
+1. **Package and command:** the provisional npm package is `context-strata` and the binary is `strata`. A direct npm registry check on 2026-10-07 found `strata@0.20.1` and returned 404 for `context-strata`. This is not a reservation; recheck before publication. The package remains private during development.
 2. **Implementation stack:** favor a Node CLI if `npx` remains the desired entry point. Choose the smallest build and UI stack that can produce an offline report, then pin supported Node versions.
 3. **Recognition rules:** verify current provider docs. Start with explicit paths and file types; avoid interpreting arbitrary Markdown as agent configuration.
 4. **Token method:** compare a real tokenizer with a clearly labeled estimate on fixture text. Pick one stable default, record its version, and allow a future tokenizer option without changing report semantics.

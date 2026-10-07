@@ -1,0 +1,30 @@
+{
+  "name": "context-strata",
+  "version": "0.0.0",
+  "private": true,
+  "description": "See how your agent context evolved across Git history.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nabondance/strata.git"
+  },
+  "type": "module",
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "strata": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "pnpm build && node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "7.0.2"
+  }
+}
