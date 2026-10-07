@@ -1,3 +1,4 @@
+import { hierarchy, treemap } from "d3-hierarchy";
 import type { Component } from "./analyze.js";
 
 export interface Rectangle {
@@ -8,9 +9,7 @@ export interface Rectangle {
 }
 
 export interface TreemapLeaf extends Rectangle {
-  path: string;
-  provider: Component["provider"];
-  category: Component["category"];
+  componentIndex: number;
   estimatedTokens: number;
 }
 
@@ -27,72 +26,57 @@ export interface TreemapLayout {
   totalTokens: number;
 }
 
-// Kept self-contained because the HTML report embeds this same function.
-export function layoutTreemap(components: Component[]): TreemapLayout {
-  type Box = { x: number; y: number; width: number; height: number };
-  type Weighted<T> = { item: T; weight: number };
-  const place = <T>(items: Weighted<T>[], box: Box): { item: T; box: Box }[] => {
-    if (!items.length) return [];
-    if (items.length === 1) return [{ item: items[0]!.item, box }];
-    const total = items.reduce((sum, entry) => sum + entry.weight, 0);
-    let cumulative = 0;
-    let split = 1;
-    let nearest = Infinity;
-    for (let index = 1; index < items.length; index += 1) {
-      cumulative += items[index - 1]!.weight;
-      const difference = Math.abs(total / 2 - cumulative);
-      if (difference < nearest) {
-        nearest = difference;
-        split = index;
-      }
-    }
-    const first = items.slice(0, split);
-    const second = items.slice(split);
-    const ratio = first.reduce((sum, entry) => sum + entry.weight, 0) / total;
-    if (box.width >= box.height) {
-      const firstWidth = box.width * ratio;
-      return [
-        ...place(first, { x: box.x, y: box.y, width: firstWidth, height: box.height }),
-        ...place(second, { x: box.x + firstWidth, y: box.y, width: box.width - firstWidth, height: box.height }),
-      ];
-    }
-    const firstHeight = box.height * ratio;
-    return [
-      ...place(first, { x: box.x, y: box.y, width: box.width, height: firstHeight }),
-      ...place(second, { x: box.x, y: box.y + firstHeight, width: box.width, height: box.height - firstHeight }),
-    ];
-  };
+interface LayoutDatum {
+  key: string;
+  category?: Component["category"];
+  componentIndex?: number;
+  weight?: number;
+  children?: LayoutDatum[];
+}
 
-  const instructional = components.filter((component) => component.estimatedTokens !== null);
-  const positive = instructional.filter((component) => component.estimatedTokens! > 0);
-  const grouped = new Map<Component["category"], Component[]>();
-  for (const component of positive) {
-    const group = grouped.get(component.category) ?? [];
-    group.push(component);
-    grouped.set(component.category, group);
+export function layoutTreemap(components: Component[]): TreemapLayout {
+  const grouped = new Map<Component["category"], LayoutDatum[]>();
+  let sourceOnlyCount = 0;
+  let zeroTokenCount = 0;
+  let totalTokens = 0;
+  for (const [componentIndex, component] of components.entries()) {
+    const tokens = component.estimatedTokens;
+    if (tokens === null) {
+      sourceOnlyCount += 1;
+    } else if (tokens === 0) {
+      zeroTokenCount += 1;
+    } else {
+      const leaves = grouped.get(component.category) ?? [];
+      leaves.push({ key: component.path, componentIndex, weight: tokens });
+      grouped.set(component.category, leaves);
+      totalTokens += tokens;
+    }
   }
-  const categories = [...grouped.entries()].map(([category, members]) => ({
-    category,
-    members: members.sort((a, b) => b.estimatedTokens! - a.estimatedTokens! || a.path.localeCompare(b.path)),
-    estimatedTokens: members.reduce((sum, member) => sum + member.estimatedTokens!, 0),
-  })).sort((a, b) => b.estimatedTokens - a.estimatedTokens || a.category.localeCompare(b.category));
-  const box = { x: 0, y: 0, width: 100, height: 100 };
-  const groups = place(categories.map((category) => ({ item: category, weight: category.estimatedTokens })), box).map(({ item, box: bounds }) => ({
-    category: item.category,
-    estimatedTokens: item.estimatedTokens,
-    ...bounds,
-    leaves: place(item.members.map((component) => ({ item: component, weight: component.estimatedTokens! })), bounds).map(({ item: component, box: leaf }) => ({
-      path: component.path,
-      provider: component.provider,
-      category: component.category,
-      estimatedTokens: component.estimatedTokens!,
-      ...leaf,
+  if (!totalTokens) return { groups: [], sourceOnlyCount, zeroTokenCount, totalTokens };
+
+  const data: LayoutDatum = {
+    key: "root",
+    children: [...grouped.entries()].map(([category, children]) => ({ key: category, category, children })),
+  };
+  const root = hierarchy(data, (datum) => datum.children)
+    .sum((datum) => datum.weight ?? 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.data.key.localeCompare(b.data.key));
+  const laidOut = treemap<LayoutDatum>().size([100, 100]).round(false)(root);
+  const groups = (laidOut.children ?? []).map((group) => ({
+    category: group.data.category!,
+    estimatedTokens: group.value ?? 0,
+    x: group.x0,
+    y: group.y0,
+    width: group.x1 - group.x0,
+    height: group.y1 - group.y0,
+    leaves: (group.children ?? []).map((leaf) => ({
+      componentIndex: leaf.data.componentIndex!,
+      estimatedTokens: leaf.value ?? 0,
+      x: leaf.x0,
+      y: leaf.y0,
+      width: leaf.x1 - leaf.x0,
+      height: leaf.y1 - leaf.y0,
     })),
   }));
-  return {
-    groups,
-    sourceOnlyCount: components.length - instructional.length,
-    zeroTokenCount: instructional.length - positive.length,
-    totalTokens: positive.reduce((sum, component) => sum + component.estimatedTokens!, 0),
-  };
+  return { groups, sourceOnlyCount, zeroTokenCount, totalTokens };
 }

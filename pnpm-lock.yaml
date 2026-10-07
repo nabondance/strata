@@ -7,7 +7,14 @@ settings:
 importers:
 
   .:
+    dependencies:
+      d3-hierarchy:
+        specifier: 3.1.2
+        version: 3.1.2
     devDependencies:
+      '@types/d3-hierarchy':
+        specifier: 3.1.7
+        version: 3.1.7
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -16,6 +23,9 @@ importers:
         version: 7.0.2
 
 packages:
+
+  '@types/d3-hierarchy@3.1.7':
+    resolution: {integrity: sha512-tJFtNoYBtRtkNysX1Xq4sxtjK8YgoWUNpIiUee0/jHGRwqvzYxkq0hGVbbOGSz+JgFxxRu4K8nb3YpG3CMARtg==}
 
   '@types/node@22.20.5':
     resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
@@ -140,6 +150,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  d3-hierarchy@3.1.2:
+    resolution: {integrity: sha512-FX/9frcub54beBdugHjDCdikxThEqjnR93Qt7PvQTOHxyiNCAlvMrHhclk3cD5VeAaq9fxmfRp+CnWw9rEMBuA==}
+    engines: {node: '>=12'}
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -149,6 +163,8 @@ packages:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
 snapshots:
+
+  '@types/d3-hierarchy@3.1.7': {}
 
   '@types/node@22.20.5':
     dependencies:
@@ -213,6 +229,8 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
+
+  d3-hierarchy@3.1.2: {}
 
   typescript@7.0.2:
     optionalDependencies:

@@ -36,9 +36,15 @@ function exerciseReportUi(html, report) {
       return elements.get(id);
     },
   };
+  const d3Script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   const script = html.match(/<script>\n([\s\S]*?)\n  <\/script>/)?.[1];
+  assert.ok(d3Script);
   assert.ok(script);
-  runInNewContext(script, { document, Intl });
+  assert.match(html, /Permission to use, copy, modify, and\/or distribute this software/);
+  assert.match(html, /d3-hierarchy\/ v3\.1\.2/);
+  const context = { document, Intl };
+  runInNewContext(d3Script, context);
+  runInNewContext(script, context);
   const get = (id) => elements.get(id);
   assert.equal(get("target").value, String(report.revisions.length - 1));
   assert.equal(get("baseline").value, "0");

@@ -1,6 +1,16 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { categories, type Report } from "./analyze.js";
 import { compareRevisions } from "./compare.js";
 import { layoutTreemap } from "./treemap.js";
+
+const require = createRequire(import.meta.url);
+const d3PackageDirectory = resolve(dirname(require.resolve("d3-hierarchy")), "..");
+const d3License = readFileSync(resolve(d3PackageDirectory, "LICENSE"), "utf8");
+const d3Source = readFileSync(resolve(d3PackageDirectory, "dist/d3-hierarchy.min.js"), "utf8");
+const embeddedD3 = (`/*\n${d3License.replace(/\*\//g, "* /")}\n*/\n${d3Source}`)
+  .replace(/<\/script/gi, "<\\/script");
 
 export function renderHtml(report: Report): string {
   const serialized = JSON.stringify(report)
@@ -162,10 +172,13 @@ export function renderHtml(report: Report): string {
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Est. tokens</th><th class="num">Bytes</th></tr></thead><tbody id="files"></tbody></table></div></section>
     <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Source-only files are listed by byte size and excluded from instruction token estimates.</footer>
   </main>
+  <script>${embeddedD3}</script>
   <script>
     const data = ${serialized};
     const categories = ${categoryNames};
     const compareRevisions = ${compareSource};
+    const hierarchy = d3.hierarchy;
+    const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
     const colors = {instructions:'#31575b', skills:'#88472d', agents:'#645976', rules:'#766023', commands:'#813b43', memory:'#476d44', settings:'#52676a', tools:'#4b607d', other:'#5f665b'};
     const $ = (id) => document.getElementById(id);
@@ -297,28 +310,29 @@ export function renderHtml(report: Report): string {
         label.prepend(swatch);
         treeLegend.append(label);
         for (const leaf of group.leaves) {
+          const component = data.revisions[selected].components[leaf.componentIndex];
           const button = text('button', '', 'treemap-leaf');
           button.type = 'button';
           button.style.left = leaf.x + '%';
           button.style.top = leaf.y + '%';
           button.style.width = leaf.width + '%';
           button.style.height = leaf.height + '%';
-          button.style.background = colors[leaf.category];
-          button.title = leaf.path + ' · ' + leaf.provider + ' / ' + leaf.category + ' · ' + fmt(leaf.estimatedTokens) + ' estimated tokens';
+          button.style.background = colors[component.category];
+          button.title = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' estimated tokens';
           button.setAttribute('aria-label', button.title);
           if (leaf.width >= 14 && leaf.height >= 17 && leaf.width * leaf.height >= 260) {
-            button.append(text('span', leaf.path.split('/').slice(-2).join('/'), 'leaf-name'), text('span', fmt(leaf.estimatedTokens) + ' est. tokens', 'leaf-size'));
+            button.append(text('span', component.path.split('/').slice(-2).join('/'), 'leaf-name'), text('span', fmt(leaf.estimatedTokens) + ' est. tokens', 'leaf-size'));
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
           button.addEventListener('click', () => {
-            providerFilter = leaf.provider;
-            categoryFilter = leaf.category;
-            pathSearch = leaf.path.toLocaleLowerCase();
+            providerFilter = component.provider;
+            categoryFilter = component.category;
+            pathSearch = component.path.toLocaleLowerCase();
             $('provider-filter').value = providerFilter;
             $('category-filter').value = categoryFilter;
-            $('path-search').value = leaf.path;
+            $('path-search').value = component.path;
             renderInventory();
-            const row = inventoryRows.get(leaf.path);
+            const row = inventoryRows.get(component.path);
             row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
             row?.focus({ preventScroll: true });
           });
