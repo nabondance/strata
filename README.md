@@ -12,7 +12,7 @@ After installing dependencies and building, run:
 node dist/cli.js analyze /path/to/git/repository --output .strata-output/report.html
 ```
 
-The HTML report opens directly in a browser. For machine-readable data, add `--format json` and use a `.json` output path. The first slice tracks documented Claude and Codex instruction, skill, agent, rule, and configuration paths. It uses a clearly labeled stored-token estimate for instructional files and source bytes for structured or supporting files; it does not measure actual session context. The report contains paths and measurements but no source text.
+The HTML report opens directly in a browser. For machine-readable data, add `--format json` and use a `.json` output path. The CLI prints scan progress to stderr. The first slice tracks documented Claude and Codex instruction, skill, agent, rule, and configuration paths. It uses a clearly labeled stored-token estimate for instructional files and source bytes for structured or supporting files; it does not measure actual session context. The report contains paths and measurements but no source text.
 
 ## Development
 

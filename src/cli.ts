@@ -49,7 +49,18 @@ try {
     }
     if (!repository) throw new Error("A repository path is required");
     if (!output) throw new Error("--output is required");
-    const report = analyzeRepository(repository);
+    let lastDecile = 0;
+    const report = analyzeRepository(repository, ({ completed, total }) => {
+      if (completed === 0) {
+        process.stderr.write(`Analyzing ${total} revisions...\n`);
+      } else {
+        const decile = Math.floor(completed * 10 / total);
+        if (decile > lastDecile || completed === total) {
+          process.stderr.write(`Processed ${completed}/${total} revisions.\n`);
+          lastDecile = decile;
+        }
+      }
+    });
     const destination = resolve(output);
     mkdirSync(dirname(destination), { recursive: true });
     writeFileSync(destination, format === "json" ? `${JSON.stringify(report, null, 2)}\n` : renderHtml(report));

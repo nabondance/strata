@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,7 +115,10 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!renderHtml(report).includes(hostileName));
 
     const output = join(repo, "strata-report.json");
-    execFileSync(process.execPath, ["dist/cli.js", "analyze", repo, "--output", output, "--format", "json"]);
+    const cli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--output", output, "--format", "json"], { encoding: "utf8" });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(cli.stderr, /Analyzing 9 revisions/);
+    assert.match(cli.stderr, /Processed 9\/9 revisions/);
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);

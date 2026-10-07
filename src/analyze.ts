@@ -45,6 +45,11 @@ export interface Report {
   revisions: Revision[];
 }
 
+export interface AnalysisProgress {
+  completed: number;
+  total: number;
+}
+
 interface TreeEntry {
   path: string;
   blob: string;
@@ -155,17 +160,19 @@ function buildChanges(
   return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function analyzeRepository(repoPath: string): Report {
+export function analyzeRepository(repoPath: string, onProgress?: (progress: AnalysisProgress) => void): Report {
   const repo = resolve(repoPath);
   const root = gitText(repo, ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
   const shallow = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
   const log = gitText(root, ["log", "--first-parent", "--reverse", "--format=%H%x09%aI%x09%P", "HEAD"]);
   if (!log) throw new Error("The repository has no commits to analyze");
+  const commits = log.split("\n");
 
   const blobMeasurements = new Map<string, { bytes: number; estimatedTokens: number }>();
   const revisions: Revision[] = [];
-  for (const line of log.split("\n")) {
+  onProgress?.({ completed: 0, total: commits.length });
+  for (const line of commits) {
     const [id, date, parents] = line.split("\t");
     if (!id || !date) throw new Error("Malformed git log output");
     const components = treeEntries(root, id).map(({ path, blob }) => {
@@ -213,6 +220,7 @@ export function analyzeRepository(repoPath: string): Report {
       estimatedTokens: categories.reduce((sum, category) => sum + categoryTotals[category].estimatedTokens, 0),
       changes,
     });
+    onProgress?.({ completed: revisions.length, total: commits.length });
   }
 
   return {
