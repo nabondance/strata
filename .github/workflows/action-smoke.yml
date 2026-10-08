@@ -1,0 +1,26 @@
+name: Action smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Select recent commits
+        id: revisions
+        shell: bash
+        run: |
+          echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: ./
+        with:
+          base: ${{ steps.revisions.outputs.base }}
+          head: ${{ steps.revisions.outputs.head }}
+          model: gpt-4o
