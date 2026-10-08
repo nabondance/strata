@@ -1,0 +1,16 @@
+# Evidence for an architecture view
+
+Evaluated 2026-10-08. The report already has a category-grouped composition treemap, but that is not a dependency graph. A future architecture view can safely show a **file/directory hierarchy at a selected revision** using only tracked paths and their measured sizes. An edge from a file to its containing directory means containment, not that the agent loads or calls it.
+
+| Candidate relationship | Evidence available from Git | Safe label | Current decision |
+| --- | --- | --- | --- |
+| Directory contains a file | Exact tracked path at the selected revision | `contains` | Suitable for a first hierarchy view. |
+| Markdown links to another tracked file | Link text plus a resolved path at the same revision | `links to` | Possible only after path resolution and a clear treatment of anchors, imports, and broken links. Not a runtime edge. |
+| A rule mentions a skill or agent by name | Free-form prose, possibly ambiguous | `mentions` | Do not turn into a dependency. If explored, preserve the quoted evidence locally and report uncertainty. |
+| A skill resource sits beside `SKILL.md` | Shared skill directory | `bundled with` | Already represented by `skillGroups`; not proof that the resource was read. |
+| Rule frontmatter or glob targets files | Conditional configuration plus path patterns | `configured for` | Provider-specific parsing and referenced-file evidence needed. Not equivalent to session loading. |
+| Agent invokes skill, command, MCP tool, or another agent | No invocation trace in Git history | none | Cannot establish from a static report. |
+
+The first useful view should therefore be a revision-selectable **configuration map**: provider/category grouping, path hierarchy, node area based on the report's labeled stored-text measure, and a distinct source-only marker. It can reuse `components` and `skillGroups` without re-reading source or changing the JSON schema. Use the same revision selection as the timeline, keep a text inventory alternative, and show a clear legend for size and containment. The treemap remains the compact composition view; the hierarchy would help locate where configuration moved between directories.
+
+Before drawing content-derived links, define a versioned edge model containing `kind`, source and target paths, the revision, and evidence type. Resolve references against Git trees, test ambiguous names, relative paths, deletions, and renames in a synthetic fixture, and avoid placing source excerpts in default exports. Report unresolved references separately rather than drawing speculative edges. A graph with only directory containment should be called a configuration map, not an agent execution architecture.
