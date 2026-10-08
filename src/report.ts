@@ -13,6 +13,7 @@ const embeddedD3 = (`/*\n${d3License.replace(/\*\//g, "* /")}\n*/\n${d3Source}`)
   .replace(/<\/script/gi, "<\\/script");
 
 export function renderHtml(report: Report): string {
+  const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
   const serialized = JSON.stringify(report)
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
@@ -122,7 +123,7 @@ export function renderHtml(report: Report): string {
     <p class="notice" id="method"></p>
     <div class="stats">
       <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
-      <div class="stat"><span>Estimated tokens</span><strong id="tokens"></strong></div>
+      <div class="stat"><span>${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
       <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
       <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
     </div>
@@ -134,7 +135,7 @@ export function renderHtml(report: Report): string {
     </section>
     <section class="panel" aria-labelledby="treemap-heading">
       <h2 id="treemap-heading">Configuration at this revision</h2>
-      <p class="muted">Rectangle area follows estimated stored-text tokens; color groups files by category. Select a rectangle to find its file below.</p>
+      <p class="muted">Rectangle area follows ${tokenAdjective.toLowerCase()} stored-text tokens; color groups files by category. Select a rectangle to find its file below.</p>
       <div class="legend" id="treemap-legend"></div>
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-note" id="treemap-note"></p>
@@ -142,7 +143,7 @@ export function renderHtml(report: Report): string {
     <section class="panel" aria-labelledby="skills-heading">
       <h2 id="skills-heading">Skill bundles</h2>
       <p class="muted">Manifest estimates and supporting resource bytes are shown separately. A bundle's files are counted once in the inventory.</p>
-      <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest est. tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
     </section>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
@@ -152,18 +153,18 @@ export function renderHtml(report: Report): string {
         <label>Target revision<select id="target"></select></label>
       </div>
       <div class="compare-summary">
-        <span>Estimated stored-text tokens<strong id="compare-tokens"></strong></span>
+        <span>${tokenAdjective} stored-text tokens<strong id="compare-tokens"></strong></span>
         <span>Percent change<strong id="compare-percent"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
       </div>
       <div class="grid">
-        <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ est. tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
-        <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ est. tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
+        <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
+        <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
       </div>
-      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ files</th><th class="num">Δ est. tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div></div>
+      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div></div>
     </section>
     <div class="grid">
-      <section class="panel"><h2>Composition</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Files</th><th class="num">Est. tokens</th><th class="num">Source only</th></tr></thead><tbody id="categories"></tbody></table></div></section>
+      <section class="panel"><h2>Composition</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Files</th><th class="num">Tokens</th><th class="num">Source only</th></tr></thead><tbody id="categories"></tbody></table></div></section>
       <section class="panel"><h2>Changes at this revision</h2><div id="changes"></div></section>
     </div>
     <section class="panel"><h2>Tracked components</h2>
@@ -174,7 +175,7 @@ export function renderHtml(report: Report): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite"></p>
-      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Est. tokens</th><th class="num">Bytes</th></tr></thead><tbody id="files"></tbody></table></div></section>
+      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th></tr></thead><tbody id="files"></tbody></table></div></section>
     <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Source-only files are listed by byte size and excluded from instruction token estimates.</footer>
   </main>
   <script>${embeddedD3}</script>
@@ -216,7 +217,7 @@ export function renderHtml(report: Report): string {
     for (const [index, revision] of data.revisions.entries()) {
       const button = text('button', '', 'bar');
       button.type = 'button';
-      button.title = revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8) + ' · ' + fmt(revision.estimatedTokens) + ' estimated tokens';
+      button.title = revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8) + ' · ' + fmt(revision.estimatedTokens) + ' stored-text tokens';
       button.setAttribute('aria-label', 'Select revision ' + (index + 1));
       const stack = text('span', '', 'stack');
       stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
@@ -323,10 +324,10 @@ export function renderHtml(report: Report): string {
           button.style.width = leaf.width + '%';
           button.style.height = leaf.height + '%';
           button.style.background = colors[component.category];
-          button.title = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' estimated tokens';
+          button.title = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
           button.setAttribute('aria-label', button.title);
           if (leaf.width >= 14 && leaf.height >= 17 && leaf.width * leaf.height >= 260) {
-            button.append(text('span', component.path.split('/').slice(-2).join('/'), 'leaf-name'), text('span', fmt(leaf.estimatedTokens) + ' est. tokens', 'leaf-size'));
+            button.append(text('span', component.path.split('/').slice(-2).join('/'), 'leaf-name'), text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size'));
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
           button.addEventListener('click', () => {

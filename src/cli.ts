@@ -8,11 +8,12 @@ import { pathToFileURL } from "node:url";
 import { analyzeRepository } from "./analyze.js";
 import { renderHtml } from "./report.js";
 import { redactReport } from "./privacy.js";
+import type { MeasurementMode } from "./measurement.js";
 
 const help = `Strata — see how your agent context evolved.
 
 Usage:
-  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable]
+  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base]
   strata skill [--output <file>]
   strata --help
   strata --version
@@ -20,6 +21,7 @@ Usage:
 Analyzes Git-tracked Claude and Codex configuration across first-parent history.
 The default output is an offline HTML report in a private temporary directory.
 Use --shareable to replace repository names, paths, commit IDs, and blob IDs with aliases.
+Use --tokenizer to select an offline stored-text measurement; the default is estimate.
 Use --open to open an HTML report in your browser.
 Use skill to print the bundled JSON interpretation skill, or --output to save it.
 `;
@@ -63,6 +65,7 @@ try {
     let format: "html" | "json" = "html";
     let open = false;
     let shareable = false;
+    let tokenizer: MeasurementMode = "estimate";
     for (let index = 1; index < args.length; index += 1) {
       const argument = args[index];
       if (argument === "--output") {
@@ -76,6 +79,12 @@ try {
         open = true;
       } else if (argument === "--shareable") {
         shareable = true;
+      } else if (argument === "--tokenizer") {
+        const value = args[++index];
+        if (value !== "estimate" && value !== "openai-cl100k_base" && value !== "openai-o200k_base") {
+          throw new Error("--tokenizer must be estimate, openai-cl100k_base, or openai-o200k_base");
+        }
+        tokenizer = value;
       } else if (argument?.startsWith("-")) {
         throw new Error(`Unknown option: ${argument}`);
       } else if (!repository && argument) {
@@ -97,7 +106,7 @@ try {
           lastDecile = decile;
         }
       }
-    });
+    }, tokenizer);
     const report = shareable ? redactReport(analyzed) : analyzed;
     const destination = output
       ? resolve(output)
@@ -107,7 +116,7 @@ try {
     chmodSync(destination, 0o600);
     const latest = report.revisions.at(-1);
     process.stdout.write(`Analyzed ${report.revisions.length} revisions of ${report.repository}.\n`);
-    process.stdout.write(`Latest: ${latest?.components.length ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} estimated stored-text tokens.\n`);
+    process.stdout.write(`Latest: ${latest?.components.length ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).\n`);
     process.stdout.write(`Report: ${destination}\n`);
     if (report.shallow) process.stderr.write("Warning: shallow clone; earlier history is unavailable.\n");
     if (open) openReport(destination);

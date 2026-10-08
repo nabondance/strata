@@ -46,6 +46,7 @@
     "typescript": "7.0.2"
   },
   "dependencies": {
-    "d3-hierarchy": "3.1.2"
+    "d3-hierarchy": "3.1.2",
+    "js-tiktoken": "1.0.21"
   }
 }

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { basename, resolve } from "node:path";
 import { categories, classify, type Category, type Provider } from "./adapters.js";
+import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 
 export { categories } from "./adapters.js";
 
@@ -44,16 +45,12 @@ export interface Revision {
 }
 
 export interface Report {
-  schemaVersion: 4;
+  schemaVersion: 5;
   repository: string;
   branch: string;
   shallow: boolean;
   privacy: { mode: "local" | "shareable" };
-  measurement: {
-    label: string;
-    method: string;
-    limitations: string;
-  };
+  measurement: Measurement;
   revisions: Revision[];
 }
 
@@ -172,7 +169,8 @@ function buildChanges(
   return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function analyzeRepository(repoPath: string, onProgress?: (progress: AnalysisProgress) => void): Report {
+export function analyzeRepository(repoPath: string, onProgress?: (progress: AnalysisProgress) => void, mode: MeasurementMode = "estimate"): Report {
+  const measurer = createMeasurer(mode);
   const repo = resolve(repoPath);
   const root = gitText(repo, ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
@@ -186,7 +184,7 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   if (!log) throw new Error("The repository has no commits to analyze");
   const commits = log.split("\n");
 
-  const blobMeasurements = new Map<string, { bytes: number; estimatedTokens: number }>();
+  const blobMeasurements = new Map<string, { bytes: number; estimatedTokens: number | null }>();
   const revisions: Revision[] = [];
   onProgress?.({ completed: 0, total: commits.length });
   for (const line of commits) {
@@ -196,9 +194,17 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
       const classification = classify(path);
       if (!classification) throw new Error(`Unexpected unclassified path: ${path}`);
       let measured = blobMeasurements.get(blob);
-      if (!measured) {
-        const bytes = git(root, ["cat-file", "blob", blob]).length;
-        measured = { bytes, estimatedTokens: Math.ceil(bytes / 4) };
+      if (!measured || (classification.instructionalText && measured.estimatedTokens === null)) {
+        const body = git(root, ["cat-file", "blob", blob]);
+        let estimatedTokens: number | null = null;
+        if (classification.instructionalText) {
+          try {
+            estimatedTokens = measurer.count(body);
+          } catch (error) {
+            throw new Error(`Could not count instructional blob ${blob} at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        measured = { bytes: body.length, estimatedTokens };
         blobMeasurements.set(blob, measured);
       }
       return {
@@ -266,16 +272,12 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   }
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     repository: basename(root),
     branch,
     shallow,
     privacy: { mode: "local" },
-    measurement: {
-      label: "Estimated stored-text tokens",
-      method: "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file",
-      limitations: "Comparison estimate only. This is not a provider tokenizer or measured session context. Structured configuration and supporting files are counted in bytes, not prompt tokens.",
-    },
+    measurement: measurer.measurement,
     revisions,
   };
 }

@@ -18,6 +18,8 @@ node dist/cli.js analyze /path/to/git/repository
 
 The CLI writes an offline HTML report to a private temporary directory and prints its path. Add `--open` to launch it in a browser, or `--output report.html` to save it where you choose. For machine-readable data, use `--format json`, optionally with `--output report.json`. The CLI prints scan progress to stderr. The first slice tracks documented Claude and Codex instruction, skill, agent, rule, and configuration paths. It uses a clearly labeled stored-token estimate for instructional files and source bytes for structured or supporting files; it does not measure actual session context. The report contains paths and measurements but no source text.
 
+The default `--tokenizer estimate` uses UTF-8 bytes divided by four. For an offline OpenAI text-encoding count, choose `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`. The chosen encoding applies consistently to all instructional files in the history; it does not establish Claude or Gemini token counts, loaded context, message framing, or billing. The report records the method, family, encoding, implementation version, and accuracy label. See [the tokenizer study](docs/tokenizers.md) for limits.
+
 Add `--shareable` to either HTML or JSON output to replace repository and branch names, file paths, skill directory names, commit IDs, and blob IDs with deterministic aliases. Dates, provider/category labels, counts, byte sizes, token estimates, and change kinds remain visible. The default local report retains full metadata; inspect even a shareable report before distributing it.
 
 In the HTML report, select any baseline and target revision to compare signed estimated-token and file-count changes by provider, category, and component. The timeline controls the target revision. Comparison is based on stored files at those two points; a moved file may appear as a removal and an addition.
@@ -33,7 +35,7 @@ node dist/cli.js skill --output .agents/skills/strata-interpret/SKILL.md
 # For Claude Code, use .claude/skills/strata-interpret/SKILL.md instead.
 ```
 
-The command refuses to overwrite an existing skill file. The same commands will work with `strata` once the package is installed. The skill explains schema version 4, stored-text estimates, source-only files, skill bundles, shareable aliases, revision deltas, and the limits of what JSON can establish.
+The command refuses to overwrite an existing skill file. The same commands will work with `strata` once the package is installed. The skill explains schema version 5, stored-text measurement methods, source-only files, skill bundles, shareable aliases, revision deltas, and the limits of what JSON can establish.
 
 ## Development
 
