@@ -44,6 +44,8 @@ node dist/cli.js --help
 pnpm dev --help
 ```
 
+Run `pnpm build && pnpm benchmark` for a disposable large-history analysis fixture, or see [the benchmark notes](docs/benchmark.md) for the baseline and read-only real-repository mode.
+
 The npm package name is `context-strata`, with `strata` as the executable. Version 0.1.0 is a release candidate and has not been published. The npm registry returned 404 for this name on 2026-10-08; recheck availability before publication.
 
 ## Agent-assisted development

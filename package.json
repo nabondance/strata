@@ -29,6 +29,7 @@
   },
   "files": [
     "dist",
+    "scripts",
     "skills"
   ],
   "scripts": {
@@ -36,7 +37,8 @@
     "prepack": "pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "pnpm build && node dist/cli.js",
-    "test": "pnpm build && node --test test/*.test.mjs"
+    "test": "pnpm build && node --test test/*.test.mjs",
+    "benchmark": "node scripts/benchmark.mjs"
   },
   "devDependencies": {
     "@types/d3-hierarchy": "3.1.7",
