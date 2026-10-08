@@ -17,6 +17,7 @@ import { layoutTreemap } from "../dist/treemap.js";
 import { viewRevision } from "../dist/provider-view.js";
 
 function exerciseReportUi(html, report) {
+  let crampedLabels = false;
   class Element {
     constructor(tag) {
       this.tag = tag;
@@ -32,6 +33,14 @@ function exerciseReportUi(html, report) {
     setAttribute() {}
     focus() { this.focused = true; }
     scrollIntoView() { this.scrolled = true; }
+    getBoundingClientRect() {
+      if (this.className === "treemap-leaf") return { bottom: 100, right: 180 };
+      if (this.className === "leaf-name") return { bottom: 40 };
+      if (this.className === "leaf-size") return crampedLabels ? { top: 42, bottom: 95, right: 165 } : { top: 60, bottom: 80, right: 150 };
+      return { bottom: 0, right: 0 };
+    }
+    get scrollHeight() { return 20; }
+    get clientHeight() { return 20; }
   }
   const elements = new Map();
   const document = {
@@ -47,7 +56,7 @@ function exerciseReportUi(html, report) {
   assert.ok(script);
   assert.match(html, /Permission to use, copy, modify, and\/or distribute this software/);
   assert.match(html, /d3-hierarchy\/ v3\.1\.2/);
-  const context = { document, Intl };
+  const context = { document, Intl, getComputedStyle: () => ({ paddingBottom: "9", borderBottomWidth: "2", paddingRight: "9", borderRightWidth: "2" }) };
   runInNewContext(d3Script, context);
   runInNewContext(script, context);
   const get = (id) => elements.get(id);
@@ -120,6 +129,13 @@ function exerciseReportUi(html, report) {
   const allTab = get("provider-tabs").children.find((child) => child.textContent === "All files");
   allTab.listeners.click();
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(report.revisions[4].estimatedTokens));
+  crampedLabels = true;
+  get("target").value = "4";
+  get("target").listeners.change();
+  const fittedLeaf = get("treemap").children.find((child) => child.className === "treemap-leaf" && child.children.length === 2);
+  assert.ok(fittedLeaf);
+  assert.equal(fittedLeaf.children[0].hidden, false);
+  assert.equal(fittedLeaf.children[1].hidden, true);
   return get;
 }
 

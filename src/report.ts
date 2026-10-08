@@ -82,8 +82,9 @@ export function renderHtml(report: Report): string {
     .treemap { position: relative; height: 390px; background: #e8e4d8; overflow: hidden; }
     .treemap-leaf { position: absolute; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 2px solid var(--sheet); padding: 9px; overflow: hidden; color: #fff; text-align: left; cursor: pointer; font: inherit; }
     .treemap-leaf:hover, .treemap-leaf:focus-visible { outline: 3px solid var(--ink); outline-offset: -4px; z-index: 2; }
-    .treemap-leaf .leaf-name { display: block; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.2; font-weight: 700; }
-    .treemap-leaf .leaf-size { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    .treemap-leaf .leaf-name { display: block; flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.2; font-weight: 700; }
+    .treemap-leaf .leaf-size { flex-shrink: 0; margin-top: auto; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    .treemap-leaf [hidden] { display: none; }
     .treemap-group { position: absolute; border: 3px solid var(--sheet); pointer-events: none; z-index: 1; }
     .treemap-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
     .treemap-hover { min-height: 42px; padding: 10px 12px; margin: 10px 0 0; border-left: 3px solid var(--rust); background: #f0eee6; color: var(--ink); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
@@ -227,6 +228,7 @@ export function renderHtml(report: Report): string {
     let pathSearch = '';
     let inventoryRows = new Map();
     let chartBuckets = [];
+    let treemapLabels = [];
 
     $('repo').textContent = data.repository + ' / ' + data.branch + ' · ' + data.revisions.length + ' revisions';
     $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
@@ -402,6 +404,7 @@ export function renderHtml(report: Report): string {
       const treeLegend = $('treemap-legend');
       root.replaceChildren();
       treeLegend.replaceChildren();
+      treemapLabels = [];
       $('treemap-hover').textContent = 'Hover or focus a rectangle to see its full path and token count.';
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
       for (const group of layout.groups) {
@@ -422,7 +425,11 @@ export function renderHtml(report: Report): string {
           button.title = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
           button.setAttribute('aria-label', button.title);
           if (leaf.width >= 9 && leaf.height >= 10 && leaf.width * leaf.height >= 110) {
-            button.append(text('span', component.path.split('/').slice(-2).join('/'), 'leaf-name'), text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size'));
+            const label = component.skill?.role === 'manifest' ? component.skill.root.split('/').at(-1) : component.path.split('/').at(-1);
+            const name = text('span', label, 'leaf-name');
+            const size = text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size');
+            button.append(name, size);
+            treemapLabels.push({ button, name, size });
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
           const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
@@ -454,6 +461,30 @@ export function renderHtml(report: Report): string {
         root.append(outline);
       }
       $('treemap-note').textContent = fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized instructional files · ' + fmt(layout.sourceOnlyCount) + ' source-only files · ' + fmt(layout.zeroTokenCount) + ' zero-token instructional files. Source-only and zero-token files remain in the inventory.';
+      fitTreemapLabels();
+    }
+
+    function fitTreemapLabels() {
+      if (typeof getComputedStyle !== 'function') return;
+      for (const { button, name, size } of treemapLabels) {
+        name.hidden = false;
+        name.style.fontSize = '';
+        size.hidden = false;
+        const box = button.getBoundingClientRect();
+        const style = getComputedStyle(button);
+        const bottom = box.bottom - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth);
+        const right = box.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+        const nameFits = () => name.getBoundingClientRect().bottom <= bottom + 1 && name.scrollHeight <= name.clientHeight + 1;
+        const nameBox = name.getBoundingClientRect();
+        const sizeBox = size.getBoundingClientRect();
+        if (!nameFits() || sizeBox.top < nameBox.bottom + 5 || sizeBox.bottom > bottom + 1 || sizeBox.right > right + 1) {
+          size.hidden = true;
+        }
+        if (!nameFits()) {
+          name.style.fontSize = '11px';
+          if (!nameFits()) name.hidden = true;
+        }
+      }
     }
 
     function renderSkills() {
@@ -559,6 +590,7 @@ export function renderHtml(report: Report): string {
       renderTreemap();
       renderComparison();
     }
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fitTreemapLabels).observe($('treemap'));
     render(selected);
   </script>
 </body>
