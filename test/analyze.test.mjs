@@ -169,7 +169,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions.at(-1).id, merge);
     assert.equal(report.revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 1);
+    assert.equal(prDelta.schemaVersion, 2);
     assert.deepEqual(prDelta.comparison, compareRevisions(report.revisions[0], report.revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -181,7 +181,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 5);
+    assert.equal(report.schemaVersion, 6);
     assert.equal(report.privacy.mode, "local");
     assert.equal(report.measurement.accuracy, "estimate");
     assert.equal(report.revisions[0].categoryTotals.settings.count, 2);
@@ -275,9 +275,9 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = analyzeRepository(repo, undefined, "openai-o200k_base");
-    assert.equal(openAiReport.schemaVersion, 5);
-    assert.deepEqual([openAiReport.measurement.family, openAiReport.measurement.accuracy, openAiReport.measurement.encoding, openAiReport.measurement.implementation],
-      ["openai", "encoding-exact", "o200k_base", "js-tiktoken@1.0.21"]);
+    assert.equal(openAiReport.schemaVersion, 6);
+    assert.deepEqual([openAiReport.measurement.family, openAiReport.measurement.accuracy, openAiReport.measurement.encoding, openAiReport.measurement.model, openAiReport.measurement.implementation],
+      ["openai", "encoding-exact", "o200k_base", null, "js-tiktoken@1.0.21"]);
     const openAiInstruction = openAiReport.revisions[0].components.find((component) => component.path === "AGENTS.md");
     assert.equal(openAiInstruction?.estimatedTokens, getEncoding("o200k_base").encode("Shared project instructions.\n").length);
     assert.equal(openAiReport.revisions[0].components.find((component) => component.path === ".agents/skills/release/assets/icon.png")?.estimatedTokens, null);
@@ -286,6 +286,19 @@ test("tracks configuration across first-parent history without reading untracked
     const openAiCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--tokenizer", "openai-cl100k_base", "--output", openAiOutput, "--format", "json"], { encoding: "utf8" });
     assert.equal(openAiCli.status, 0, openAiCli.stderr);
     assert.equal(JSON.parse(readFileSync(openAiOutput, "utf8")).measurement.encoding, "cl100k_base");
+    const modelOutput = join(repo, "model-report.json");
+    const modelCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--model", "gpt-4o", "--output", modelOutput, "--format", "json"], { encoding: "utf8" });
+    assert.equal(modelCli.status, 0, modelCli.stderr);
+    const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
+    assert.deepEqual([modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion], ["gpt-4o", "o200k_base", 6]);
+    assert.equal(modelReport.revisions[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
+      getEncoding("o200k_base").encode("Shared project instructions.\n").length);
+    const badModel = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--model", "claude", "--format", "json"], { encoding: "utf8" });
+    assert.equal(badModel.status, 2);
+    assert.match(badModel.stderr, /Unsupported model/);
+    const conflictingMode = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--model", "gpt-4o", "--tokenizer", "estimate"], { encoding: "utf8" });
+    assert.equal(conflictingMode.status, 2);
+    assert.match(conflictingMode.stderr, /either --model or --tokenizer/);
     const badTokenizer = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--tokenizer", "claude", "--format", "json"], { encoding: "utf8" });
     assert.equal(badTokenizer.status, 2);
     assert.match(badTokenizer.stderr, /--tokenizer must be/);

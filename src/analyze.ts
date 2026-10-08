@@ -45,7 +45,7 @@ export interface Revision {
 }
 
 export interface Report {
-  schemaVersion: 5;
+  schemaVersion: 6;
   repository: string;
   branch: string;
   shallow: boolean;
@@ -169,8 +169,8 @@ function buildChanges(
   return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function analyzeRepository(repoPath: string, onProgress?: (progress: AnalysisProgress) => void, mode: MeasurementMode = "estimate"): Report {
-  const measurer = createMeasurer(mode);
+export function analyzeRepository(repoPath: string, onProgress?: (progress: AnalysisProgress) => void, mode: MeasurementMode = "estimate", model: string | null = null): Report {
+  const measurer = createMeasurer(mode, model);
   const repo = resolve(repoPath);
   const root = gitText(repo, ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
@@ -272,7 +272,7 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   }
 
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     repository: basename(root),
     branch,
     shallow,

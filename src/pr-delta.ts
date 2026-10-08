@@ -66,7 +66,7 @@ function snapshot(repo: string, id: string, count: (blob: Buffer) => number): Re
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 1;
+  schemaVersion: 2;
   base: string;
   head: string;
   measurement: Report["measurement"];
@@ -74,13 +74,13 @@ export interface PullRequestDelta {
 }
 
 /** Compare two Git commits without checking them out or writing into the target repository. */
-export function compareGitCommits(repo: string, base: string, head: string, mode: MeasurementMode = "estimate"): PullRequestDelta {
-  const measurer = createMeasurer(mode);
+export function compareGitCommits(repo: string, base: string, head: string, mode: MeasurementMode = "estimate", model: string | null = null): PullRequestDelta {
+  const measurer = createMeasurer(mode, model);
   const baseId = commitId(repo, base);
   const headId = commitId(repo, head);
   const before = snapshot(repo, baseId, measurer.count);
   const after = snapshot(repo, headId, measurer.count);
-  return { schemaVersion: 1, base: baseId, head: headId, measurement: measurer.measurement,
+  return { schemaVersion: 2, base: baseId, head: headId, measurement: measurer.measurement,
     comparison: compareRevisions(before, after) };
 }
 

@@ -8,14 +8,14 @@ import { pathToFileURL } from "node:url";
 import { analyzeRepository } from "./analyze.js";
 import { renderHtml } from "./report.js";
 import { redactReport } from "./privacy.js";
-import type { MeasurementMode } from "./measurement.js";
+import { modeForModel, type MeasurementMode } from "./measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
 
 const help = `Strata — see how your agent context evolved.
 
 Usage:
-  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base]
-  strata diff <repository> --base <commit> --head <commit> [--output <file>] [--format markdown|json] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base]
+  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base | --model <name>]
+  strata diff <repository> --base <commit> --head <commit> [--output <file>] [--format markdown|json] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base | --model <name>]
   strata skill [--output <file>]
   strata --help
   strata --version
@@ -24,6 +24,7 @@ Analyzes Git-tracked Claude and Codex configuration across first-parent history.
 The default output is an offline HTML report in a private temporary directory.
 Use --shareable to replace repository names, paths, commit IDs, and blob IDs with aliases.
 Use --tokenizer to select an offline stored-text measurement; the default is estimate.
+Use --model for a documented OpenAI model mapping (gpt-4, gpt-4o, gpt-4.1, gpt-5, o3, o4-mini).
 Use diff for a read-only comparison of two full Git commit IDs, such as a PR base and head.
 Use --open to open an HTML report in your browser.
 Use skill to print the bundled JSON interpretation skill, or --output to save it.
@@ -69,6 +70,8 @@ try {
     let output: string | undefined;
     let format: "markdown" | "json" = "markdown";
     let tokenizer: MeasurementMode = "estimate";
+    let tokenizerSelected = false;
+    let model: string | null = null;
     for (let index = 1; index < args.length; index += 1) {
       const argument = args[index];
       if (argument === "--base") {
@@ -88,6 +91,10 @@ try {
           throw new Error("--tokenizer must be estimate, openai-cl100k_base, or openai-o200k_base");
         }
         tokenizer = value;
+        tokenizerSelected = true;
+      } else if (argument === "--model") {
+        model = args[++index] ?? null;
+        if (!model) throw new Error("--model requires a model name");
       } else if (argument?.startsWith("-")) {
         throw new Error(`Unknown option: ${argument}`);
       } else if (!repository && argument) {
@@ -97,7 +104,8 @@ try {
       }
     }
     if (!repository || !base || !head) throw new Error("Usage: strata diff <repository> --base <commit> --head <commit>");
-    const delta = compareGitCommits(repository, base, head, tokenizer);
+    if (model && tokenizerSelected) throw new Error("Choose either --model or --tokenizer");
+    const delta = compareGitCommits(repository, base, head, model ? modeForModel(model) : tokenizer, model);
     const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
     if (output) {
       const destination = resolve(output);
@@ -115,6 +123,8 @@ try {
     let open = false;
     let shareable = false;
     let tokenizer: MeasurementMode = "estimate";
+    let tokenizerSelected = false;
+    let model: string | null = null;
     for (let index = 1; index < args.length; index += 1) {
       const argument = args[index];
       if (argument === "--output") {
@@ -134,6 +144,10 @@ try {
           throw new Error("--tokenizer must be estimate, openai-cl100k_base, or openai-o200k_base");
         }
         tokenizer = value;
+        tokenizerSelected = true;
+      } else if (argument === "--model") {
+        model = args[++index] ?? null;
+        if (!model) throw new Error("--model requires a model name");
       } else if (argument?.startsWith("-")) {
         throw new Error(`Unknown option: ${argument}`);
       } else if (!repository && argument) {
@@ -144,6 +158,7 @@ try {
     }
     if (!repository) throw new Error("A repository path is required");
     if (open && format !== "html") throw new Error("--open requires HTML output");
+    if (model && tokenizerSelected) throw new Error("Choose either --model or --tokenizer");
     let lastDecile = 0;
     const analyzed = analyzeRepository(repository, ({ completed, total }) => {
       if (completed === 0) {
@@ -155,7 +170,7 @@ try {
           lastDecile = decile;
         }
       }
-    }, tokenizer);
+    }, model ? modeForModel(model) : tokenizer, model);
     const report = shareable ? redactReport(analyzed) : analyzed;
     const destination = output
       ? resolve(output)
