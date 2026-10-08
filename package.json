@@ -1,13 +1,24 @@
 {
   "name": "context-strata",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "See how your agent context evolved across Git history.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nabondance/strata.git"
   },
+  "homepage": "https://github.com/nabondance/strata#readme",
+  "bugs": {
+    "url": "https://github.com/nabondance/strata/issues"
+  },
+  "author": "Nathan Abondance",
+  "keywords": [
+    "ai-agent",
+    "claude-code",
+    "codex",
+    "git-history",
+    "visualization"
+  ],
   "type": "module",
   "packageManager": "pnpm@10.29.3",
   "engines": {
@@ -22,6 +33,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "pnpm build && node dist/cli.js",
     "test": "pnpm build && node --test test/*.test.mjs"

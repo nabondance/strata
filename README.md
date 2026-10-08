@@ -44,7 +44,7 @@ node dist/cli.js --help
 pnpm dev --help
 ```
 
-The npm package name is `context-strata`, with `strata` as the executable. The package is private while the first release is being built and has not been published. Registry availability was checked on 2026-10-08 and must be checked again before publication.
+The npm package name is `context-strata`, with `strata` as the executable. Version 0.1.0 is a release candidate and has not been published. The npm registry returned 404 for this name on 2026-10-08; recheck availability before publication.
 
 ## Agent-assisted development
 

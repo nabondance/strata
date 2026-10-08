@@ -4,7 +4,7 @@ Recorded 2026-10-08. These choices describe the current implementation, not a pa
 
 ## Name and command
 
-The npm package name is `context-strata`; its executable is `strata`. Direct queries to the npm registry on 2026-10-08 returned 404 for `context-strata` and `strata@0.20.1` for `strata`. A 404 is not a reservation. The package remains private and unpublished; verify availability again before release. The intended command after publication is `npx context-strata analyze . --output report.html`.
+The npm package name is `context-strata`; its executable is `strata`. Direct queries to the npm registry on 2026-10-08 returned 404 for `context-strata` and `strata@0.20.1` for `strata`. A 404 is not a reservation. Version 0.1.0 is prepared but unpublished; verify availability again before release. The intended command after publication is `npx context-strata analyze . --output report.html`.
 
 ## License and contributions
 
