@@ -11,6 +11,16 @@ export interface Component {
   blob: string;
   bytes: number;
   estimatedTokens: number | null;
+  skill?: { root: string; role: "manifest" | "resource" };
+}
+
+export interface SkillGroup {
+  root: string;
+  provider: Provider;
+  manifestPath: string | null;
+  manifestEstimatedTokens: number;
+  resourceCount: number;
+  resourceBytes: number;
 }
 
 export interface Change {
@@ -27,13 +37,14 @@ export interface Revision {
   date: string;
   firstParent: string | null;
   components: Component[];
+  skillGroups: SkillGroup[];
   categoryTotals: Record<Category, { count: number; bytes: number; estimatedTokens: number; sourceOnlyCount: number }>;
   estimatedTokens: number;
   changes: Change[];
 }
 
 export interface Report {
-  schemaVersion: 2;
+  schemaVersion: 3;
   repository: string;
   branch: string;
   shallow: boolean;
@@ -191,9 +202,33 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
         category: classification.category,
         bytes: measured.bytes,
         estimatedTokens: classification.instructionalText ? measured.estimatedTokens : null,
+        ...(classification.skillRoot && classification.skillRole
+          ? { skill: { root: classification.skillRoot, role: classification.skillRole } }
+          : {}),
       } satisfies Component;
     });
     components.sort((a, b) => a.path.localeCompare(b.path));
+
+    const groupedSkills = new Map<string, SkillGroup>();
+    for (const component of components) {
+      if (!component.skill) continue;
+      let group = groupedSkills.get(component.skill.root);
+      if (!group) {
+        group = {
+          root: component.skill.root, provider: component.provider,
+          manifestPath: null, manifestEstimatedTokens: 0, resourceCount: 0, resourceBytes: 0,
+        };
+        groupedSkills.set(component.skill.root, group);
+      }
+      if (component.skill.role === "manifest") {
+        group.manifestPath = component.path;
+        group.manifestEstimatedTokens = component.estimatedTokens ?? 0;
+      } else {
+        group.resourceCount += 1;
+        group.resourceBytes += component.bytes;
+      }
+    }
+    const skillGroups = [...groupedSkills.values()].sort((a, b) => a.root.localeCompare(b.root));
 
     const categoryTotals = Object.fromEntries(
       categories.map((category) => [category, { count: 0, bytes: 0, estimatedTokens: 0, sourceOnlyCount: 0 }]),
@@ -216,6 +251,7 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
       date,
       firstParent: parents?.split(" ")[0] || null,
       components,
+      skillGroups,
       categoryTotals,
       estimatedTokens: categories.reduce((sum, category) => sum + categoryTotals[category].estimatedTokens, 0),
       changes,
@@ -224,7 +260,7 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     repository: basename(root),
     branch,
     shallow,

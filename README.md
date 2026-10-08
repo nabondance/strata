@@ -29,7 +29,7 @@ node dist/cli.js skill --output .agents/skills/strata-interpret/SKILL.md
 # For Claude Code, use .claude/skills/strata-interpret/SKILL.md instead.
 ```
 
-The command refuses to overwrite an existing skill file. The same commands will work with `strata` once the package is installed. The skill explains schema version 2, stored-text estimates, source-only files, revision deltas, and the limits of what JSON can establish.
+The command refuses to overwrite an existing skill file. The same commands will work with `strata` once the package is installed. The skill explains schema version 3, stored-text estimates, source-only files, skill bundles, revision deltas, and the limits of what JSON can establish.
 
 ## Development
 

@@ -17,9 +17,26 @@ export interface Classification {
   provider: Provider;
   category: Category;
   instructionalText: boolean;
+  skillRoot?: string;
+  skillRole?: "manifest" | "resource";
 }
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
+
+function skill(_path: string, parts: string[]): Classification | null {
+  for (const [directory, provider] of [[".agents", "codex"], [".claude", "claude"]] as const) {
+    const index = parts.indexOf(directory);
+    if (index < 0) continue;
+    const within = parts.slice(index + 1);
+    if (within[0] !== "skills" || within.length < 3) continue;
+    const manifest = within.length === 3 && parts.at(-1) === "SKILL.md";
+    return {
+      provider, category: "skills", instructionalText: manifest,
+      skillRoot: parts.slice(0, index + 3).join("/"), skillRole: manifest ? "manifest" : "resource",
+    };
+  }
+  return null;
+}
 
 function claude(path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
@@ -34,9 +51,6 @@ function claude(path: string, parts: string[]): Classification | null {
   const within = parts.slice(index + 1);
   if (within.length === 1 && /^settings(?:\.local)?\.json$/.test(filename ?? "")) {
     return { provider: "claude", category: "settings", instructionalText: false };
-  }
-  if (within[0] === "skills" && within.length === 3 && filename === "SKILL.md") {
-    return { provider: "claude", category: "skills", instructionalText: true };
   }
   if (within.length >= 2 && filename?.endsWith(".md")) {
     if (within[0] === "agents") return { provider: "claude", category: "agents", instructionalText: true };
@@ -57,9 +71,6 @@ function codex(_path: string, parts: string[]): Classification | null {
   const skillsIndex = parts.indexOf(".agents");
   if (skillsIndex >= 0) {
     const within = parts.slice(skillsIndex + 1);
-    if (within[0] === "skills" && within.length === 3 && filename === "SKILL.md") {
-      return { provider: "codex", category: "skills", instructionalText: true };
-    }
     if (candidateExtension(filename)) {
       return { provider: "unknown", category: "other", instructionalText: false };
     }
@@ -89,7 +100,7 @@ function candidateExtension(filename: string | undefined): boolean {
   return /\.(?:md|json|toml|rules)$/.test(filename ?? "");
 }
 
-const adapters: Adapter[] = [shared, codex, claude];
+const adapters: Adapter[] = [skill, shared, codex, claude];
 
 export function classify(path: string): Classification | null {
   const parts = path.split("/");

@@ -47,12 +47,14 @@ function exerciseReportUi(html, report) {
   runInNewContext(script, context);
   const get = (id) => elements.get(id);
   assert.equal(get("target").value, String(report.revisions.length - 1));
+  assert.equal(get("skill-groups").children.length, report.revisions.at(-1).skillGroups.length || 1);
   assert.equal(get("baseline").value, "0");
   assert.equal(get("compare-components").children.length, compareRevisions(report.revisions[0], report.revisions.at(-1)).components.length);
   get("baseline").value = "2";
   get("baseline").listeners.change();
   get("target").value = "3";
   get("target").listeners.change();
+  assert.equal(get("skill-groups").children.length, report.revisions[3].skillGroups.length);
   const expected = compareRevisions(report.revisions[2], report.revisions[3]);
   assert.match(get("compare-tokens").textContent, new RegExp(String(expected.deltaTokens)));
   assert.equal(get("compare-components").children.length, expected.components.length);
@@ -111,6 +113,9 @@ test("tracks configuration across first-parent history without reading untracked
     put("packages/app/AGENTS.override.md", "Codex override for this package.\n");
     put(".agents/skills/release/SKILL.md", "---\nname: release\ndescription: Prepare a release\n---\nCheck the changelog.\n");
     put(".agents/skills/release/references/checklist.md", "Supporting checklist.\n");
+    put(".agents/skills/release/scripts/run.sh", "#!/bin/sh\nprintf 'ready\\n'\n");
+    put(".agents/skills/release/assets/icon.png", Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    put(".claude/skills/orphan/references/note.md", "No manifest yet.\n");
     put(".codex/config.toml", "model = \"gpt-6-sol\"\n");
     put(".codex/agents/reviewer.toml", "name = \"reviewer\"\ndeveloper_instructions = \"Review the diff.\"\n");
     put(".codex/rules/permissions.rules", "prefix_rule(pattern = [\"git\", \"status\"], decision = \"allow\")\n");
@@ -119,6 +124,7 @@ test("tracks configuration across first-parent history without reading untracked
     const first = commit("Initial configuration");
 
     put(".claude/skills/review/SKILL.md", "Review this project carefully.\n");
+    put(".claude/skills/review/references/example.md", "Example review checklist.\n");
     put(".claude/agents/reviewer.md", "You review code. Follow project conventions. Be precise and concise.\n");
     commit("Add skill and agent");
 
@@ -154,19 +160,33 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions[0].id, first);
     assert.equal(report.revisions.at(-1).id, merge);
     assert.equal(report.revisions.at(-1).firstParent, beforeMerge);
-    assert.equal(report.schemaVersion, 2);
+    assert.equal(report.schemaVersion, 3);
     assert.equal(report.revisions[0].categoryTotals.settings.count, 2);
     assert.equal(report.revisions[0].categoryTotals.settings.sourceOnlyCount, 2);
     assert.equal(report.revisions[0].categoryTotals.settings.estimatedTokens, 0);
-    assert.equal(report.revisions[0].categoryTotals.other.count, 1);
-    assert.equal(report.revisions[0].categoryTotals.other.sourceOnlyCount, 1);
+    assert.equal(report.revisions[0].categoryTotals.skills.count, 5);
+    assert.equal(report.revisions[0].categoryTotals.skills.sourceOnlyCount, 4);
     assert.equal(report.revisions[0].categoryTotals.rules.sourceOnlyCount, 1);
     assert.equal(report.revisions[0].categoryTotals.agents.sourceOnlyCount, 1);
     assert.equal(report.revisions[0].components.find((component) => component.path === ".agents/skills/release/SKILL.md")?.provider, "codex");
-    assert.equal(report.revisions[0].components.find((component) => component.path === ".agents/skills/release/references/checklist.md")?.provider, "unknown");
+    const checklist = report.revisions[0].components.find((component) => component.path === ".agents/skills/release/references/checklist.md");
+    assert.equal(checklist?.provider, "codex");
+    assert.equal(checklist?.category, "skills");
+    assert.equal(checklist?.estimatedTokens, null);
+    assert.deepEqual(checklist?.skill, { root: ".agents/skills/release", role: "resource" });
+    const releaseResources = report.revisions[0].components.filter((component) => component.skill?.root === ".agents/skills/release" && component.skill.role === "resource");
+    assert.equal(releaseResources.find((component) => component.path.endsWith("icon.png"))?.bytes, 4);
+    assert.deepEqual(report.revisions[0].skillGroups, [{
+      root: ".agents/skills/release", provider: "codex", manifestPath: ".agents/skills/release/SKILL.md",
+      manifestEstimatedTokens: report.revisions[0].components.find((component) => component.path === ".agents/skills/release/SKILL.md")?.estimatedTokens,
+      resourceCount: 3, resourceBytes: releaseResources.reduce((sum, component) => sum + component.bytes, 0),
+    }, {
+      root: ".claude/skills/orphan", provider: "claude", manifestPath: null,
+      manifestEstimatedTokens: 0, resourceCount: 1, resourceBytes: Buffer.byteLength("No manifest yet.\n"),
+    }]);
     assert.equal(report.revisions[0].components.find((component) => component.path === "packages/app/AGENTS.override.md")?.provider, "codex");
     assert.ok(!report.revisions[0].components.some((component) => component.path === "notes/SKILL.md"));
-    assert.equal(report.revisions[1].categoryTotals.skills.count, 2);
+    assert.equal(report.revisions[1].categoryTotals.skills.count, 7);
     assert.ok(report.revisions[2].estimatedTokens > report.revisions[1].estimatedTokens);
     assert.ok(report.revisions[3].estimatedTokens < report.revisions[2].estimatedTokens);
     assert.ok(report.revisions[4].changes.some((change) =>
@@ -186,6 +206,10 @@ test("tracks configuration across first-parent history without reading untracked
         assert.equal(revision.categoryTotals[category].sourceOnlyCount,
           components.filter((component) => component.estimatedTokens === null).length);
       }
+      assert.equal(revision.skillGroups.reduce((sum, group) => sum + group.manifestEstimatedTokens, 0),
+        revision.components.filter((component) => component.skill?.role === "manifest").reduce((sum, component) => sum + (component.estimatedTokens ?? 0), 0));
+      assert.equal(revision.skillGroups.reduce((sum, group) => sum + group.resourceCount, 0),
+        revision.components.filter((component) => component.skill?.role === "resource").length);
     }
     const html = renderHtml(report);
     exerciseReportUi(html, report);

@@ -139,6 +139,11 @@ export function renderHtml(report: Report): string {
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-note" id="treemap-note"></p>
     </section>
+    <section class="panel" aria-labelledby="skills-heading">
+      <h2 id="skills-heading">Skill bundles</h2>
+      <p class="muted">Manifest estimates and supporting resource bytes are shown separately. A bundle's files are counted once in the inventory.</p>
+      <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest est. tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
+    </section>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
       <p class="muted">Compare stored configuration at two points on the first-parent timeline. A moved file may appear as a removal and addition.</p>
@@ -405,6 +410,21 @@ export function renderHtml(report: Report): string {
         const row = document.createElement('tr');
         row.append(text('td', category), text('td', fmt(total.count), 'num'), text('td', total.count === total.sourceOnlyCount ? '—' : fmt(total.estimatedTokens), 'num'), text('td', fmt(total.sourceOnlyCount), 'num'));
         categoryBody.append(row);
+      }
+
+      const skillBody = $('skill-groups');
+      skillBody.replaceChildren();
+      if (!revision.skillGroups.length) {
+        const row = document.createElement('tr');
+        const cell = text('td', 'No tracked skill bundles at this revision.', 'empty');
+        cell.colSpan = 6;
+        row.append(cell);
+        skillBody.append(row);
+      }
+      for (const group of revision.skillGroups) {
+        const row = document.createElement('tr');
+        row.append(text('td', group.root, 'path'), text('td', group.provider), text('td', group.manifestPath ? 'SKILL.md' : 'Missing', 'kind'), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
+        skillBody.append(row);
       }
 
       const changes = $('changes');
