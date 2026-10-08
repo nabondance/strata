@@ -7,7 +7,7 @@ metadata:
 
 # Interpret a Strata report
 
-Read the user's Strata JSON report and check `schemaVersion` before interpreting fields. This skill describes schema version 6; if the report has another version, inspect its fields and avoid assuming this schema still applies.
+Read the user's Strata JSON report and check `schemaVersion` before interpreting fields. This skill describes schema version 8; if the report has another version, inspect its fields and avoid assuming this schema still applies.
 
 Use `revisions` in array order as the first-parent history sampled by the report. Each revision has a commit `id`, `date`, `firstParent`, `components`, `skillGroups`, `categoryTotals`, `estimatedTokens`, and changes from its predecessor. The first revision's changes are relative to an empty baseline. If `shallow` is true, earlier history is unavailable. A merge appears as one revision measured against its first parent, not as a full branch history.
 

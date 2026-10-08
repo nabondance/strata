@@ -58,7 +58,7 @@ The report opens on **All files**, counting each tracked file once. Provider tab
 
 The treemap shows the selected revision's instructional components with rectangle area proportional to each stored-text token estimate and color by category. Hover or focus any rectangle for its full path and token count; select it to locate its file in the inventory. Source-only and zero-token files stay in the inventory and receive no invented area. The skill-bundle table initially shows eight rows and can be expanded to the full list.
 
-The bundled interpretation skill explains schema version 6, stored-text measurement methods, source-only files, skill bundles, shareable aliases, revision deltas, and the limits of what JSON can establish.
+The bundled interpretation skill explains schema version 8, stored-text measurement methods, source-only files, skill bundles, shareable aliases, revision deltas, and the limits of what JSON can establish.
 
 ## Development
 

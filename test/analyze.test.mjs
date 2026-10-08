@@ -126,6 +126,12 @@ function exerciseReportUi(html, report) {
   const codexView = viewRevision(report.revisions[4], "codex", report.revisions[3]);
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(codexView.estimatedTokens));
   assert.equal(get("files").children.length, codexView.components.length);
+  const geminiTab = get("provider-tabs").children.find((child) => child.textContent === "Gemini + shared");
+  assert.ok(geminiTab);
+  geminiTab.listeners.click();
+  const geminiView = viewRevision(report.revisions[4], "gemini", report.revisions[3]);
+  assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(geminiView.estimatedTokens));
+  assert.equal(get("files").children.length, geminiView.components.length);
   const allTab = get("provider-tabs").children.find((child) => child.textContent === "All files");
   allTab.listeners.click();
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(report.revisions[4].estimatedTokens));
@@ -139,7 +145,7 @@ function exerciseReportUi(html, report) {
   return get;
 }
 
-test("tracks configuration across first-parent history without reading untracked files", () => {
+test("tracks configuration across first-parent history without reading untracked files", async () => {
   const repo = mkdtempSync(join(tmpdir(), "strata-history-"));
   const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
   const put = (path, content) => {
@@ -157,11 +163,13 @@ test("tracks configuration across first-parent history without reading untracked
     git("init", "-b", "main");
     git("config", "user.name", "Strata Test");
     git("config", "user.email", "strata-test@example.invalid");
-    assert.throws(() => analyzeRepository(repo), /no commits to analyze/);
+    await assert.rejects(analyzeRepository(repo), /no commits to analyze/);
 
     put("CLAUDE.md", "Root instructions.\n");
+    put("GEMINI.md", "Gemini project instructions.\n");
     put(".claude/CLAUDE.md", "Claude-specific project instructions.\n");
     put("AGENTS.md", "Shared project instructions.\n");
+    put("packages/app/GEMINI.md", "Nested Gemini instructions.\n");
     put("packages/app/AGENTS.override.md", "Codex override for this package.\n");
     put(".agents/skills/release/SKILL.md", "---\nname: release\ndescription: Prepare a release\n---\nCheck the changelog.\n");
     put(".agents/skills/release/references/checklist.md", "Supporting checklist.\n");
@@ -171,6 +179,12 @@ test("tracks configuration across first-parent history without reading untracked
     put(".codex/config.toml", "model = \"gpt-6-sol\"\n");
     put(".codex/agents/reviewer.toml", "name = \"reviewer\"\ndeveloper_instructions = \"Review the diff.\"\n");
     put(".codex/rules/permissions.rules", "prefix_rule(pattern = [\"git\", \"status\"], decision = \"allow\")\n");
+    put(".gemini/settings.json", '{"context":{"fileName":"GEMINI.md"}}\n');
+    put(".gemini/agents/reviewer.md", "---\nname: reviewer\ndescription: Review changes\n---\nReview the diff carefully.\n");
+    put(".gemini/commands/review.toml", 'prompt = "Review this change"\n');
+    put(".gemini/system.md", "Replace the default system prompt.\n");
+    put(".gemini/skills/release/SKILL.md", "---\nname: release\ndescription: Release safely\n---\nVerify the package.\n");
+    put(".gemini/skills/release/references/checklist.md", "Release checklist.\n");
     put(".claude/rules/empty.md", "");
     put(".claude/rules/odd\tname.md", "Handle unusual Git paths.\n");
     symlinkSync("missing.md", join(repo, ".claude/rules/linked.md"));
@@ -197,6 +211,7 @@ test("tracks configuration across first-parent history without reading untracked
     commit("Rename and edit agent");
 
     rmSync(join(repo, ".claude/agents/code-reviewer.md"));
+    rmSync(join(repo, ".gemini/agents/reviewer.md"));
     commit("Remove agent");
 
     git("checkout", "-b", "feature");
@@ -210,13 +225,59 @@ test("tracks configuration across first-parent history without reading untracked
     const merge = git("rev-parse", "HEAD");
 
     put(".claude/skills/untracked/SKILL.md", "This is not in Git.\n");
-    const report = analyzeRepository(repo);
+    const report = await analyzeRepository(repo);
+    const providerRequests = [];
+    const providerApiReport = await analyzeRepository(repo, undefined, "estimate", null, {
+      claudeModel: "claude-test-model", geminiModel: "gemini-test-model",
+      codexModel: "gpt-4o",
+      anthropicApiKey: "anthropic-test-key", geminiApiKey: "gemini-test-key",
+      fetchImpl: async (url, init) => {
+        const body = JSON.parse(init.body);
+        providerRequests.push({ url, headers: init.headers, body });
+        return new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
+          status: 200, headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    assert.equal(providerApiReport.schemaVersion, 8);
+    assert.equal(providerApiReport.measurement.accuracy, "estimate");
+    assert.deepEqual(providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]), [
+      ["claude", "claude-test-model", "api-counted"], ["gemini", "gemini-test-model", "api-counted"], ["codex", "gpt-4o", "encoding-exact"],
+    ]);
+    const sharedMeasured = providerApiReport.revisions[0].components.find((component) => component.path === "AGENTS.md");
+    assert.equal(sharedMeasured.providerTokenCounts.claude.tokens, 7);
+    assert.equal(sharedMeasured.providerTokenCounts.gemini.tokens, 9);
+    assert.equal(sharedMeasured.providerTokenCounts.codex.tokens, getEncoding("o200k_base").encode("Shared project instructions.\n").length);
+    assert.equal(providerApiReport.revisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.equal(providerApiReport.revisions[0].providerTokenTotals.claude,
+      providerApiReport.revisions[0].components.reduce((sum, component) => sum + (component.providerTokenCounts?.claude?.tokens ?? 0), 0));
+    const sharedRequests = providerRequests.filter(({ body }) => JSON.stringify(body).includes("Shared project instructions."));
+    assert.equal(sharedRequests.length, 2);
+    assert.ok(sharedRequests.some(({ url }) => url.includes("anthropic.com")));
+    assert.ok(sharedRequests.some(({ url }) => url.includes("generativelanguage.googleapis.com")));
+    assert.ok(providerRequests.some(({ body }) => JSON.stringify(body).includes("Root instructions.")));
+    assert.ok(!providerRequests.some(({ body }) => JSON.stringify(body).includes("settings.json")));
+    const providerJson = JSON.stringify(providerApiReport);
+    assert.ok(!providerJson.includes("anthropic-test-key"));
+    assert.ok(!providerJson.includes("gemini-test-key"));
+    assert.ok(!providerJson.includes("Shared project instructions."));
+    assert.match(renderHtml(providerApiReport), /Claude and Gemini counts were sent to their provider APIs/);
+    const providerApiUi = exerciseReportUi(renderHtml(providerApiReport), providerApiReport);
+    assert.equal(providerApiUi("files").children[0].children.length, 8);
+    const sharedRow = providerApiUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");
+    assert.equal(sharedRow.children[5].textContent, "7");
+    assert.equal(sharedRow.children[6].textContent, "9");
+    assert.ok(providerApiUi("files").children.some((row) => row.children.some((cell) => cell.title?.includes("claude-test-model"))));
     const claudeView = viewRevision(report.revisions[0], "claude");
     const codexView = viewRevision(report.revisions[0], "codex");
+    const geminiView = viewRevision(report.revisions[0], "gemini");
     const sharedView = viewRevision(report.revisions[0], "shared");
     assert.ok(claudeView.components.every((component) => component.provider === "claude" || component.provider === "shared"));
     assert.ok(codexView.components.every((component) => component.provider === "codex" || component.provider === "shared"));
     assert.equal(sharedView.components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.equal(geminiView.components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.ok(geminiView.components.some((component) => component.path === "GEMINI.md"));
+    assert.ok(geminiView.components.some((component) => component.path === "packages/app/GEMINI.md"));
     assert.ok(claudeView.components.some((component) => component.path === "AGENTS.md"));
     assert.ok(codexView.components.some((component) => component.path === "AGENTS.md"));
     assert.equal(report.revisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
@@ -225,7 +286,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions.at(-1).id, merge);
     assert.equal(report.revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 2);
+    assert.equal(prDelta.schemaVersion, 3);
     assert.deepEqual(prDelta.comparison, compareRevisions(report.revisions[0], report.revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -237,16 +298,23 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 6);
+    assert.equal(report.schemaVersion, 8);
     assert.equal(report.privacy.mode, "local");
     assert.equal(report.measurement.accuracy, "estimate");
-    assert.equal(report.revisions[0].categoryTotals.settings.count, 2);
-    assert.equal(report.revisions[0].categoryTotals.settings.sourceOnlyCount, 2);
+    assert.equal(report.revisions[0].categoryTotals.settings.count, 3);
+    assert.equal(report.revisions[0].categoryTotals.settings.sourceOnlyCount, 3);
     assert.equal(report.revisions[0].categoryTotals.settings.estimatedTokens, 0);
-    assert.equal(report.revisions[0].categoryTotals.skills.count, 5);
-    assert.equal(report.revisions[0].categoryTotals.skills.sourceOnlyCount, 4);
+    assert.equal(report.revisions[0].categoryTotals.skills.count, 7);
+    assert.equal(report.revisions[0].categoryTotals.skills.sourceOnlyCount, 5);
     assert.equal(report.revisions[0].categoryTotals.rules.sourceOnlyCount, 1);
     assert.equal(report.revisions[0].categoryTotals.agents.sourceOnlyCount, 1);
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".gemini/settings.json")?.estimatedTokens, null);
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".gemini/commands/review.toml")?.estimatedTokens, null);
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".gemini/agents/reviewer.md")?.provider, "gemini");
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".gemini/system.md")?.category, "instructions");
+    const geminiSkill = report.revisions[0].components.find((component) => component.path === ".gemini/skills/release/references/checklist.md");
+    assert.equal(geminiSkill?.provider, "gemini");
+    assert.equal(geminiSkill?.estimatedTokens, null);
     assert.equal(report.revisions[0].components.find((component) => component.path === ".claude/rules/empty.md")?.estimatedTokens, 0);
     assert.ok(report.revisions[0].components.some((component) => component.path === ".claude/rules/odd\tname.md"));
     assert.ok(!report.revisions[0].components.some((component) => component.path === ".claude/rules/linked.md"));
@@ -265,10 +333,14 @@ test("tracks configuration across first-parent history without reading untracked
     }, {
       root: ".claude/skills/orphan", provider: "claude", manifestPath: null,
       manifestEstimatedTokens: 0, resourceCount: 1, resourceBytes: Buffer.byteLength("No manifest yet.\n"),
+    }, {
+      root: ".gemini/skills/release", provider: "gemini", manifestPath: ".gemini/skills/release/SKILL.md",
+      manifestEstimatedTokens: report.revisions[0].components.find((component) => component.path === ".gemini/skills/release/SKILL.md")?.estimatedTokens,
+      resourceCount: 1, resourceBytes: Buffer.byteLength("Release checklist.\n"),
     }]);
     assert.equal(report.revisions[0].components.find((component) => component.path === "packages/app/AGENTS.override.md")?.provider, "codex");
     assert.ok(!report.revisions[0].components.some((component) => component.path === "notes/SKILL.md"));
-    assert.equal(report.revisions[1].categoryTotals.skills.count, 7);
+    assert.equal(report.revisions[1].categoryTotals.skills.count, 9);
     assert.ok(report.revisions[2].estimatedTokens > report.revisions[1].estimatedTokens);
     assert.ok(report.revisions[3].estimatedTokens < report.revisions[2].estimatedTokens);
     assert.ok(report.revisions[4].changes.some((change) =>
@@ -277,8 +349,10 @@ test("tracks configuration across first-parent history without reading untracked
       change.kind === "renamed" && change.previousPath === ".claude/agents/reviewer.md" && change.path === ".claude/agents/code-reviewer.md"));
     assert.ok(report.revisions[6].changes.some((change) =>
       change.kind === "removed" && change.path === ".claude/agents/code-reviewer.md"));
+    assert.ok(report.revisions[6].changes.some((change) =>
+      change.kind === "removed" && change.path === ".gemini/agents/reviewer.md"));
     assert.equal(report.revisions.at(-1).categoryTotals.rules.count, 4);
-    assert.equal(report.revisions.at(-1).categoryTotals.commands.count, 1);
+    assert.equal(report.revisions.at(-1).categoryTotals.commands.count, 2);
     assert.ok(!report.revisions.at(-1).components.some((component) => component.path.includes("untracked")));
     for (const revision of report.revisions) {
       assert.equal(revision.estimatedTokens, categories.reduce((sum, category) =>
@@ -341,8 +415,8 @@ test("tracks configuration across first-parent history without reading untracked
     const diffCli = spawnSync(process.execPath, ["dist/cli.js", "diff", repo, "--base", first, "--head", merge, "--output", diffOutput], { encoding: "utf8" });
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
-    const openAiReport = analyzeRepository(repo, undefined, "openai-o200k_base");
-    assert.equal(openAiReport.schemaVersion, 6);
+    const openAiReport = await analyzeRepository(repo, undefined, "openai-o200k_base");
+    assert.equal(openAiReport.schemaVersion, 8);
     assert.deepEqual([openAiReport.measurement.family, openAiReport.measurement.accuracy, openAiReport.measurement.encoding, openAiReport.measurement.model, openAiReport.measurement.implementation],
       ["openai", "encoding-exact", "o200k_base", null, "js-tiktoken@1.0.21"]);
     const openAiInstruction = openAiReport.revisions[0].components.find((component) => component.path === "AGENTS.md");
@@ -357,7 +431,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--model", "gpt-4o", "--output", modelOutput, "--format", "json"], { encoding: "utf8" });
     assert.equal(modelCli.status, 0, modelCli.stderr);
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
-    assert.deepEqual([modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion], ["gpt-4o", "o200k_base", 6]);
+    assert.deepEqual([modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion], ["gpt-4o", "o200k_base", 8]);
     assert.equal(modelReport.revisions[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
       getEncoding("o200k_base").encode("Shared project instructions.\n").length);
     const badModel = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--model", "claude", "--format", "json"], { encoding: "utf8" });
@@ -369,6 +443,14 @@ test("tracks configuration across first-parent history without reading untracked
     const badTokenizer = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--tokenizer", "claude", "--format", "json"], { encoding: "utf8" });
     assert.equal(badTokenizer.status, 2);
     assert.match(badTokenizer.stderr, /--tokenizer must be/);
+    const missingProviderModel = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--provider-api", "--claude-model", "claude-test", "--format", "json"], { encoding: "utf8" });
+    assert.equal(missingProviderModel.status, 2);
+    assert.match(missingProviderModel.stderr, /requires explicit --claude-model and --gemini-model/);
+    const missingProviderKey = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--provider-api", "--claude-model", "claude-test", "--gemini-model", "gemini-test", "--format", "json"], {
+      encoding: "utf8", env: { ...process.env, ANTHROPIC_API_KEY: "", GEMINI_API_KEY: "", GOOGLE_API_KEY: "" },
+    });
+    assert.equal(missingProviderKey.status, 2);
+    assert.match(missingProviderKey.stderr, /requires ANTHROPIC_API_KEY/);
     assert.throws(() => createMeasurer("openai-o200k_base").count(Buffer.from([0xff])), /encoded data was not valid/);
     const shareableOutput = join(repo, "shareable.json");
     const shareableCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--shareable", "--output", shareableOutput, "--format", "json"], { encoding: "utf8" });
@@ -437,7 +519,7 @@ test("tracks configuration across first-parent history without reading untracked
     put("CLAUDE.md", "Root.\n");
     put(".claude/skills/project-review/SKILL.md", "---\nname: project-review\ndescription: Review project changes\n---\nFollow project conventions and review every change.\n");
     commit("Split guidance into a skill");
-    const splitReport = analyzeRepository(repo);
+    const splitReport = await analyzeRepository(repo);
     const beforeSplit = splitReport.revisions.at(-2);
     const afterSplit = splitReport.revisions.at(-1);
     const split = compareRevisions(beforeSplit, afterSplit);
@@ -473,14 +555,14 @@ test("tracks configuration across first-parent history without reading untracked
     const shallow = mkdtempSync(join(tmpdir(), "strata-shallow-"));
     try {
       execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${repo}`, shallow]);
-      const shallowReport = analyzeRepository(shallow);
+      const shallowReport = await analyzeRepository(shallow);
       assert.equal(shallowReport.shallow, true);
       assert.equal(shallowReport.revisions.length, 1);
     } finally {
       rmSync(shallow, { recursive: true, force: true });
     }
     git("checkout", "--detach");
-    const detached = analyzeRepository(repo);
+    const detached = await analyzeRepository(repo);
     assert.equal(detached.branch, "detached HEAD");
     assert.equal(detached.revisions.length, splitReport.revisions.length);
   } finally {

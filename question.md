@@ -1,7 +1,15 @@
-# Maintainer answers and remaining setup
+# Decisions needed for remaining GitHub setup tasks
 
-Recorded 2026-10-08. These answers resolve the questions raised during the first build phase; implementation and external setup remain separate tasks.
+## Repository visibility and private vulnerability reporting
 
-1. **Security reports:** Prefer GitHub private vulnerability reporting for `nabondance/strata`. The current [security policy](SECURITY.md) already links to its private report form and gives a fallback that asks for a private contact without disclosing vulnerability details. Enable or verify private vulnerability reporting in the repository's security settings and subscribe to its notifications. A public security email address is optional, not required for this route.
-2. **Provider token counts:** Include API-based Claude and Gemini counts in a future feature. In an explicitly selected API mode, classify Git-tracked files by provider and route each supported provider's instructional text to its matching count endpoint. Do not infer a runtime model from a path; require a documented model choice for each provider. Keep local measurement as the default, tell users that API mode transfers instruction text, and do not add unlike provider counts or double-count shared files in a mixed-provider total. See [the tokenizer study](docs/tokenizers.md).
-3. **npm release:** Use GitHub Actions for later releases with npm trusted publishing (OIDC), rather than storing a long-lived npm token in the repository. `context-strata` has not been published; npm requires the package to exist before configuring a trusted publisher, so an authenticated first publish is still needed to claim it. See [the release runbook](docs/release-runbook.md).
+The `nabondance/strata` repository is private. GitHub does not offer its private vulnerability reporting setting for this repository, and the API returned 404 when checked. Making the repository public would expose its source, issues, and commit history. `SECURITY.md` already documents a safe fallback path.
+
+Should the repository stay private with that fallback, or do you want to make it public to use GitHub's private vulnerability reporting feature? I have not changed visibility.
+
+## Branch protection
+
+GitHub's branch protection and ruleset APIs returned HTTP 403: this private repository needs GitHub Pro or public visibility for those controls. Should it stay private without branch protection, or should you upgrade the plan so I can enable protection for `main`? I have not changed plan or visibility.
+
+## First npm release
+
+The release tarball passed local checks, but `npm whoami` reports this environment is not authenticated. After you choose to proceed with the public `context-strata@0.1.0` release, I can start npm's browser login flow. Do not paste or record an npm token here.
