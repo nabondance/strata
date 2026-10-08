@@ -14,6 +14,7 @@ import { compareRevisions } from "../dist/compare.js";
 import { renderHtml } from "../dist/report.js";
 import { redactReport } from "../dist/privacy.js";
 import { layoutTreemap } from "../dist/treemap.js";
+import { viewRevision } from "../dist/provider-view.js";
 
 function exerciseReportUi(html, report) {
   class Element {
@@ -51,7 +52,13 @@ function exerciseReportUi(html, report) {
   runInNewContext(script, context);
   const get = (id) => elements.get(id);
   assert.equal(get("target").value, String(report.revisions.length - 1));
-  assert.equal(get("skill-groups").children.length, report.revisions.at(-1).skillGroups.length || 1);
+  assert.equal(get("skill-groups").children.length, Math.min(8, report.revisions.at(-1).skillGroups.length) || 1);
+  if (report.revisions.at(-1).skillGroups.length > 8) {
+    assert.equal(get("skill-toggle").hidden, false);
+    assert.match(get("skill-toggle").textContent, /Show all/);
+    get("skill-toggle").listeners.click();
+    assert.equal(get("skill-groups").children.length, report.revisions.at(-1).skillGroups.length);
+  }
   assert.equal(get("baseline").value, "0");
   assert.equal(get("compare-components").children.length, compareRevisions(report.revisions[0], report.revisions.at(-1)).components.length);
   get("baseline").value = "2";
@@ -63,6 +70,7 @@ function exerciseReportUi(html, report) {
   assert.match(get("compare-tokens").textContent, new RegExp(String(expected.deltaTokens)));
   assert.equal(get("compare-components").children.length, expected.components.length);
   assert.equal(get("slider").value, 3);
+  assert.equal(get("chart").children.length, Math.min(100, report.revisions.length));
   get("provider-filter").value = "claude";
   get("provider-filter").listeners.change();
   const claudeFiles = report.revisions[3].components.filter((component) => component.provider === "claude").length;
@@ -85,11 +93,34 @@ function exerciseReportUi(html, report) {
   assert.equal(get("path-search").focused, true);
   const firstLeaf = get("treemap").children.find((child) => child.className === "treemap-leaf");
   assert.ok(firstLeaf);
+  firstLeaf.listeners.mouseenter();
+  assert.match(get("treemap-hover").textContent, /stored-text tokens/);
+  firstLeaf.listeners.mouseleave();
+  assert.match(get("treemap-hover").textContent, /Hover or focus/);
   firstLeaf.listeners.click();
   assert.equal(get("files").children.length, 1);
   assert.equal(get("files").children[0].scrolled, true);
   assert.equal(get("files").children[0].focused, true);
   assert.match(get("treemap-note").textContent, /source-only files/);
+  const claudeTab = get("provider-tabs").children.find((child) => child.textContent === "Claude + shared");
+  assert.ok(claudeTab);
+  claudeTab.listeners.click();
+  const claudeView = viewRevision(report.revisions[4], "claude", report.revisions[3]);
+  assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(claudeView.estimatedTokens));
+  assert.equal(get("components").textContent, new Intl.NumberFormat().format(claudeView.components.length));
+  assert.equal(get("files").children.length, claudeView.components.length);
+  assert.equal(get("path-search").value, "");
+  assert.match(get("view-note").textContent, /Shared files can appear in more than one provider view/);
+  const codexTab = get("provider-tabs").children.find((child) => child.textContent === "Codex + shared");
+  assert.ok(codexTab);
+  codexTab.listeners.click();
+  const codexView = viewRevision(report.revisions[4], "codex", report.revisions[3]);
+  assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(codexView.estimatedTokens));
+  assert.equal(get("files").children.length, codexView.components.length);
+  const allTab = get("provider-tabs").children.find((child) => child.textContent === "All files");
+  allTab.listeners.click();
+  assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(report.revisions[4].estimatedTokens));
+  return get;
 }
 
 test("tracks configuration across first-parent history without reading untracked files", () => {
@@ -164,6 +195,15 @@ test("tracks configuration across first-parent history without reading untracked
 
     put(".claude/skills/untracked/SKILL.md", "This is not in Git.\n");
     const report = analyzeRepository(repo);
+    const claudeView = viewRevision(report.revisions[0], "claude");
+    const codexView = viewRevision(report.revisions[0], "codex");
+    const sharedView = viewRevision(report.revisions[0], "shared");
+    assert.ok(claudeView.components.every((component) => component.provider === "claude" || component.provider === "shared"));
+    assert.ok(codexView.components.every((component) => component.provider === "codex" || component.provider === "shared"));
+    assert.equal(sharedView.components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.ok(claudeView.components.some((component) => component.path === "AGENTS.md"));
+    assert.ok(codexView.components.some((component) => component.path === "AGENTS.md"));
+    assert.equal(report.revisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
     assert.equal(report.revisions.length, 9);
     assert.equal(report.revisions[0].id, first);
     assert.equal(report.revisions.at(-1).id, merge);
@@ -239,6 +279,17 @@ test("tracks configuration across first-parent history without reading untracked
     }
     const html = renderHtml(report);
     exerciseReportUi(html, report);
+    const manySkills = structuredClone(report);
+    manySkills.revisions.at(-1).skillGroups = Array.from({ length: 12 }, (_, index) => ({
+      ...report.revisions.at(-1).skillGroups[0], root: `.claude/skills/example-${index}`,
+    }));
+    exerciseReportUi(renderHtml(manySkills), manySkills);
+    const longHistory = { ...report, revisions: Array.from({ length: 105 }, (_, index) => ({
+      ...report.revisions[index % report.revisions.length], id: index.toString(16).padStart(40, "0"),
+    })) };
+    const longUi = exerciseReportUi(renderHtml(longHistory), longHistory);
+    assert.equal(longUi("chart").children.length, 100);
+    assert.match(longUi("timeline-note").textContent, /grouped into 100 bars/);
     assert.ok(!html.includes("Follow the project conventions."));
     const shareable = redactReport(report);
     const shareableJson = JSON.stringify(shareable);

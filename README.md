@@ -8,34 +8,57 @@ See [the tokenizer study](docs/tokenizers.md) for the evidence and limits behind
 
 Strata is released under the [MIT license](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution guidance and [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-## Try it locally
+## Using the CLI
 
-After installing dependencies and building, run:
+Strata reads tracked Git blobs from a repository's first-parent history and creates a local report of how recognized agent configuration changed over time. It does not inspect the repository's working tree or send its contents anywhere. The report inventories supported Claude and Codex instruction, skill, agent, rule, and configuration paths. Instructional text gets a labeled stored-text token measurement; structured configuration and supporting resources are measured in source bytes. These measurements do not show what an agent loaded in a session. Reports include paths and measurements, never file contents.
+
+To run from a checkout, install dependencies and build the CLI:
+
+```sh
+pnpm install
+pnpm build
+```
+
+Analyze a repository to create the interactive HTML report:
 
 ```sh
 node dist/cli.js analyze /path/to/git/repository
 ```
 
-The CLI writes an offline HTML report to a private temporary directory and prints its path. Add `--open` to launch it in a browser, or `--output report.html` to save it where you choose. For machine-readable data, use `--format json`, optionally with `--output report.json`. The CLI prints scan progress to stderr. The first slice tracks documented Claude and Codex instruction, skill, agent, rule, and configuration paths. It uses a clearly labeled stored-token estimate for instructional files and source bytes for structured or supporting files; it does not measure actual session context. The report contains paths and measurements but no source text.
-
-The default `--tokenizer estimate` uses UTF-8 bytes divided by four. For an offline OpenAI text-encoding count, choose `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`, or select a documented model with `--model gpt-4o` (also `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`). Use either `--model` or `--tokenizer`, not both. The chosen encoding applies consistently to all instructional files in the history; it does not establish Claude or Gemini token counts, loaded context, message framing, or billing. The report records the method, family, model, encoding, implementation version, and accuracy label. See [the tokenizer study](docs/tokenizers.md) for limits.
-
-Add `--shareable` to either HTML or JSON output to replace repository and branch names, file paths, skill directory names, commit IDs, and blob IDs with deterministic aliases. Dates, provider/category labels, counts, byte sizes, token estimates, and change kinds remain visible. The default local report retains full metadata; inspect even a shareable report before distributing it.
-
-In the HTML report, select any baseline and target revision to compare signed estimated-token and file-count changes by provider, category, and component. The timeline controls the target revision. Comparison is based on stored files at those two points; a moved file may appear as a removal and an addition.
-
-The tracked-components table can be filtered by provider, category, and a case-insensitive path search. Filters stay active as you move along the timeline. The chart, summary, and comparison always use the full revision, while the inventory shows its own filtered file count.
-
-The treemap shows the selected revision's instructional components with rectangle area proportional to each stored-text token estimate and color by category. Select a rectangle to locate its file in the inventory. Source-only and zero-token files stay in the inventory and receive no invented area; the treemap does not represent which files an agent loaded in a session.
-
-To give your own coding agent guidance for interpreting Strata JSON, print the bundled skill with `node dist/cli.js skill`, or save it to a skill directory:
+By default, Strata writes the report to a private temporary directory and prints its path. Use `--open` to open HTML in a browser or `--output report.html` to choose a destination. For machine-readable output, use `--format json` (and, optionally, `--output report.json`). Scan progress is printed to stderr.
 
 ```sh
-node dist/cli.js skill --output .agents/skills/strata-interpret/SKILL.md
-# For Claude Code, use .claude/skills/strata-interpret/SKILL.md instead.
+node dist/cli.js analyze /path/to/repository --open
+node dist/cli.js analyze /path/to/repository --format json --output report.json
 ```
 
-The command refuses to overwrite an existing skill file. The same commands will work with `strata` once the package is installed. The skill explains schema version 6, stored-text measurement methods, source-only files, skill bundles, shareable aliases, revision deltas, and the limits of what JSON can establish.
+Compare two full commit IDs with `diff`. It reads both revisions directly from Git and prints a Markdown summary by default; choose `--format json` for structured data or `--output` to save the result.
+
+```sh
+node dist/cli.js diff /path/to/repository --base <base-commit> --head <head-commit>
+node dist/cli.js diff /path/to/repository --base <base-commit> --head <head-commit> --format json --output delta.json
+```
+
+The default `--tokenizer estimate` divides instructional text's UTF-8 byte length by four. For offline OpenAI text-encoding counts, use `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`, or select a supported model with `--model gpt-4o` (also `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`). Use either `--model` or `--tokenizer`, not both. The chosen method applies consistently across the history and measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](docs/tokenizers.md) for details and limits.
+
+For HTML or JSON analysis output, `--shareable` replaces repository and branch names, file paths, skill directory names, commit IDs, and blob IDs with deterministic aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
+
+To print the bundled JSON interpretation skill for a coding agent, or save it at a chosen path:
+
+```sh
+node dist/cli.js skill
+node dist/cli.js skill --output .agents/skills/strata-interpret/SKILL.md
+```
+
+The `skill` command refuses to overwrite an existing file. Run `node dist/cli.js --help` for the full command syntax. The same commands work as `strata` after installing the package.
+
+In the HTML report, select any baseline and target revision to compare signed estimated-token and file-count changes by provider, category, and component. The timeline controls the target revision. For histories longer than 100 revisions, the chart groups adjacent revisions into at most 100 bars; each bar shows its group's last revision, while the slider still reaches every commit. Comparison is based on stored files at those two points; a moved file may appear as a removal and an addition.
+
+The report opens on **All files**, counting each tracked file once. Provider tabs show a provider's files together with shared instruction candidates; shared files can appear in multiple provider tabs, so the tab totals should not be added together. These are stored-file views, not measurements of what an agent actually loaded. The selected view applies to the chart, summary, treemap, skill bundles, comparison, and inventory. The tracked-components table can also be filtered by provider, category, and a case-insensitive path search. Those inventory filters stay active as you move along the timeline and reset when you change provider tabs.
+
+The treemap shows the selected revision's instructional components with rectangle area proportional to each stored-text token estimate and color by category. Hover or focus any rectangle for its full path and token count; select it to locate its file in the inventory. Source-only and zero-token files stay in the inventory and receive no invented area. The skill-bundle table initially shows eight rows and can be expanded to the full list.
+
+The bundled interpretation skill explains schema version 6, stored-text measurement methods, source-only files, skill bundles, shareable aliases, revision deltas, and the limits of what JSON can establish.
 
 ## Development
 

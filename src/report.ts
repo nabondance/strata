@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { categories, type Report } from "./analyze.js";
 import { compareRevisions } from "./compare.js";
 import { layoutTreemap } from "./treemap.js";
+import { viewRevision } from "./provider-view.js";
+import { timelineBuckets } from "./timeline.js";
 
 const require = createRequire(import.meta.url);
 const d3PackageDirectory = resolve(dirname(require.resolve("d3-hierarchy")), "..");
@@ -21,6 +23,8 @@ export function renderHtml(report: Report): string {
   const categoryNames = JSON.stringify(categories);
   const compareSource = compareRevisions.toString();
   const treemapSource = layoutTreemap.toString();
+  const viewSource = viewRevision.toString();
+  const timelineSource = timelineBuckets.toString();
 
   return `<!doctype html>
 <html lang="en">
@@ -50,7 +54,7 @@ export function renderHtml(report: Report): string {
     .stat:first-child { padding-left: 0; }
     .stat:last-child { border-right: 0; }
     .stat span { display: block; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
-    .stat strong { font-family: Georgia, "Times New Roman", serif; font-size: clamp(25px, 3vw, 34px); font-weight: 400; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+    .stat strong { font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-size: clamp(25px, 3vw, 34px); font-weight: 650; letter-spacing: -.035em; font-variant-numeric: tabular-nums lining-nums; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
     .panel h2 { font-family: Georgia, "Times New Roman", serif; font-size: 27px; font-weight: 400; letter-spacing: -.035em; margin: 0 0 16px; }
     .panel h2 + p { font-size: 13px; margin: -5px 0 18px; }
@@ -59,15 +63,22 @@ export function renderHtml(report: Report): string {
     .legend { display: flex; flex-wrap: wrap; gap: 9px 20px; margin: 7px 0 17px; color: var(--muted); font-size: 12px; }
     .legend span { display: inline-flex; align-items: center; gap: 7px; }
     .swatch { display: inline-block; width: 10px; height: 10px; }
-    .chart-scroll { overflow-x: auto; padding: 4px 2px 6px; }
-    .chart { display: flex; align-items: end; gap: 4px; height: 220px; min-width: 100%; border-bottom: 1px solid #8b9289; background: repeating-linear-gradient(to top, transparent 0, transparent 54px, #e4e2d9 55px); }
-    .bar { border: 0; padding: 0; margin: 0; background: transparent; display: flex; align-items: end; justify-content: center; height: 100%; flex: 1 0 10px; max-width: 24px; cursor: pointer; }
+    .chart-scroll { padding: 4px 2px 6px; }
+    .chart { display: grid; align-items: end; gap: 2px; height: 220px; width: 100%; border-bottom: 1px solid #8b9289; background: repeating-linear-gradient(to top, transparent 0, transparent 54px, #e4e2d9 55px); }
+    .bar { border: 0; padding: 0; margin: 0; min-width: 0; background: transparent; display: flex; align-items: end; justify-content: center; height: 100%; cursor: pointer; }
     .bar:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
     .bar.selected .stack { outline: 2px solid var(--ink); outline-offset: 2px; }
     .bar.baseline .stack { box-shadow: 0 0 0 2px #b98542; }
     .stack { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; min-height: 2px; }
     .segment { display: block; width: 100%; }
     input[type=range] { width: 100%; accent-color: var(--rust); margin-top: 17px; }
+    .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .timeline-note { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 8px 0 0; }
+    .provider-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 11px; }
+    .provider-tab { padding: 9px 14px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+    .provider-tab[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .provider-tab:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .view-note { margin: 0 0 21px; color: var(--muted); font-size: 13px; line-height: 1.5; }
     .treemap { position: relative; height: 390px; background: #e8e4d8; overflow: hidden; }
     .treemap-leaf { position: absolute; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 2px solid var(--sheet); padding: 9px; overflow: hidden; color: #fff; text-align: left; cursor: pointer; font: inherit; }
     .treemap-leaf:hover, .treemap-leaf:focus-visible { outline: 3px solid var(--ink); outline-offset: -4px; z-index: 2; }
@@ -75,6 +86,11 @@ export function renderHtml(report: Report): string {
     .treemap-leaf .leaf-size { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     .treemap-group { position: absolute; border: 3px solid var(--sheet); pointer-events: none; z-index: 1; }
     .treemap-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
+    .treemap-hover { min-height: 42px; padding: 10px 12px; margin: 10px 0 0; border-left: 3px solid var(--rust); background: #f0eee6; color: var(--ink); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+    .skill-count { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+    .skill-toggle { margin-top: 13px; border: 1px solid #9fa99d; padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+    .skill-toggle:hover { background: #e8e4d8; }
+    .skill-toggle:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
     .compare-controls, .inventory-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 18px; align-items: end; }
     .compare-controls label, .inventory-controls label { display: grid; gap: 6px; min-width: min(100%, 230px); color: var(--muted); font-size: 12px; }
     .inventory-controls label { min-width: min(100%, 180px); }
@@ -86,7 +102,7 @@ export function renderHtml(report: Report): string {
     .inventory-count { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
     .compare-summary { display: flex; flex-wrap: wrap; gap: 12px 30px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 0 6px; }
     .compare-summary span { color: var(--muted); font-size: 12px; }
-    .compare-summary strong { display: block; color: var(--ink); font-family: Georgia, "Times New Roman", serif; font-size: 21px; font-weight: 400; margin-top: 5px; font-variant-numeric: tabular-nums; }
+    .compare-summary strong { display: block; color: var(--ink); font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-size: 21px; font-weight: 650; margin-top: 5px; font-variant-numeric: tabular-nums lining-nums; }
     .compare-summary strong.positive { color: #306f55; }
     .compare-summary strong.negative { color: #a44935; }
     .compare-section { margin-top: 18px; }
@@ -110,7 +126,7 @@ export function renderHtml(report: Report): string {
     .table-wrap { overflow-x: auto; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .header-main { align-items: start; flex-direction: column; padding: 38px 0 30px; } .dek { max-width: 470px; } .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(2) { border-right: 0; } .stat:nth-child(n+3) { border-top: 1px solid var(--line); } .stat:nth-child(3) { padding-left: 0; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { header { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } h1 { font-size: 45px; } .stat strong { font-size: 24px; } .panel { padding: 18px; } .panel h2 { font-size: 24px; } .repo-strip { display: block; } .repo-strip strong { display: block; margin-top: 6px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .treemap-leaf:not(.large) span { display: none; } }
+    @media (max-width: 520px) { header { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } h1 { font-size: 45px; } .stat strong { font-size: 24px; } .panel { padding: 18px; } .panel h2 { font-size: 24px; } .repo-strip { display: block; } .repo-strip strong { display: block; margin-top: 6px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
   </style>
 </head>
 <body>
@@ -121,6 +137,8 @@ export function renderHtml(report: Report): string {
   </header>
   <main>
     <p class="notice" id="method"></p>
+    <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
+    <p class="view-note" id="view-note"></p>
     <div class="stats">
       <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
       <div class="stat"><span>${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
@@ -132,18 +150,23 @@ export function renderHtml(report: Report): string {
       <div class="legend" id="legend"></div>
       <div class="chart-scroll"><div class="chart" id="chart"></div></div>
       <input id="slider" type="range" aria-label="Select revision">
+      <div class="timeline-meta"><span id="timeline-start"></span><span id="timeline-selected"></span><span id="timeline-end"></span></div>
+      <p class="timeline-note" id="timeline-note"></p>
     </section>
     <section class="panel" aria-labelledby="treemap-heading">
       <h2 id="treemap-heading">Configuration at this revision</h2>
       <p class="muted">Rectangle area follows ${tokenAdjective.toLowerCase()} stored-text tokens; color groups files by category. Select a rectangle to find its file below.</p>
       <div class="legend" id="treemap-legend"></div>
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
+      <p class="treemap-hover" id="treemap-hover" aria-live="polite">Hover or focus a rectangle to see its full path and token count.</p>
       <p class="treemap-note" id="treemap-note"></p>
     </section>
     <section class="panel" aria-labelledby="skills-heading">
       <h2 id="skills-heading">Skill bundles</h2>
       <p class="muted">Manifest estimates and supporting resource bytes are shown separately. A bundle's files are counted once in the inventory.</p>
+      <p class="skill-count" id="skill-count"></p>
       <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
+      <button class="skill-toggle" id="skill-toggle" type="button" aria-expanded="false" hidden></button>
     </section>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
@@ -161,7 +184,7 @@ export function renderHtml(report: Report): string {
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
       </div>
-      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div></div>
+      <div class="compare-section"><h3>Changed components</h3><p class="muted">Each row is one file: added is +1 file, removed is −1, edited is 0. The grouped file totals above can be larger.</p><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div></div>
     </section>
     <div class="grid">
       <section class="panel"><h2>Composition</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Files</th><th class="num">Tokens</th><th class="num">Source only</th></tr></thead><tbody id="categories"></tbody></table></div></section>
@@ -183,6 +206,8 @@ export function renderHtml(report: Report): string {
     const data = ${serialized};
     const categories = ${categoryNames};
     const compareRevisions = ${compareSource};
+    const viewRevision = ${viewSource};
+    const timelineBuckets = ${timelineSource};
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
@@ -194,45 +219,65 @@ export function renderHtml(report: Report): string {
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
     let selected = data.revisions.length - 1;
     let baseline = 0;
+    let activeView = 'all';
+    let viewRevisions = data.revisions;
+    let showAllSkills = false;
     let providerFilter = '';
     let categoryFilter = '';
     let pathSearch = '';
     let inventoryRows = new Map();
-    const chartButtons = [];
+    let chartBuckets = [];
 
     $('repo').textContent = data.repository + ' / ' + data.branch + ' · ' + data.revisions.length + ' revisions';
     $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
     if (data.shallow) $('method').classList.add('warning');
-    const legend = $('legend');
-    for (const category of categories) {
-      if (!data.revisions.some((revision) => revision.categoryTotals[category].count)) continue;
-      const label = text('span', category);
-      const swatch = text('i', '', 'swatch');
-      swatch.style.background = colors[category];
-      label.prepend(swatch);
-      legend.append(label);
+    function renderLegend() {
+      const legend = $('legend');
+      legend.replaceChildren();
+      for (const category of categories) {
+        if (!viewRevisions.some((revision) => revision.categoryTotals[category].count)) continue;
+        const label = text('span', category);
+        const swatch = text('i', '', 'swatch');
+        swatch.style.background = colors[category];
+        label.prepend(swatch);
+        legend.append(label);
+      }
     }
 
-    const max = Math.max(1, ...data.revisions.map((revision) => revision.estimatedTokens));
-    for (const [index, revision] of data.revisions.entries()) {
-      const button = text('button', '', 'bar');
-      button.type = 'button';
-      button.title = revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8) + ' · ' + fmt(revision.estimatedTokens) + ' stored-text tokens';
-      button.setAttribute('aria-label', 'Select revision ' + (index + 1));
-      const stack = text('span', '', 'stack');
-      stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
-      for (const category of categories) {
-        const amount = revision.categoryTotals[category].estimatedTokens;
-        if (!amount) continue;
-        const segment = text('span', '', 'segment');
-        segment.style.height = amount / revision.estimatedTokens * 100 + '%';
-        segment.style.background = colors[category];
-        stack.append(segment);
+    function renderChart() {
+      const chart = $('chart');
+      chart.replaceChildren();
+      chartBuckets = [];
+      const buckets = timelineBuckets(viewRevisions.length);
+      chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
+      const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
+      for (const bucket of buckets) {
+        const revision = viewRevisions[bucket.end];
+        const button = text('button', '', 'bar');
+        button.type = 'button';
+        const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
+        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' stored-text tokens at end';
+        button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revision.date.slice(0, 10));
+        const stack = text('span', '', 'stack');
+        stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
+        for (const category of categories) {
+          const amount = revision.categoryTotals[category].estimatedTokens;
+          if (!amount) continue;
+          const segment = text('span', '', 'segment');
+          segment.style.height = amount / revision.estimatedTokens * 100 + '%';
+          segment.style.background = colors[category];
+          stack.append(segment);
+        }
+        button.append(stack);
+        button.addEventListener('click', () => render(bucket.end));
+        chart.append(button);
+        chartBuckets.push({ ...bucket, button });
       }
-      button.append(stack);
-      button.addEventListener('click', () => render(index));
-      $('chart').append(button);
-      chartButtons.push(button);
+      $('timeline-note').textContent = buckets.length === viewRevisions.length
+        ? 'One bar per revision. Select a bar or use the slider to inspect a commit.'
+        : fmt(viewRevisions.length) + ' revisions grouped into ' + fmt(buckets.length) + ' bars. Each bar shows the last revision in its group; the slider selects every revision.';
+      $('timeline-start').textContent = viewRevisions[0].date.slice(0, 10);
+      $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
     }
 
     const slider = $('slider');
@@ -250,10 +295,54 @@ export function renderHtml(report: Report): string {
     $('baseline').addEventListener('change', () => { baseline = Number($('baseline').value); renderComparison(); });
     $('target').addEventListener('change', () => render(Number($('target').value)));
     const allComponents = data.revisions.flatMap((revision) => revision.components);
-    for (const provider of [...new Set(allComponents.map((component) => component.provider))].sort()) {
-      const option = text('option', provider);
-      option.value = provider;
-      $('provider-filter').append(option);
+    const providers = [...new Set(allComponents.map((component) => component.provider))].sort();
+    const viewTabs = [{ key: 'all', label: 'All files' },
+      ...providers.filter((provider) => provider !== 'shared').map((provider) => ({
+        key: provider, label: provider === 'unknown' ? 'Unknown' : provider[0].toUpperCase() + provider.slice(1) + ' + shared',
+      })),
+      ...(providers.includes('shared') ? [{ key: 'shared', label: 'Shared only' }] : [])];
+    for (const view of viewTabs) {
+      const button = text('button', view.label, 'provider-tab');
+      button.type = 'button';
+      button.setAttribute('aria-pressed', String(view.key === activeView));
+      button.addEventListener('click', () => {
+        activeView = view.key;
+        viewRevisions = data.revisions.map((revision, index) => viewRevision(revision, activeView, data.revisions[index - 1]));
+        showAllSkills = false;
+        providerFilter = '';
+        categoryFilter = '';
+        pathSearch = '';
+        $('category-filter').value = '';
+        $('path-search').value = '';
+        $('provider-tabs').children.forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
+        renderProviderOptions();
+        renderViewNote();
+        renderLegend();
+        renderChart();
+        render(selected);
+      });
+      $('provider-tabs').append(button);
+    }
+    function renderProviderOptions() {
+      const select = $('provider-filter');
+      const all = text('option', 'All providers in this view');
+      all.value = '';
+      select.replaceChildren(all);
+      for (const provider of [...new Set(viewRevisions.flatMap((revision) => revision.components.map((component) => component.provider)))].sort()) {
+        const option = text('option', provider);
+        option.value = provider;
+        select.append(option);
+      }
+      select.value = '';
+    }
+    function renderViewNote() {
+      $('view-note').textContent = activeView === 'all'
+        ? 'All tracked configuration files are counted once. Provider views overlap where shared instructions are present; none of these totals measures loaded session context.'
+        : activeView === 'shared'
+          ? 'Shared instruction candidates are shown on their own here. They also appear in the Claude and Codex views where those providers are present.'
+          : activeView === 'unknown'
+            ? 'These candidate files are not assigned to a supported provider and are source-only unless explicitly recognized.'
+            : 'This view contains ' + activeView + '-labeled files plus shared instruction candidates. Shared files can appear in more than one provider view; adding tab totals would double-count them. Inclusion does not prove an agent loaded a file.';
     }
     for (const category of categories) {
       if (!allComponents.some((component) => component.category === category)) continue;
@@ -274,14 +363,19 @@ export function renderHtml(report: Report): string {
       renderInventory();
       $('path-search').focus();
     });
+    $('skill-toggle').addEventListener('click', () => { showAllSkills = !showAllSkills; renderSkills(); });
+    renderProviderOptions();
+    renderViewNote();
+    renderLegend();
+    renderChart();
 
     function renderInventory() {
-      const revision = data.revisions[selected];
+      const revision = viewRevisions[selected];
       const matching = revision.components.filter((component) =>
         (!providerFilter || component.provider === providerFilter) &&
         (!categoryFilter || component.category === categoryFilter) &&
         (!pathSearch || component.path.toLocaleLowerCase().includes(pathSearch)));
-      $('inventory-count').textContent = 'Showing ' + fmt(matching.length) + ' of ' + fmt(revision.components.length) + ' tracked files. Chart and summary totals include all files.';
+      $('inventory-count').textContent = 'Showing ' + fmt(matching.length) + ' of ' + fmt(revision.components.length) + ' files in this view. Chart and summary totals include all files in this view.';
       const files = $('files');
       files.replaceChildren();
       inventoryRows = new Map();
@@ -303,11 +397,12 @@ export function renderHtml(report: Report): string {
     }
 
     function renderTreemap() {
-      const layout = layoutTreemap(data.revisions[selected].components);
+      const layout = layoutTreemap(viewRevisions[selected].components);
       const root = $('treemap');
       const treeLegend = $('treemap-legend');
       root.replaceChildren();
       treeLegend.replaceChildren();
+      $('treemap-hover').textContent = 'Hover or focus a rectangle to see its full path and token count.';
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
       for (const group of layout.groups) {
         const label = text('span', group.category);
@@ -316,7 +411,7 @@ export function renderHtml(report: Report): string {
         label.prepend(swatch);
         treeLegend.append(label);
         for (const leaf of group.leaves) {
-          const component = data.revisions[selected].components[leaf.componentIndex];
+          const component = viewRevisions[selected].components[leaf.componentIndex];
           const button = text('button', '', 'treemap-leaf');
           button.type = 'button';
           button.style.left = leaf.x + '%';
@@ -326,10 +421,17 @@ export function renderHtml(report: Report): string {
           button.style.background = colors[component.category];
           button.title = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
           button.setAttribute('aria-label', button.title);
-          if (leaf.width >= 14 && leaf.height >= 17 && leaf.width * leaf.height >= 260) {
+          if (leaf.width >= 9 && leaf.height >= 10 && leaf.width * leaf.height >= 110) {
             button.append(text('span', component.path.split('/').slice(-2).join('/'), 'leaf-name'), text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size'));
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
+          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
+          const showDetail = () => { $('treemap-hover').textContent = detail; };
+          const clearDetail = () => { $('treemap-hover').textContent = 'Hover or focus a rectangle to see its full path and token count.'; };
+          button.addEventListener('mouseenter', showDetail);
+          button.addEventListener('focus', showDetail);
+          button.addEventListener('mouseleave', clearDetail);
+          button.addEventListener('blur', clearDetail);
           button.addEventListener('click', () => {
             providerFilter = component.provider;
             categoryFilter = component.category;
@@ -354,10 +456,36 @@ export function renderHtml(report: Report): string {
       $('treemap-note').textContent = fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized instructional files · ' + fmt(layout.sourceOnlyCount) + ' source-only files · ' + fmt(layout.zeroTokenCount) + ' zero-token instructional files. Source-only and zero-token files remain in the inventory.';
     }
 
+    function renderSkills() {
+      const groups = viewRevisions[selected].skillGroups;
+      const visible = showAllSkills ? groups : groups.slice(0, 8);
+      const skillBody = $('skill-groups');
+      skillBody.replaceChildren();
+      $('skill-count').textContent = groups.length > 8
+        ? 'Showing ' + fmt(visible.length) + ' of ' + fmt(groups.length) + ' skill bundles.'
+        : fmt(groups.length) + ' skill bundles at this revision.';
+      const toggle = $('skill-toggle');
+      toggle.hidden = groups.length <= 8;
+      toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';
+      toggle.setAttribute('aria-expanded', String(showAllSkills));
+      if (!groups.length) {
+        const row = document.createElement('tr');
+        const cell = text('td', 'No tracked skill bundles at this revision.', 'empty');
+        cell.colSpan = 6;
+        row.append(cell);
+        skillBody.append(row);
+      }
+      for (const group of visible) {
+        const row = document.createElement('tr');
+        row.append(text('td', group.root, 'path'), text('td', group.provider), text('td', group.manifestPath ? 'SKILL.md' : 'Missing', 'kind'), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
+        skillBody.append(row);
+      }
+    }
+
     function renderComparison() {
-      const comparison = compareRevisions(data.revisions[baseline], data.revisions[selected]);
+      const comparison = compareRevisions(viewRevisions[baseline], viewRevisions[selected]);
       $('baseline').value = String(baseline);
-      chartButtons.forEach((button, index) => button.classList.toggle('baseline', index === baseline));
+      chartBuckets.forEach((bucket) => bucket.button.classList.toggle('baseline', bucket.start <= baseline && baseline <= bucket.end));
       $('compare-tokens').textContent = signed(comparison.deltaTokens) + ' (' + fmt(comparison.beforeTokens) + ' → ' + fmt(comparison.afterTokens) + ')';
       $('compare-tokens').className = tone(comparison.deltaTokens);
       $('compare-percent').textContent = comparison.percentChange === null ? '— (baseline is zero)' : (comparison.percentChange > 0 ? '+' : '') + comparison.percentChange.toFixed(1) + '%';
@@ -377,31 +505,32 @@ export function renderHtml(report: Report): string {
       if (!comparison.components.length) {
         const row = document.createElement('tr');
         const cell = text('td', 'No component changes between these revisions.', 'empty');
-        cell.colSpan = 6;
+        cell.colSpan = 5;
         row.append(cell);
         body.append(row);
       }
       for (const component of comparison.components) {
         const row = document.createElement('tr');
-        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', signed(component.deltaFiles), 'num ' + tone(component.deltaFiles)), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)));
+        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)));
         body.append(row);
       }
     }
 
     function render(index) {
       selected = index;
-      const revision = data.revisions[index];
-      const previous = data.revisions[index - 1];
+      const revision = viewRevisions[index];
+      const previous = viewRevisions[index - 1];
       const delta = revision.estimatedTokens - (previous?.estimatedTokens ?? 0);
       slider.value = index;
       $('target').value = String(index);
-      chartButtons.forEach((button, position) => button.classList.toggle('selected', position === index));
+      chartBuckets.forEach((bucket) => bucket.button.classList.toggle('selected', bucket.start <= index && index <= bucket.end));
       $('date').textContent = revision.date.slice(0, 10);
       $('tokens').textContent = fmt(revision.estimatedTokens);
       $('components').textContent = fmt(revision.components.length);
       $('delta').textContent = (delta > 0 ? '+' : '') + fmt(delta);
       $('delta').className = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
       $('revision').textContent = (index + 1) + ' / ' + data.revisions.length + ' · ' + revision.id.slice(0, 10);
+      $('timeline-selected').textContent = 'Selected: ' + revision.date.slice(0, 10) + ' (' + (index + 1) + '/' + data.revisions.length + ')';
 
       const categoryBody = $('categories');
       categoryBody.replaceChildren();
@@ -413,20 +542,7 @@ export function renderHtml(report: Report): string {
         categoryBody.append(row);
       }
 
-      const skillBody = $('skill-groups');
-      skillBody.replaceChildren();
-      if (!revision.skillGroups.length) {
-        const row = document.createElement('tr');
-        const cell = text('td', 'No tracked skill bundles at this revision.', 'empty');
-        cell.colSpan = 6;
-        row.append(cell);
-        skillBody.append(row);
-      }
-      for (const group of revision.skillGroups) {
-        const row = document.createElement('tr');
-        row.append(text('td', group.root, 'path'), text('td', group.provider), text('td', group.manifestPath ? 'SKILL.md' : 'Missing', 'kind'), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
-        skillBody.append(row);
-      }
+      renderSkills();
 
       const changes = $('changes');
       changes.replaceChildren();
