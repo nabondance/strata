@@ -52,6 +52,8 @@ pnpm dev --help
 
 Run `pnpm build && pnpm benchmark` for a disposable large-history analysis fixture, or see [the benchmark notes](docs/benchmark.md) for the baseline and read-only real-repository mode.
 
+For pull requests, the opt-in [composite Action and `strata diff` command](docs/pr-action.md) compare two full commit IDs and produce a Markdown or JSON configuration delta. They read Git blobs without checking out either revision or posting a comment.
+
 The npm package name is `context-strata`, with `strata` as the executable. Version 0.1.0 is a release candidate and has not been published. The npm registry returned 404 for this name on 2026-10-08; recheck availability before publication.
 
 ## Agent-assisted development

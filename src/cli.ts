@@ -9,11 +9,13 @@ import { analyzeRepository } from "./analyze.js";
 import { renderHtml } from "./report.js";
 import { redactReport } from "./privacy.js";
 import type { MeasurementMode } from "./measurement.js";
+import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
 
 const help = `Strata — see how your agent context evolved.
 
 Usage:
   strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base]
+  strata diff <repository> --base <commit> --head <commit> [--output <file>] [--format markdown|json] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base]
   strata skill [--output <file>]
   strata --help
   strata --version
@@ -22,6 +24,7 @@ Analyzes Git-tracked Claude and Codex configuration across first-parent history.
 The default output is an offline HTML report in a private temporary directory.
 Use --shareable to replace repository names, paths, commit IDs, and blob IDs with aliases.
 Use --tokenizer to select an offline stored-text measurement; the default is estimate.
+Use diff for a read-only comparison of two full Git commit IDs, such as a PR base and head.
 Use --open to open an HTML report in your browser.
 Use skill to print the bundled JSON interpretation skill, or --output to save it.
 `;
@@ -58,6 +61,52 @@ try {
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, skill, { flag: "wx", mode: 0o600 });
       process.stdout.write(`Skill: ${destination}\n`);
+    }
+  } else if (args[0] === "diff") {
+    let repository: string | undefined;
+    let base: string | undefined;
+    let head: string | undefined;
+    let output: string | undefined;
+    let format: "markdown" | "json" = "markdown";
+    let tokenizer: MeasurementMode = "estimate";
+    for (let index = 1; index < args.length; index += 1) {
+      const argument = args[index];
+      if (argument === "--base") {
+        base = args[++index];
+      } else if (argument === "--head") {
+        head = args[++index];
+      } else if (argument === "--output") {
+        output = args[++index];
+        if (!output) throw new Error("--output requires a file path");
+      } else if (argument === "--format") {
+        const value = args[++index];
+        if (value !== "markdown" && value !== "json") throw new Error("--format must be markdown or json");
+        format = value;
+      } else if (argument === "--tokenizer") {
+        const value = args[++index];
+        if (value !== "estimate" && value !== "openai-cl100k_base" && value !== "openai-o200k_base") {
+          throw new Error("--tokenizer must be estimate, openai-cl100k_base, or openai-o200k_base");
+        }
+        tokenizer = value;
+      } else if (argument?.startsWith("-")) {
+        throw new Error(`Unknown option: ${argument}`);
+      } else if (!repository && argument) {
+        repository = argument;
+      } else {
+        throw new Error(`Unexpected argument: ${argument}`);
+      }
+    }
+    if (!repository || !base || !head) throw new Error("Usage: strata diff <repository> --base <commit> --head <commit>");
+    const delta = compareGitCommits(repository, base, head, tokenizer);
+    const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
+    if (output) {
+      const destination = resolve(output);
+      mkdirSync(dirname(destination), { recursive: true });
+      writeFileSync(destination, content);
+      chmodSync(destination, 0o600);
+      process.stdout.write(`Delta: ${destination}\n`);
+    } else {
+      process.stdout.write(content);
     }
   } else if (args[0] === "analyze") {
     let repository: string | undefined;

@@ -9,6 +9,7 @@ import { runInNewContext } from "node:vm";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { getEncoding } from "js-tiktoken";
 import { createMeasurer } from "../dist/measurement.js";
+import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { compareRevisions } from "../dist/compare.js";
 import { renderHtml } from "../dist/report.js";
 import { redactReport } from "../dist/privacy.js";
@@ -167,6 +168,19 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions[0].id, first);
     assert.equal(report.revisions.at(-1).id, merge);
     assert.equal(report.revisions.at(-1).firstParent, beforeMerge);
+    const prDelta = compareGitCommits(repo, first, merge);
+    assert.equal(prDelta.schemaVersion, 1);
+    assert.deepEqual(prDelta.comparison, compareRevisions(report.revisions[0], report.revisions.at(-1)));
+    const prMarkdown = renderPullRequestDelta(prDelta);
+    assert.match(prMarkdown, /Strata configuration delta/);
+    assert.ok(!prMarkdown.includes("Root instructions."));
+    const hostileDelta = { ...prDelta, comparison: { ...prDelta.comparison,
+      components: [{ ...prDelta.comparison.components[0], path: "<img src=x onerror=alert(1)>|bad" }] } };
+    const safeMarkdown = renderPullRequestDelta(hostileDelta);
+    assert.ok(!safeMarkdown.includes("<img"));
+    assert.match(safeMarkdown, /&lt;img/);
+    assert.match(safeMarkdown, /\\\|bad/);
+    assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
     assert.equal(report.schemaVersion, 5);
     assert.equal(report.privacy.mode, "local");
     assert.equal(report.measurement.accuracy, "estimate");
@@ -256,6 +270,10 @@ test("tracks configuration across first-parent history without reading untracked
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);
+    const diffOutput = join(repo, "pr-delta.md");
+    const diffCli = spawnSync(process.execPath, ["dist/cli.js", "diff", repo, "--base", first, "--head", merge, "--output", diffOutput], { encoding: "utf8" });
+    assert.equal(diffCli.status, 0, diffCli.stderr);
+    assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = analyzeRepository(repo, undefined, "openai-o200k_base");
     assert.equal(openAiReport.schemaVersion, 5);
     assert.deepEqual([openAiReport.measurement.family, openAiReport.measurement.accuracy, openAiReport.measurement.encoding, openAiReport.measurement.implementation],
