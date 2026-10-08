@@ -7,17 +7,19 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { analyzeRepository } from "./analyze.js";
 import { renderHtml } from "./report.js";
+import { redactReport } from "./privacy.js";
 
 const help = `Strata — see how your agent context evolved.
 
 Usage:
-  strata analyze <repository> [--output <file>] [--format html|json] [--open]
+  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable]
   strata skill [--output <file>]
   strata --help
   strata --version
 
 Analyzes Git-tracked Claude and Codex configuration across first-parent history.
 The default output is an offline HTML report in a private temporary directory.
+Use --shareable to replace repository names, paths, commit IDs, and blob IDs with aliases.
 Use --open to open an HTML report in your browser.
 Use skill to print the bundled JSON interpretation skill, or --output to save it.
 `;
@@ -60,6 +62,7 @@ try {
     let output: string | undefined;
     let format: "html" | "json" = "html";
     let open = false;
+    let shareable = false;
     for (let index = 1; index < args.length; index += 1) {
       const argument = args[index];
       if (argument === "--output") {
@@ -71,6 +74,8 @@ try {
         format = value;
       } else if (argument === "--open") {
         open = true;
+      } else if (argument === "--shareable") {
+        shareable = true;
       } else if (argument?.startsWith("-")) {
         throw new Error(`Unknown option: ${argument}`);
       } else if (!repository && argument) {
@@ -82,7 +87,7 @@ try {
     if (!repository) throw new Error("A repository path is required");
     if (open && format !== "html") throw new Error("--open requires HTML output");
     let lastDecile = 0;
-    const report = analyzeRepository(repository, ({ completed, total }) => {
+    const analyzed = analyzeRepository(repository, ({ completed, total }) => {
       if (completed === 0) {
         process.stderr.write(`Analyzing ${total} revisions...\n`);
       } else {
@@ -93,6 +98,7 @@ try {
         }
       }
     });
+    const report = shareable ? redactReport(analyzed) : analyzed;
     const destination = output
       ? resolve(output)
       : join(mkdtempSync(join(tmpdir(), "strata-report-")), format === "json" ? "report.json" : "report.html");

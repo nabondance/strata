@@ -16,14 +16,15 @@ Stored instructional text uses Strata's `utf8-bytes-divided-by-four-v1` comparis
 
 ## Report contract and privacy
 
-Schema version 3 retains provider labels, an `other` category for visible unsupported candidates, and `sourceOnlyCount` in each category total, then adds skill-bundle membership. A shortened, illustrative JSON shape:
+Schema version 4 retains provider labels, an `other` category for visible unsupported candidates, `sourceOnlyCount`, and skill-bundle membership, then adds a report privacy mode. A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "repository": "example",
   "branch": "main",
   "shallow": false,
+  "privacy": { "mode": "local" },
   "measurement": {
     "label": "Estimated stored-text tokens",
     "method": "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file",
@@ -52,9 +53,11 @@ Schema version 3 retains provider labels, an `other` category for visible unsupp
 
 The actual `categoryTotals` has an entry for every category. Skill components have a `skill` object with directory root and `manifest` or `resource` role. `skillGroups` summarizes those same files, separating manifest token estimates from resource byte sizes; these summaries are not additional measurements. Default HTML and JSON contain commit IDs, dates, paths, provider/category labels, blob IDs, byte sizes, and estimates. They contain no source text. Paths and blob IDs can still disclose repository structure. Generated reports are local artifacts; the CLI sets output mode `0600`. No telemetry or content upload is used.
 
+`--shareable` produces schema version 4 with `privacy.mode: "shareable"`. It replaces repository and branch names, commit and first-parent IDs, component and change paths, skill roots, and blob IDs with deterministic aliases local to that report. The alias maps are not embedded. Dates, category and provider labels, counts, byte sizes, estimates, change kinds, and timeline shape remain visible. The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect before publishing.
+
 ## Revision comparison
 
-The offline HTML report compares any two revisions present in the report; comparison semantics are unchanged by schema version 3. The timeline and target selector refer to the same revision; the baseline selector stays fixed when the target changes. The comparison shows signed differences in estimated stored-text tokens and tracked file counts, grouped by provider and category. A zero-token baseline has no meaningful percentage change and is shown without a percentage.
+The offline HTML report compares any two revisions present in the report; comparison semantics are unchanged by schema version 4. The timeline and target selector refer to the same revision; the baseline selector stays fixed when the target changes. The comparison shows signed differences in estimated stored-text tokens and tracked file counts, grouped by provider and category. A zero-token baseline has no meaningful percentage change and is shown without a percentage.
 
 Components are matched by provider, category, and path. A changed blob at the same identity is shown as edited even if its token estimate is unchanged. A renamed or reorganized file may appear as a removal and addition; the comparison does not assert that instructions survived or that a refactor occurred. Source-only files affect file counts but contribute zero to estimated-token deltas.
 

@@ -9,6 +9,7 @@ import { runInNewContext } from "node:vm";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { renderHtml } from "../dist/report.js";
+import { redactReport } from "../dist/privacy.js";
 import { layoutTreemap } from "../dist/treemap.js";
 
 function exerciseReportUi(html, report) {
@@ -164,7 +165,8 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions[0].id, first);
     assert.equal(report.revisions.at(-1).id, merge);
     assert.equal(report.revisions.at(-1).firstParent, beforeMerge);
-    assert.equal(report.schemaVersion, 3);
+    assert.equal(report.schemaVersion, 4);
+    assert.equal(report.privacy.mode, "local");
     assert.equal(report.revisions[0].categoryTotals.settings.count, 2);
     assert.equal(report.revisions[0].categoryTotals.settings.sourceOnlyCount, 2);
     assert.equal(report.revisions[0].categoryTotals.settings.estimatedTokens, 0);
@@ -221,6 +223,24 @@ test("tracks configuration across first-parent history without reading untracked
     const html = renderHtml(report);
     exerciseReportUi(html, report);
     assert.ok(!html.includes("Follow the project conventions."));
+    const shareable = redactReport(report);
+    const shareableJson = JSON.stringify(shareable);
+    assert.deepEqual(redactReport(report), shareable);
+    assert.equal(shareable.privacy.mode, "shareable");
+    assert.equal(report.privacy.mode, "local");
+    assert.match(shareable.revisions[0].components[0].path, /^file-\d{5}$/);
+    for (const revision of report.revisions) {
+      assert.ok(!shareableJson.includes(revision.id));
+      for (const component of revision.components) {
+        assert.ok(!shareableJson.includes(component.path));
+        assert.ok(!shareableJson.includes(component.blob));
+      }
+    }
+    assert.ok(!shareableJson.includes(report.repository));
+    assert.equal(shareable.revisions.at(-1).estimatedTokens, report.revisions.at(-1).estimatedTokens);
+    assert.equal(compareRevisions(shareable.revisions[0], shareable.revisions.at(-1)).deltaTokens,
+      compareRevisions(report.revisions[0], report.revisions.at(-1)).deltaTokens);
+    exerciseReportUi(renderHtml(shareable), shareable);
     const hostileName = "<img onerror=alert(1)>.md";
     report.revisions[0].components[0].path = hostileName;
     assert.ok(!renderHtml(report).includes(hostileName));
@@ -233,6 +253,12 @@ test("tracks configuration across first-parent history without reading untracked
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);
+    const shareableOutput = join(repo, "shareable.json");
+    const shareableCli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--shareable", "--output", shareableOutput, "--format", "json"], { encoding: "utf8" });
+    assert.equal(shareableCli.status, 0, shareableCli.stderr);
+    const cliSharedReport = JSON.parse(readFileSync(shareableOutput, "utf8"));
+    assert.equal(cliSharedReport.privacy.mode, "shareable");
+    assert.ok(!JSON.stringify(cliSharedReport).includes(merge));
 
     const renamedComparison = compareRevisions(report.revisions[3], report.revisions[4]);
     assert.equal(renamedComparison.deltaFiles, 0);

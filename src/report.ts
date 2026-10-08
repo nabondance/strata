@@ -200,7 +200,7 @@ export function renderHtml(report: Report): string {
     const chartButtons = [];
 
     $('repo').textContent = data.repository + ' / ' + data.branch + ' · ' + data.revisions.length + ' revisions';
-    $('method').textContent = data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
+    $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
     if (data.shallow) $('method').classList.add('warning');
     const legend = $('legend');
     for (const category of categories) {

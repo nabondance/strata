@@ -44,10 +44,11 @@ export interface Revision {
 }
 
 export interface Report {
-  schemaVersion: 3;
+  schemaVersion: 4;
   repository: string;
   branch: string;
   shallow: boolean;
+  privacy: { mode: "local" | "shareable" };
   measurement: {
     label: string;
     method: string;
@@ -265,10 +266,11 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   }
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     repository: basename(root),
     branch,
     shallow,
+    privacy: { mode: "local" },
     measurement: {
       label: "Estimated stored-text tokens",
       method: "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file",
