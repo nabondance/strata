@@ -176,6 +176,11 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   const root = gitText(repo, ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
   const shallow = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
+  try {
+    git(root, ["rev-parse", "--verify", "HEAD"]);
+  } catch {
+    throw new Error("The repository has no commits to analyze");
+  }
   const log = gitText(root, ["log", "--first-parent", "--reverse", "--format=%H%x09%aI%x09%P", "HEAD"]);
   if (!log) throw new Error("The repository has no commits to analyze");
   const commits = log.split("\n");

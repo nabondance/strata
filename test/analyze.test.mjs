@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -106,6 +106,7 @@ test("tracks configuration across first-parent history without reading untracked
     git("init", "-b", "main");
     git("config", "user.name", "Strata Test");
     git("config", "user.email", "strata-test@example.invalid");
+    assert.throws(() => analyzeRepository(repo), /no commits to analyze/);
 
     put("CLAUDE.md", "Root instructions.\n");
     put(".claude/CLAUDE.md", "Claude-specific project instructions.\n");
@@ -119,6 +120,9 @@ test("tracks configuration across first-parent history without reading untracked
     put(".codex/config.toml", "model = \"gpt-6-sol\"\n");
     put(".codex/agents/reviewer.toml", "name = \"reviewer\"\ndeveloper_instructions = \"Review the diff.\"\n");
     put(".codex/rules/permissions.rules", "prefix_rule(pattern = [\"git\", \"status\"], decision = \"allow\")\n");
+    put(".claude/rules/empty.md", "");
+    put(".claude/rules/odd\tname.md", "Handle unusual Git paths.\n");
+    symlinkSync("missing.md", join(repo, ".claude/rules/linked.md"));
     put("notes/SKILL.md", "Unrelated Markdown.\n");
     put(".claude/settings.json", '{"hooks":{}}\n');
     const first = commit("Initial configuration");
@@ -168,6 +172,9 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(report.revisions[0].categoryTotals.skills.sourceOnlyCount, 4);
     assert.equal(report.revisions[0].categoryTotals.rules.sourceOnlyCount, 1);
     assert.equal(report.revisions[0].categoryTotals.agents.sourceOnlyCount, 1);
+    assert.equal(report.revisions[0].components.find((component) => component.path === ".claude/rules/empty.md")?.estimatedTokens, 0);
+    assert.ok(report.revisions[0].components.some((component) => component.path === ".claude/rules/odd\tname.md"));
+    assert.ok(!report.revisions[0].components.some((component) => component.path === ".claude/rules/linked.md"));
     assert.equal(report.revisions[0].components.find((component) => component.path === ".agents/skills/release/SKILL.md")?.provider, "codex");
     const checklist = report.revisions[0].components.find((component) => component.path === ".agents/skills/release/references/checklist.md");
     assert.equal(checklist?.provider, "codex");
@@ -195,7 +202,7 @@ test("tracks configuration across first-parent history without reading untracked
       change.kind === "renamed" && change.previousPath === ".claude/agents/reviewer.md" && change.path === ".claude/agents/code-reviewer.md"));
     assert.ok(report.revisions[6].changes.some((change) =>
       change.kind === "removed" && change.path === ".claude/agents/code-reviewer.md"));
-    assert.equal(report.revisions.at(-1).categoryTotals.rules.count, 2);
+    assert.equal(report.revisions.at(-1).categoryTotals.rules.count, 4);
     assert.equal(report.revisions.at(-1).categoryTotals.commands.count, 1);
     assert.ok(!report.revisions.at(-1).components.some((component) => component.path.includes("untracked")));
     for (const revision of report.revisions) {
@@ -301,7 +308,7 @@ test("tracks configuration across first-parent history without reading untracked
     }
     assert.ok(Math.abs(treemap.groups.reduce((sum, group) => sum + group.width * group.height, 0) - 10000) < 1e-8);
     const withEmpty = layoutTreemap([...afterSplit.components, { path: "empty.md", provider: "shared", category: "instructions", blob: "empty", bytes: 0, estimatedTokens: 0 }]);
-    assert.equal(withEmpty.zeroTokenCount, 1);
+    assert.equal(withEmpty.zeroTokenCount, treemap.zeroTokenCount + 1);
     assert.equal(withEmpty.totalTokens, treemap.totalTokens);
     assert.equal(splitReport.revisions.length, 11);
     assert.equal(split.deltaFiles, 1);
@@ -329,6 +336,10 @@ test("tracks configuration across first-parent history without reading untracked
     } finally {
       rmSync(shallow, { recursive: true, force: true });
     }
+    git("checkout", "--detach");
+    const detached = analyzeRepository(repo);
+    assert.equal(detached.branch, "detached HEAD");
+    assert.equal(detached.revisions.length, splitReport.revisions.length);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
