@@ -6,6 +6,10 @@ Recorded 2026-10-08. These choices describe the current implementation, not a pa
 
 The npm package name is `context-strata`; its executable is `strata`. Direct queries to the npm registry on 2026-10-08 returned 404 for `context-strata` and `strata@0.20.1` for `strata`. A 404 is not a reservation. The package remains private and unpublished; verify availability again before release. The intended command after publication is `npx context-strata analyze . --output report.html`.
 
+## License and contributions
+
+Strata uses the OSI-approved MIT license, chosen to allow broad use and redistribution with a short attribution requirement. The repository has a contribution guide and a security-reporting path. The packaged runtime dependency `d3-hierarchy` has a separate ISC license, which remains embedded in offline HTML reports alongside its code.
+
 ## Measurement
 
 Stored instructional text uses Strata's `utf8-bytes-divided-by-four-v1` comparison estimate: `ceil(UTF-8 bytes / 4)` per file, then sum. There is no tokenizer dependency or network request. Four synthetic instruction, skill, multilingual, and code samples produced 14, 29, 23, and 16 estimated tokens. A local `js-tiktoken@1.0.21` `cl100k_base` comparison produced 9, 26, 25, and 15. The reference tokenizer is not Claude's tokenizer either, and the sample is too small to establish general accuracy. The estimate is useful for consistent historical trends, not exact context or billing claims. Structured config and supporting resources are source bytes only.

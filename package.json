@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "See how your agent context evolved across Git history.",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nabondance/strata.git"

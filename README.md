@@ -4,6 +4,8 @@ See how your agent context evolved across Git history.
 
 Strata is in early development. The CLI reads tracked configuration across Git history and produces an offline interactive report. See [the project foundation](brief.md), [the implementation plan](IMPLEMENTATION_PLAN.md), [the current analysis scope](docs/analysis-scope.md), and [first-release decisions](docs/decisions.md).
 
+Strata is released under the [MIT license](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution guidance and [SECURITY.md](SECURITY.md) for vulnerability reporting.
+
 ## Try it locally
 
 After installing dependencies and building, run:
