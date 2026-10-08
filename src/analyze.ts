@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { basename, resolve } from "node:path";
 import { categories, classify, type Category, type Provider } from "./adapters.js";
-import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
+import { createMeasurer, modeForModel, type Measurement, type MeasurementMode } from "./measurement.js";
+import { countProviderText, providerMeasurementMetadata, type ProviderCountOptions, type ProviderTextCount } from "./provider-count.js";
 
 export { categories } from "./adapters.js";
 
@@ -12,6 +13,7 @@ export interface Component {
   blob: string;
   bytes: number;
   estimatedTokens: number | null;
+  providerTokenCounts?: Partial<Record<"claude" | "gemini" | "codex", ProviderTextCount>>;
   skill?: { root: string; role: "manifest" | "resource" };
 }
 
@@ -42,15 +44,17 @@ export interface Revision {
   categoryTotals: Record<Category, { count: number; bytes: number; estimatedTokens: number; sourceOnlyCount: number }>;
   estimatedTokens: number;
   changes: Change[];
+  providerTokenTotals?: Partial<Record<"claude" | "gemini" | "codex", number>>;
 }
 
 export interface Report {
-  schemaVersion: 6;
+  schemaVersion: 8;
   repository: string;
   branch: string;
   shallow: boolean;
   privacy: { mode: "local" | "shareable" };
   measurement: Measurement;
+  providerMeasurements?: ReturnType<typeof providerMeasurementMetadata>;
   revisions: Revision[];
 }
 
@@ -169,8 +173,17 @@ function buildChanges(
   return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function analyzeRepository(repoPath: string, onProgress?: (progress: AnalysisProgress) => void, mode: MeasurementMode = "estimate", model: string | null = null): Report {
+export async function analyzeRepository(
+  repoPath: string,
+  onProgress?: (progress: AnalysisProgress) => void,
+  mode: MeasurementMode = "estimate",
+  model: string | null = null,
+  providerCounts?: ProviderCountOptions,
+): Promise<Report> {
   const measurer = createMeasurer(mode, model);
+  const codexMeasurer = providerCounts?.codexModel
+    ? createMeasurer(modeForModel(providerCounts.codexModel), providerCounts.codexModel)
+    : null;
   const repo = resolve(repoPath);
   const root = gitText(repo, ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
@@ -185,19 +198,21 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
   const commits = log.split("\n");
 
   const blobMeasurements = new Map<string, { bytes: number; estimatedTokens: number | null }>();
+  const providerBlobMeasurements = new Map<string, ProviderTextCount>();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
   const revisions: Revision[] = [];
   onProgress?.({ completed: 0, total: commits.length });
   for (const line of commits) {
     const [id, date, parents] = line.split("\t");
     if (!id || !date) throw new Error("Malformed git log output");
-    const components = treeEntries(root, id).map(({ path, blob }) => {
+    const components = await Promise.all(treeEntries(root, id).map(async ({ path, blob }) => {
       const classification = classify(path);
       if (!classification) throw new Error(`Unexpected unclassified path: ${path}`);
       let measured = blobMeasurements.get(blob);
       if (!measured || (classification.instructionalText && measured.estimatedTokens === null)) {
         const body = git(root, ["cat-file", "blob", blob]);
         let estimatedTokens: number | null = null;
-        if (classification.instructionalText) {
+        if (classification.instructionalText && !providerCounts) {
           try {
             estimatedTokens = measurer.count(body);
           } catch (error) {
@@ -207,18 +222,52 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
         measured = { bytes: body.length, estimatedTokens };
         blobMeasurements.set(blob, measured);
       }
+      const componentProviderCounts: Partial<Record<"claude" | "gemini" | "codex", ProviderTextCount>> = {};
+      if (providerCounts && classification.instructionalText) {
+        const body = git(root, ["cat-file", "blob", blob]);
+        const applicable: Array<"claude" | "gemini" | "codex"> = classification.provider === "shared"
+          ? ["claude", "gemini", ...(codexMeasurer ? ["codex" as const] : [])]
+          : classification.provider === "claude" || classification.provider === "gemini"
+            ? [classification.provider]
+            : classification.provider === "codex" && codexMeasurer ? ["codex"] : [];
+        for (const provider of applicable) {
+          const modelForProvider = provider === "claude" ? providerCounts.claudeModel
+            : provider === "gemini" ? providerCounts.geminiModel : providerCounts.codexModel!;
+          const cacheKey = `${provider}\0${modelForProvider}\0${blob}`;
+          let providerCount = providerBlobMeasurements.get(cacheKey);
+          if (!providerCount) {
+            try {
+              if (provider === "codex") {
+                providerCount = {
+                  tokens: codexMeasurer!.count(body), provider, model: modelForProvider,
+                  method: `js-tiktoken@1.0.21: ${modelForProvider} → ${codexMeasurer!.measurement.encoding}, counted per instructional file`,
+                  version: "js-tiktoken@1.0.21", accuracy: "encoding-exact",
+                };
+              } else {
+                const text = decoder.decode(body);
+                providerCount = await countProviderText(provider, modelForProvider, text, providerCounts);
+              }
+            } catch (error) {
+              throw new Error(`Could not count ${provider} instructions at ${path}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            providerBlobMeasurements.set(cacheKey, providerCount);
+          }
+          componentProviderCounts[provider] = providerCount;
+        }
+      }
       return {
         path,
         blob,
         provider: classification.provider,
         category: classification.category,
         bytes: measured.bytes,
-        estimatedTokens: classification.instructionalText ? measured.estimatedTokens : null,
+        estimatedTokens: classification.instructionalText ? (providerCounts ? Math.ceil(measured.bytes / 4) : measured.estimatedTokens) : null,
+        ...(Object.keys(componentProviderCounts).length ? { providerTokenCounts: componentProviderCounts } : {}),
         ...(classification.skillRoot && classification.skillRole
           ? { skill: { root: classification.skillRoot, role: classification.skillRole } }
           : {}),
       } satisfies Component;
-    });
+    }));
     components.sort((a, b) => a.path.localeCompare(b.path));
 
     const groupedSkills = new Map<string, SkillGroup>();
@@ -258,6 +307,13 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
       components,
       previous ? renamePairs(root, previous.id, id) : new Map(),
     );
+    const providerTokenTotals: Partial<Record<"claude" | "gemini" | "codex", number>> = {};
+    for (const component of components) {
+      for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {})) {
+        providerTokenTotals[provider as "claude" | "gemini" | "codex"] =
+          (providerTokenTotals[provider as "claude" | "gemini" | "codex"] ?? 0) + count.tokens;
+      }
+    }
     revisions.push({
       id,
       date,
@@ -267,17 +323,19 @@ export function analyzeRepository(repoPath: string, onProgress?: (progress: Anal
       categoryTotals,
       estimatedTokens: categories.reduce((sum, category) => sum + categoryTotals[category].estimatedTokens, 0),
       changes,
+      ...(providerCounts ? { providerTokenTotals } : {}),
     });
     onProgress?.({ completed: revisions.length, total: commits.length });
   }
 
   return {
-    schemaVersion: 6,
+    schemaVersion: 8,
     repository: basename(root),
     branch,
     shallow,
     privacy: { mode: "local" },
     measurement: measurer.measurement,
+    ...(providerCounts ? { providerMeasurements: providerMeasurementMetadata(providerCounts) } : {}),
     revisions,
   };
 }

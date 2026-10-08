@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security concern
+    url: https://github.com/nabondance/strata/security/policy
+    about: Follow SECURITY.md for a private reporting path. Do not post exploit details or credentials publicly.

@@ -1,16 +1,34 @@
-# Local token-counting study
+# Token-counting methods
 
-Recorded 2026-10-08 for the optional measurement mode. Strata measures **stored instruction text** in Git blobs. Even an exact text encoding count does not establish which files an agent loaded or the tokens billed for a session.
+Strata counts stored instructional text from Git blobs. No method establishes which files an agent loaded or the tokens billed for a session.
 
-| Family | Local option | Current evidence and decision |
+## Default and local methods
+
+The default is `utf8-bytes-divided-by-four-v1`: `ceil(UTF-8 bytes / 4)` per instructional file, summed across files and revisions. It is a comparison estimate, not a provider tokenizer.
+
+OpenAI/Codex local counts use `js-tiktoken@1.0.21`. `--tokenizer openai-cl100k_base` and `openai-o200k_base` select an encoding. `--model` maps the supported model names (`gpt-4`, `gpt-4o`, `gpt-4.1`, `gpt-5`, `o3`, `o4-mini`) to the encoding documented by [OpenAI's tiktoken model map](https://github.com/openai/tiktoken/blob/main/tiktoken/model.py). These counts are encoding-exact for valid UTF-8 stored text, but exclude message framing and special-token handling. They are not complete request, loaded-context, or billing counts.
+
+All default and local methods run offline. They do not send Git content to a service.
+
+## Explicit provider API mode
+
+`strata analyze --provider-api --claude-model <model> --gemini-model <model>` opts into sending recognized Claude and Gemini instructional text to provider endpoints. Set `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). `--codex-model <openai-model>` optionally adds a local OpenAI encoding count for Codex instructions. The provider models must be named explicitly; Strata does not infer a model from file paths.
+
+Claude text is sent in one user message to [Anthropic's Messages count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens). Gemini text is sent as one user content to [Gemini's `models.countTokens` endpoint](https://ai.google.dev/api/tokens). The report labels every count with its provider, model, request shape/method, API or library version, and accuracy (`api-counted` or `encoding-exact`). API counts reflect those submitted text wrappers, not actual agent context or billing.
+
+Shared instruction candidates are counted separately for each selected provider. Per-provider counts and revision totals remain separate; Strata does not add heterogeneous token counts. The legacy `estimatedTokens` value and timeline remain the default comparison estimate in this mode. The HTML inventory displays separate provider columns, and JSON stores a count object for each provider on each recognized instructional component.
+
+Counts are cached by provider, model, and Git blob within one run. Structured settings and source-only skill resources are never submitted. Source text is not embedded in HTML or JSON. `strata diff` remains local-only. `--shareable` reduces identifiers in the report but does not prevent transfer when provider API mode is selected.
+
+## Evidence and limits
+
+| Family | Method | Evidence / interpretation |
 | --- | --- | --- |
-| OpenAI / Codex | [OpenAI `tiktoken`](https://github.com/openai/tiktoken) provides model-to-encoding mappings. [The `js-tiktoken` port](https://github.com/dqbd/tiktoken/blob/main/js/README.md) runs locally in Node without WASM. | Offer an explicit encoding-based mode, pinned to a library version. Label the result as a text count under that encoding; do not claim it is a full request or session count. |
-| Claude | [Anthropic's archived TypeScript tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript) says it is inaccurate for Claude 3 onward. [Anthropic's current count-tokens endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens) requires API access and sends content. | Keep a clearly labeled local estimate by default. Plan an explicit API mode; do not label the archived tokenizer as accurate for current Claude models. |
-| Gemini | [Google documents `countTokens`](https://ai.google.dev/api/tokens) as a model-specific API request. The third-party [`token-count` CLI](https://github.com/shaunburdick/token-count) claims exact offline Gemini counts using a Gemma 3 tokenizer, but the cited Google documentation does not establish equivalence with Gemini's tokenizer. | Keep a clearly labeled local estimate by default. Plan an explicit API mode; do not present Gemma counts as exact Gemini counts. |
+| OpenAI / Codex | Local `js-tiktoken@1.0.21` encodings | [OpenAI's tiktoken](https://github.com/openai/tiktoken) documents model-to-encoding mappings. The [JavaScript port](https://github.com/dqbd/tiktoken/blob/main/js/README.md) runs locally in Node. |
+| Claude | Explicit API mode | Anthropic's [count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens) counts tokens for a supplied Message request. Older local tokenizer packages state that they are inaccurate for Claude 3 and later, so Strata does not label them exact. |
+| Gemini | Explicit API mode | Google's [`models.countTokens`](https://ai.google.dev/api/tokens) runs the selected model's tokenizer on supplied Content. Third-party offline Gemma tokenizers are not treated as exact Gemini counts. |
 
-The maintainer approved provider API counts for a later release. This mode must be explicitly selected because it sends Git-tracked instruction text to a provider. Within that mode, Strata should use each file's provider classification to route Claude text to [Anthropic's Messages token-count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens) and Gemini text to [Gemini's `models.countTokens`](https://ai.google.dev/api/tokens); Codex/OpenAI text can continue using a documented local encoding where available. A Gemini adapter is needed before Gemini files can be recognized reliably. A path does not establish the model used in an actual session, so the selected model must be explicit and recorded with each count. Shared instructions need separate measurements for each applicable provider view; heterogeneous provider counts are not additive into one meaningful all-files total. Responses remain counts for the submitted text/request shape, not actual loaded context or billed session tokens. Cache by provider, model, and blob within a run, and fail clearly on missing credentials or API errors rather than silently mixing estimates into an API total.
-
-`js-tiktoken@1.0.21` is MIT-licensed and was 22.4 MB unpacked in the npm registry on the study date. Its local `cl100k_base` and `o200k_base` counts were compared with the current UTF-8-byte estimate on four short synthetic snippets:
+Local OpenAI encodings and the default byte estimate were compared on short synthetic strings. The samples show that methods differ; they do not establish that one predicts another provider's tokenizer.
 
 | Sample | bytes/4 estimate | cl100k_base | o200k_base |
 | --- | ---: | ---: | ---: |
@@ -18,7 +36,3 @@ The maintainer approved provider API counts for a later release. This mode must 
 | Skill manifest | 19 | 17 | 17 |
 | Multilingual instruction | 15 | 18 | 15 |
 | Code snippet | 14 | 14 | 14 |
-
-These samples establish that the methods differ, not that one predicts another provider's counts. The first implementation should keep `utf8-bytes-divided-by-four-v1` as the default for reproducible offline history, add an opt-in OpenAI text-encoding mode, record encoding and implementation version in the report, and cache counts by blob within a run. Structured configuration and skill resources remain source-only. The approved remote count mode still requires credentials, content-transfer disclosure, schema design, and separate testing before implementation.
-
-Implemented afterward: explicit `cl100k_base` and `o200k_base` modes plus `--model` for a small set of names in [OpenAI's published mapping](https://github.com/openai/tiktoken/blob/main/tiktoken/model.py). `gpt-4` maps to `cl100k_base`; `gpt-4o`, `gpt-4.1`, `gpt-5`, `o3`, and `o4-mini` map to `o200k_base`. The model name and encoding are recorded in schema version 6. Unknown models are rejected; a new model is not assigned an encoding by guesswork. Claude and Gemini still use the generic estimate unless a user explicitly chooses an OpenAI encoding as a comparison lens, which does not make it a provider-specific count for those files.

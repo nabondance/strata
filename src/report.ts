@@ -199,7 +199,8 @@ export function renderHtml(report: Report): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite"></p>
-      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th></tr></thead><tbody id="files"></tbody></table></div></section>
+      ${report.providerMeasurements ? `<p class="muted">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
+      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th><th class="num">Claude API</th><th class="num">Gemini API</th><th class="num">Codex / OpenAI local</th></tr></thead><tbody id="files"></tbody></table></div></section>
     <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Source-only files are listed by byte size and excluded from instruction token estimates.</footer>
   </main>
   <script>${embeddedD3}</script>
@@ -316,7 +317,7 @@ export function renderHtml(report: Report): string {
         pathSearch = '';
         $('category-filter').value = '';
         $('path-search').value = '';
-        $('provider-tabs').children.forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
+        Array.from($('provider-tabs').children).forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
         renderProviderOptions();
         renderViewNote();
         renderLegend();
@@ -341,7 +342,7 @@ export function renderHtml(report: Report): string {
       $('view-note').textContent = activeView === 'all'
         ? 'All tracked configuration files are counted once. Provider views overlap where shared instructions are present; none of these totals measures loaded session context.'
         : activeView === 'shared'
-          ? 'Shared instruction candidates are shown on their own here. They also appear in the Claude and Codex views where those providers are present.'
+          ? 'Shared instruction candidates are shown on their own here. They also appear in provider views where those providers are present.'
           : activeView === 'unknown'
             ? 'These candidate files are not assigned to a supported provider and are source-only unless explicitly recognized.'
             : 'This view contains ' + activeView + '-labeled files plus shared instruction candidates. Shared files can appear in more than one provider view; adding tab totals would double-count them. Inclusion does not prove an agent loaded a file.';
@@ -384,7 +385,7 @@ export function renderHtml(report: Report): string {
       if (!matching.length) {
         const row = document.createElement('tr');
         const cell = text('td', 'No files match these filters.', 'empty');
-        cell.colSpan = 5;
+        cell.colSpan = 8;
         row.append(cell);
         files.append(row);
       }
@@ -393,6 +394,12 @@ export function renderHtml(report: Report): string {
         const row = document.createElement('tr');
         row.tabIndex = -1;
         row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
+        for (const provider of ['claude', 'gemini', 'codex']) {
+          const count = component.providerTokenCounts?.[provider];
+          const cell = text('td', count ? fmt(count.tokens) : '—', 'num');
+          if (count) cell.title = count.accuracy + ' · ' + count.model + ' · ' + count.method + ' · ' + count.version;
+          row.append(cell);
+        }
         files.append(row);
         inventoryRows.set(component.path, row);
       }

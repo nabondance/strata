@@ -11,7 +11,7 @@ export const categories = [
 ] as const;
 
 export type Category = (typeof categories)[number];
-export type Provider = "claude" | "codex" | "shared" | "unknown";
+export type Provider = "claude" | "codex" | "gemini" | "shared" | "unknown";
 
 export interface Classification {
   provider: Provider;
@@ -24,7 +24,7 @@ export interface Classification {
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
 function skill(_path: string, parts: string[]): Classification | null {
-  for (const [directory, provider] of [[".agents", "codex"], [".claude", "claude"]] as const) {
+  for (const [directory, provider] of [[".agents", "codex"], [".claude", "claude"], [".gemini", "gemini"]] as const) {
     const index = parts.indexOf(directory);
     if (index < 0) continue;
     const within = parts.slice(index + 1);
@@ -36,6 +36,29 @@ function skill(_path: string, parts: string[]): Classification | null {
     };
   }
   return null;
+}
+
+function gemini(path: string, parts: string[]): Classification | null {
+  const filename = parts.at(-1);
+  if (filename === "GEMINI.md") {
+    return { provider: "gemini", category: "instructions", instructionalText: true };
+  }
+  const index = parts.indexOf(".gemini");
+  if (index < 0) return null;
+  const within = parts.slice(index + 1);
+  if (within.length === 1 && filename === "settings.json") {
+    return { provider: "gemini", category: "settings", instructionalText: false };
+  }
+  if (within.length === 1 && filename === "system.md") {
+    return { provider: "gemini", category: "instructions", instructionalText: true };
+  }
+  if (within[0] === "agents" && within.length === 2 && filename?.endsWith(".md")) {
+    return { provider: "gemini", category: "agents", instructionalText: true };
+  }
+  if (within[0] === "commands" && within.length >= 2 && filename?.endsWith(".toml")) {
+    return { provider: "gemini", category: "commands", instructionalText: false };
+  }
+  return candidateExtension(filename) ? { provider: "gemini", category: "other", instructionalText: false } : null;
 }
 
 function claude(path: string, parts: string[]): Classification | null {
@@ -100,7 +123,7 @@ function candidateExtension(filename: string | undefined): boolean {
   return /\.(?:md|json|toml|rules)$/.test(filename ?? "");
 }
 
-const adapters: Adapter[] = [skill, shared, codex, claude];
+const adapters: Adapter[] = [skill, shared, codex, claude, gemini];
 
 export function classify(path: string): Classification | null {
   const parts = path.split("/");

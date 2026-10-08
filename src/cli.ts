@@ -10,21 +10,23 @@ import { renderHtml } from "./report.js";
 import { redactReport } from "./privacy.js";
 import { modeForModel, type MeasurementMode } from "./measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
+import type { ProviderCountOptions } from "./provider-count.js";
 
 const help = `Strata — see how your agent context evolved.
 
 Usage:
-  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base | --model <name>]
+  strata analyze <repository> [--output <file>] [--format html|json] [--open] [--shareable] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base | --model <name> | --provider-api --claude-model <name> --gemini-model <name> [--codex-model <name>]]
   strata diff <repository> --base <commit> --head <commit> [--output <file>] [--format markdown|json] [--tokenizer estimate|openai-cl100k_base|openai-o200k_base | --model <name>]
   strata skill [--output <file>]
   strata --help
   strata --version
 
-Analyzes Git-tracked Claude and Codex configuration across first-parent history.
+Analyzes Git-tracked Claude, Codex, and Gemini CLI configuration across first-parent history.
 The default output is an offline HTML report in a private temporary directory.
 Use --shareable to replace repository names, paths, commit IDs, and blob IDs with aliases.
 Use --tokenizer to select an offline stored-text measurement; the default is estimate.
 Use --model for a documented OpenAI model mapping (gpt-4, gpt-4o, gpt-4.1, gpt-5, o3, o4-mini).
+Use --provider-api to explicitly send recognized Claude and Gemini instruction text to their token-count APIs. This is opt-in content transfer. Set ANTHROPIC_API_KEY and GEMINI_API_KEY (or GOOGLE_API_KEY); name both API models. Add --codex-model to include a local OpenAI encoding count for Codex files.
 Use diff for a read-only comparison of two full Git commit IDs, such as a PR base and head.
 Use --open to open an HTML report in your browser.
 Use skill to print the bundled JSON interpretation skill, or --output to save it.
@@ -125,6 +127,10 @@ try {
     let tokenizer: MeasurementMode = "estimate";
     let tokenizerSelected = false;
     let model: string | null = null;
+    let providerApi = false;
+    let claudeModel: string | undefined;
+    let geminiModel: string | undefined;
+    let codexModel: string | undefined;
     for (let index = 1; index < args.length; index += 1) {
       const argument = args[index];
       if (argument === "--output") {
@@ -148,6 +154,17 @@ try {
       } else if (argument === "--model") {
         model = args[++index] ?? null;
         if (!model) throw new Error("--model requires a model name");
+      } else if (argument === "--provider-api") {
+        providerApi = true;
+      } else if (argument === "--claude-model") {
+        claudeModel = args[++index];
+        if (!claudeModel) throw new Error("--claude-model requires a model name");
+      } else if (argument === "--gemini-model") {
+        geminiModel = args[++index];
+        if (!geminiModel) throw new Error("--gemini-model requires a model name");
+      } else if (argument === "--codex-model") {
+        codexModel = args[++index];
+        if (!codexModel) throw new Error("--codex-model requires a model name");
       } else if (argument?.startsWith("-")) {
         throw new Error(`Unknown option: ${argument}`);
       } else if (!repository && argument) {
@@ -159,8 +176,21 @@ try {
     if (!repository) throw new Error("A repository path is required");
     if (open && format !== "html") throw new Error("--open requires HTML output");
     if (model && tokenizerSelected) throw new Error("Choose either --model or --tokenizer");
+    if (providerApi && (model || tokenizerSelected)) throw new Error("Choose either --provider-api or --model/--tokenizer");
+    if (providerApi && (!claudeModel || !geminiModel)) throw new Error("--provider-api requires explicit --claude-model and --gemini-model values");
+    if (!providerApi && (claudeModel || geminiModel || codexModel)) throw new Error("--claude-model, --gemini-model, and --codex-model require --provider-api");
+    let providerCounts: ProviderCountOptions | undefined;
+    if (providerApi) {
+      const geminiApiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+      providerCounts = {
+        claudeModel: claudeModel!, geminiModel: geminiModel!,
+        ...(codexModel ? { codexModel } : {}),
+        ...(process.env.ANTHROPIC_API_KEY ? { anthropicApiKey: process.env.ANTHROPIC_API_KEY } : {}),
+        ...(geminiApiKey ? { geminiApiKey } : {}),
+      };
+    }
     let lastDecile = 0;
-    const analyzed = analyzeRepository(repository, ({ completed, total }) => {
+    const analyzed = await analyzeRepository(repository, ({ completed, total }) => {
       if (completed === 0) {
         process.stderr.write(`Analyzing ${total} revisions...\n`);
       } else {
@@ -170,7 +200,7 @@ try {
           lastDecile = decile;
         }
       }
-    }, model ? modeForModel(model) : tokenizer, model);
+    }, model ? modeForModel(model) : tokenizer, model, providerCounts);
     const report = shareable ? redactReport(analyzed) : analyzed;
     const destination = output
       ? resolve(output)
