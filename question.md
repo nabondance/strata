@@ -12,8 +12,4 @@ GitHub's branch protection and ruleset APIs returned HTTP 403: this private repo
 
 ## First npm release
 
-The release tarball passed local checks, but `npm whoami` reports this environment is not authenticated. An npm browser login is needed before the public `context-strata@0.1.0` bootstrap release. Do not paste or record an npm token here.
-
-## GitHub Actions validation
-
-The implementation was merged from [PR #2](https://github.com/nabondance/strata/pull/2). Its CI runs ended in `startup_failure` before creating jobs because GitHub ignores per-action allowlist patterns on private repositories, blocking `pnpm/action-setup`. The follow-up replaces that action with the pinned pnpm install command and keeps only GitHub-owned actions allowed. Required-SHA enforcement is enabled; I am validating the corrected CI run now.
+The release tarball passed local checks and `context-strata` remains unclaimed. The npm browser login did not complete: the CLI returned to a `Username:` prompt and exited, and `npm whoami` remains unauthenticated. Retry npm's browser sign-in before the bootstrap release. Do not paste or record an npm token here.
