@@ -1,18 +1,26 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { categories, type Report } from "./analyze.js";
+import { categories } from "./adapters.js";
 import { compareRevisions } from "./compare.js";
-import { layoutTreemap } from "./treemap.js";
+import { expandRevisions } from "./expand.js";
+import type { Report } from "./model.js";
 import { viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
+import { layoutTreemap } from "./treemap.js";
 
-const require = createRequire(import.meta.url);
-const d3PackageDirectory = resolve(dirname(require.resolve("d3-hierarchy")), "..");
-const d3License = readFileSync(resolve(d3PackageDirectory, "LICENSE"), "utf8");
-const d3Source = readFileSync(resolve(d3PackageDirectory, "dist/d3-hierarchy.min.js"), "utf8");
-const embeddedD3 = (`/*\n${d3License.replace(/\*\//g, "* /")}\n*/\n${d3Source}`)
-  .replace(/<\/script/gi, "<\\/script");
+let embeddedD3: string | undefined;
+
+/** The report inlines d3-hierarchy with its license so the HTML needs no network or sibling files. */
+function d3Bundle(): string {
+  if (embeddedD3 === undefined) {
+    const directory = resolve(dirname(createRequire(import.meta.url).resolve("d3-hierarchy")), "..");
+    const license = readFileSync(resolve(directory, "LICENSE"), "utf8");
+    const source = readFileSync(resolve(directory, "dist/d3-hierarchy.min.js"), "utf8");
+    embeddedD3 = `/*\n${license.replace(/\*\//g, "* /")}\n*/\n${source}`.replace(/<\/script/gi, "<\\/script");
+  }
+  return embeddedD3;
+}
 
 export function renderHtml(report: Report): string {
   const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
@@ -22,15 +30,20 @@ export function renderHtml(report: Report): string {
     .replace(/\u2029/g, "\\u2029");
   const categoryNames = JSON.stringify(categories);
   const compareSource = compareRevisions.toString();
+  const expandSource = expandRevisions.toString();
   const treemapSource = layoutTreemap.toString();
   const viewSource = viewRevision.toString();
   const timelineSource = timelineBuckets.toString();
+  const providerColumns = report.providerMeasurements
+    ? '<th class="num">Claude API</th><th class="num">Gemini API</th><th class="num">Codex / OpenAI local</th>'
+    : "";
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
   <title>Strata — ${escapeHtml(report.repository)}</title>
   <style>
     :root { color-scheme: light; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --rust: #934e37; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
@@ -85,6 +98,12 @@ export function renderHtml(report: Report): string {
     .treemap-leaf .leaf-name { display: block; flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.2; font-weight: 700; }
     .treemap-leaf .leaf-size { flex-shrink: 0; margin-top: auto; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     .treemap-leaf [hidden] { display: none; }
+    .treemap-leaf.compact { padding: 3px 5px; }
+    .treemap-leaf.compact .leaf-name { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .treemap-leaf.changed::after { content: ""; position: absolute; inset: 2px; border: 2px solid #f6d26b; pointer-events: none; }
+    .treemap-leaf.changed.edited::after { border-style: dashed; }
+    .ring { display: inline-block; width: 12px; height: 12px; border: 2px solid #a87a12; }
+    .ring.dashed { border-style: dashed; }
     .treemap-group { position: absolute; border: 3px solid var(--sheet); pointer-events: none; z-index: 1; }
     .treemap-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
     .treemap-hover { min-height: 42px; padding: 10px 12px; margin: 10px 0 0; border-left: 3px solid var(--rust); background: #f0eee6; color: var(--ink); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
@@ -200,38 +219,46 @@ export function renderHtml(report: Report): string {
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite"></p>
       ${report.providerMeasurements ? `<p class="muted">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
-      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th><th class="num">Claude API</th><th class="num">Gemini API</th><th class="num">Codex / OpenAI local</th></tr></thead><tbody id="files"></tbody></table></div></section>
+      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div></section>
     <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Source-only files are listed by byte size and excluded from instruction token estimates.</footer>
   </main>
-  <script>${embeddedD3}</script>
+  <script>${d3Bundle()}</script>
   <script>
     const data = ${serialized};
     const categories = ${categoryNames};
+    const expandRevisions = ${expandSource};
     const compareRevisions = ${compareSource};
     const viewRevision = ${viewSource};
     const timelineBuckets = ${timelineSource};
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
+    const providerColumns = data.providerMeasurements ? ['claude', 'gemini', 'codex'] : [];
     const colors = {instructions:'#31575b', skills:'#88472d', agents:'#645976', rules:'#766023', commands:'#813b43', memory:'#476d44', settings:'#52676a', tools:'#4b607d', other:'#5f665b'};
     const $ = (id) => document.getElementById(id);
-    const fmt = (n) => new Intl.NumberFormat().format(n);
+    const numberFormat = new Intl.NumberFormat();
+    const fmt = (n) => numberFormat.format(n);
     const signed = (n) => (n > 0 ? '+' : '') + fmt(n);
     const tone = (n) => n > 0 ? 'positive' : n < 0 ? 'negative' : '';
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
-    let selected = data.revisions.length - 1;
+    const revisions = expandRevisions(data);
+    let selected = revisions.length - 1;
     let baseline = 0;
     let activeView = 'all';
-    let viewRevisions = data.revisions;
+    let viewRevisions = revisions;
     let showAllSkills = false;
     let providerFilter = '';
     let categoryFilter = '';
     let pathSearch = '';
     let inventoryRows = new Map();
     let chartBuckets = [];
+    let chartStart = 0;
     let treemapLabels = [];
+    // What each panel last drew, so moving between revisions that share an inventory redraws nothing.
+    let drawn = {};
+    let settleTimer;
 
-    $('repo').textContent = data.repository + ' / ' + data.branch + ' · ' + data.revisions.length + ' revisions';
+    $('repo').textContent = data.repository + ' / ' + data.branch + ' · ' + revisions.length + ' revisions';
     $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
     if (data.shallow) $('method').classList.add('warning');
     function renderLegend() {
@@ -251,7 +278,11 @@ export function renderHtml(report: Report): string {
       const chart = $('chart');
       chart.replaceChildren();
       chartBuckets = [];
-      const buckets = timelineBuckets(viewRevisions.length);
+      // Leading revisions with nothing tracked in this view would only flatten the chart.
+      chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
+      const charted = viewRevisions.length - chartStart;
+      const buckets = timelineBuckets(viewRevisions.length, 100, chartStart);
+      slider.min = chartStart;
       chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
       for (const bucket of buckets) {
@@ -276,18 +307,20 @@ export function renderHtml(report: Report): string {
         chart.append(button);
         chartBuckets.push({ ...bucket, button });
       }
-      $('timeline-note').textContent = buckets.length === viewRevisions.length
+      $('timeline-note').textContent = (buckets.length === charted
         ? 'One bar per revision. Select a bar or use the slider to inspect a commit.'
-        : fmt(viewRevisions.length) + ' revisions grouped into ' + fmt(buckets.length) + ' bars. Each bar shows the last revision in its group; the slider selects every revision.';
-      $('timeline-start').textContent = viewRevisions[0].date.slice(0, 10);
+        : fmt(charted) + ' revisions grouped into ' + fmt(buckets.length) + ' bars. Each bar shows the last revision in its group; the slider selects every charted revision.')
+        + (chartStart ? ' The chart starts at revision ' + fmt(chartStart + 1) + ': the ' + fmt(chartStart) + ' earlier revisions have no tracked configuration in this view. They remain available in the comparison selectors.' : '');
+      $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
     }
 
     const slider = $('slider');
-    slider.min = 0;
-    slider.max = data.revisions.length - 1;
-    slider.addEventListener('input', () => render(Number(slider.value)));
-    for (const [index, revision] of data.revisions.entries()) {
+    slider.max = revisions.length - 1;
+    // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
+    slider.addEventListener('input', () => render(Number(slider.value), true));
+    slider.addEventListener('change', () => render(Number(slider.value)));
+    for (const [index, revision] of revisions.entries()) {
       const label = (index + 1) + ' · ' + revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8);
       for (const id of ['baseline', 'target']) {
         const option = text('option', label);
@@ -297,7 +330,7 @@ export function renderHtml(report: Report): string {
     }
     $('baseline').addEventListener('change', () => { baseline = Number($('baseline').value); renderComparison(); });
     $('target').addEventListener('change', () => render(Number($('target').value)));
-    const allComponents = data.revisions.flatMap((revision) => revision.components);
+    const allComponents = data.components;
     const providers = [...new Set(allComponents.map((component) => component.provider))].sort();
     const viewTabs = [{ key: 'all', label: 'All files' },
       ...providers.filter((provider) => provider !== 'shared').map((provider) => ({
@@ -310,7 +343,17 @@ export function renderHtml(report: Report): string {
       button.setAttribute('aria-pressed', String(view.key === activeView));
       button.addEventListener('click', () => {
         activeView = view.key;
-        viewRevisions = data.revisions.map((revision, index) => viewRevision(revision, activeView, data.revisions[index - 1]));
+        viewRevisions = [];
+        for (const [index, revision] of revisions.entries()) {
+          const view = viewRevision(revision, activeView, revisions[index - 1]);
+          // Revisions that changed nothing keep sharing arrays in a provider view too.
+          if (view !== revision && index && revision.components === revisions[index - 1].components) {
+            view.components = viewRevisions[index - 1].components;
+            view.skillGroups = viewRevisions[index - 1].skillGroups;
+          }
+          viewRevisions.push(view);
+        }
+        drawn = {};
         showAllSkills = false;
         providerFilter = '';
         categoryFilter = '';
@@ -374,6 +417,7 @@ export function renderHtml(report: Report): string {
 
     function renderInventory() {
       const revision = viewRevisions[selected];
+      drawn.inventory = revision.components;
       const matching = revision.components.filter((component) =>
         (!providerFilter || component.provider === providerFilter) &&
         (!categoryFilter || component.category === categoryFilter) &&
@@ -385,7 +429,7 @@ export function renderHtml(report: Report): string {
       if (!matching.length) {
         const row = document.createElement('tr');
         const cell = text('td', 'No files match these filters.', 'empty');
-        cell.colSpan = 8;
+        cell.colSpan = 5 + providerColumns.length;
         row.append(cell);
         files.append(row);
       }
@@ -394,7 +438,7 @@ export function renderHtml(report: Report): string {
         const row = document.createElement('tr');
         row.tabIndex = -1;
         row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
-        for (const provider of ['claude', 'gemini', 'codex']) {
+        for (const provider of providerColumns) {
           const count = component.providerTokenCounts?.[provider];
           const cell = text('td', count ? fmt(count.tokens) : '—', 'num');
           if (count) cell.title = count.accuracy + ' · ' + count.model + ' · ' + count.method + ' · ' + count.version;
@@ -407,6 +451,8 @@ export function renderHtml(report: Report): string {
 
     function renderTreemap() {
       const layout = layoutTreemap(viewRevisions[selected].components);
+      const changedHere = new Map(viewRevisions[selected].changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
+      let outlined = 0;
       const root = $('treemap');
       const treeLegend = $('treemap-legend');
       root.replaceChildren();
@@ -429,9 +475,17 @@ export function renderHtml(report: Report): string {
           button.style.width = leaf.width + '%';
           button.style.height = leaf.height + '%';
           button.style.background = colors[component.category];
-          button.title = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
-          button.setAttribute('aria-label', button.title);
-          if (leaf.width >= 9 && leaf.height >= 10 && leaf.width * leaf.height >= 110) {
+          const change = changedHere.get(component.path);
+          const changeLabel = !change ? '' : change.kind === 'added' ? ' · added at this revision' : change.kind === 'renamed' ? ' · renamed at this revision from ' + change.previousPath : ' · edited at this revision';
+          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + changeLabel;
+          button.setAttribute('aria-label', detail);
+          if (change) {
+            button.classList.add('changed');
+            if (change.kind !== 'added') button.classList.add('edited');
+            outlined += 1;
+          }
+          // Rectangles too small for even one short line stay unlabeled; fitTreemapLabels decides the rest.
+          if (leaf.width >= 3.5 && leaf.height >= 5.5) {
             const label = component.skill?.role === 'manifest' ? component.skill.root.split('/').at(-1) : component.path.split('/').at(-1);
             const name = text('span', label, 'leaf-name');
             const size = text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size');
@@ -439,7 +493,6 @@ export function renderHtml(report: Report): string {
             treemapLabels.push({ button, name, size });
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
-          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens';
           const showDetail = () => { $('treemap-hover').textContent = detail; };
           const clearDetail = () => { $('treemap-hover').textContent = 'Hover or focus a rectangle to see its full path and token count.'; };
           button.addEventListener('mouseenter', showDetail);
@@ -467,20 +520,32 @@ export function renderHtml(report: Report): string {
         outline.style.height = group.height + '%';
         root.append(outline);
       }
-      $('treemap-note').textContent = fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized instructional files · ' + fmt(layout.sourceOnlyCount) + ' source-only files · ' + fmt(layout.zeroTokenCount) + ' zero-token instructional files. Source-only and zero-token files remain in the inventory.';
+      if (outlined) {
+        for (const [label, className] of [['added at this revision', 'ring'], ['edited or renamed at this revision', 'ring dashed']]) {
+          const entry = text('span', label);
+          entry.prepend(text('i', '', className));
+          treeLegend.append(entry);
+        }
+      }
+      $('treemap-note').textContent = (outlined ? fmt(outlined) + ' outlined files changed at this revision. ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized instructional files · ' + fmt(layout.sourceOnlyCount) + ' source-only files · ' + fmt(layout.zeroTokenCount) + ' zero-token instructional files. Source-only and zero-token files remain in the inventory.';
+      drawn.treemap = viewRevisions[selected].components;
+      drawn.outlined = outlined;
       fitTreemapLabels();
     }
 
     function fitTreemapLabels() {
       if (typeof getComputedStyle !== 'function') return;
       for (const { button, name, size } of treemapLabels) {
+        button.classList.remove('compact');
         name.hidden = false;
         name.style.fontSize = '';
         size.hidden = false;
-        const box = button.getBoundingClientRect();
-        const style = getComputedStyle(button);
-        const bottom = box.bottom - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth);
-        const right = box.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+        const inner = () => {
+          const box = button.getBoundingClientRect();
+          const style = getComputedStyle(button);
+          return [box.bottom - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth), box.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth)];
+        };
+        let [bottom, right] = inner();
         const nameFits = () => name.getBoundingClientRect().bottom <= bottom + 1 && name.scrollHeight <= name.clientHeight + 1;
         const nameBox = name.getBoundingClientRect();
         const sizeBox = size.getBoundingClientRect();
@@ -489,13 +554,21 @@ export function renderHtml(report: Report): string {
         }
         if (!nameFits()) {
           name.style.fontSize = '11px';
-          if (!nameFits()) name.hidden = true;
+          if (!nameFits()) {
+            // Last resort: one small line, cut short with an ellipsis.
+            name.style.fontSize = '';
+            button.classList.add('compact');
+            [bottom, right] = inner();
+            const compactBox = name.getBoundingClientRect();
+            if (right - compactBox.left < 28 || compactBox.bottom > bottom + 1) name.hidden = true;
+          }
         }
       }
     }
 
     function renderSkills() {
       const groups = viewRevisions[selected].skillGroups;
+      drawn.skills = groups;
       const visible = showAllSkills ? groups : groups.slice(0, 8);
       const skillBody = $('skill-groups');
       skillBody.replaceChildren();
@@ -522,6 +595,8 @@ export function renderHtml(report: Report): string {
 
     function renderComparison() {
       const comparison = compareRevisions(viewRevisions[baseline], viewRevisions[selected]);
+      drawn.baseline = viewRevisions[baseline].components;
+      drawn.target = viewRevisions[selected].components;
       $('baseline').value = String(baseline);
       chartBuckets.forEach((bucket) => bucket.button.classList.toggle('baseline', bucket.start <= baseline && baseline <= bucket.end));
       $('compare-tokens').textContent = signed(comparison.deltaTokens) + ' (' + fmt(comparison.beforeTokens) + ' → ' + fmt(comparison.afterTokens) + ')';
@@ -554,7 +629,7 @@ export function renderHtml(report: Report): string {
       }
     }
 
-    function render(index) {
+    function render(index, dragging) {
       selected = index;
       const revision = viewRevisions[index];
       const previous = viewRevisions[index - 1];
@@ -567,8 +642,8 @@ export function renderHtml(report: Report): string {
       $('components').textContent = fmt(revision.components.length);
       $('delta').textContent = (delta > 0 ? '+' : '') + fmt(delta);
       $('delta').className = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
-      $('revision').textContent = (index + 1) + ' / ' + data.revisions.length + ' · ' + revision.id.slice(0, 10);
-      $('timeline-selected').textContent = 'Selected: ' + revision.date.slice(0, 10) + ' (' + (index + 1) + '/' + data.revisions.length + ')';
+      $('revision').textContent = (index + 1) + ' / ' + revisions.length + ' · ' + revision.id.slice(0, 10);
+      $('timeline-selected').textContent = 'Selected: ' + revision.date.slice(0, 10) + ' (' + (index + 1) + '/' + revisions.length + ')';
 
       const categoryBody = $('categories');
       categoryBody.replaceChildren();
@@ -580,7 +655,7 @@ export function renderHtml(report: Report): string {
         categoryBody.append(row);
       }
 
-      renderSkills();
+      if (drawn.skills !== revision.skillGroups) renderSkills();
 
       const changes = $('changes');
       changes.replaceChildren();
@@ -593,9 +668,16 @@ export function renderHtml(report: Report): string {
         changes.append(row);
       }
 
-      renderInventory();
-      renderTreemap();
-      renderComparison();
+      if (drawn.treemap !== revision.components || drawn.outlined || revision.changes.length) renderTreemap();
+      clearTimeout(settleTimer);
+      if (dragging) settleTimer = setTimeout(renderTables, 120);
+      else renderTables();
+    }
+
+    function renderTables() {
+      const revision = viewRevisions[selected];
+      if (drawn.inventory !== revision.components) renderInventory();
+      if (drawn.target !== revision.components || drawn.baseline !== viewRevisions[baseline].components) renderComparison();
     }
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fitTreemapLabels).observe($('treemap'));
     render(selected);
@@ -605,11 +687,15 @@ export function renderHtml(report: Report): string {
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character] ?? character);
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character] ?? character,
+  );
 }

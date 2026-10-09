@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -21,8 +21,7 @@ for (let index = 0; index < args.length; index += 1) {
     const path = args[++index];
     if (!path) throw new Error("--repo requires a repository path");
     repository = resolve(path);
-  }
-  else if (option === "--commits") commitCount = positiveInteger(args[++index], option);
+  } else if (option === "--commits") commitCount = positiveInteger(args[++index], option);
   else if (option === "--files") fileCount = positiveInteger(args[++index], option);
   else throw new Error(`Unknown benchmark option: ${option}`);
 }
@@ -53,16 +52,23 @@ try {
   }
 
   const started = performance.now();
-  const report = analyzeRepository(repository);
+  const report = await analyzeRepository(repository);
   const seconds = (performance.now() - started) / 1000;
   const latest = report.revisions.at(-1);
-  process.stdout.write(`${JSON.stringify({
-    fixture: Boolean(fixture), revisions: report.revisions.length,
-    latestComponents: latest?.components.length ?? 0,
-    latestEstimatedTokens: latest?.estimatedTokens ?? 0,
-    seconds: Number(seconds.toFixed(3)),
-    revisionsPerSecond: Number((report.revisions.length / seconds).toFixed(1)),
-  }, null, 2)}\n`);
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        fixture: Boolean(fixture),
+        revisions: report.revisions.length,
+        latestComponents: latest?.componentCount ?? 0,
+        latestEstimatedTokens: latest?.estimatedTokens ?? 0,
+        seconds: Number(seconds.toFixed(3)),
+        revisionsPerSecond: Number((report.revisions.length / seconds).toFixed(1)),
+      },
+      null,
+      2,
+    )}\n`,
+  );
 } finally {
   if (fixture) rmSync(fixture, { recursive: true, force: true });
 }

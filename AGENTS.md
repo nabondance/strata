@@ -5,9 +5,13 @@ Strata shows how Git-tracked AI-agent configuration changes through time. It ana
 ## Code map
 
 - `src/adapters.ts` recognizes provider paths and assigns provider/category labels.
-- `src/analyze.ts` reads first-parent Git history, measures blobs, and builds the report model.
+- `src/git.ts` runs read-only Git commands: the streamed history log, tree listings, and batched blob reads.
+- `src/analyze.ts` replays first-parent history into revisions; `src/inventory.ts` measures blobs and derives totals; `src/model.ts` holds the report types.
+- `src/expand.ts` rebuilds each revision's inventory from the report's component table and per-revision changes; reports never store a per-revision file list.
+- `src/pr-delta.ts` compares two commits for `strata diff`, sharing the same inventory code.
 - `src/report.ts` renders the self-contained HTML report; `src/cli.ts` handles command-line input and output.
-- `test/analyze.test.mjs` builds a synthetic Git history to verify analysis and CLI behavior.
+- `src/expand.ts`, `src/compare.ts`, `src/provider-view.ts`, `src/treemap.ts`, and `src/timeline.ts` are embedded into the HTML report as source text, so each exported function must stay self-contained.
+- `test/analyze.test.mjs` and `test/cli.test.mjs` build synthetic Git histories to verify analysis and CLI behavior.
 
 ## Changes that affect analysis
 
@@ -19,7 +23,7 @@ Strata shows how Git-tracked AI-agent configuration changes through time. It ana
 
 ## Verification
 
-Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm typecheck` and `pnpm test`. For packaging changes, inspect `pnpm pack` and try the installed tarball from a clean directory. A real-repository smoke check is useful for history or rendering changes, but never modify the repository being analyzed.
+Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`; `pnpm format` applies formatting. Use Conventional Commit subjects (`fix:`, `feat:`, `docs:`); the changelog and version are generated from them, so do not edit `CHANGELOG.md` by hand. For packaging changes, inspect `pnpm pack` and try the installed tarball from a clean directory. A real-repository smoke check is useful for history or rendering changes, but never modify the repository being analyzed.
 
 ## External tools and services
 

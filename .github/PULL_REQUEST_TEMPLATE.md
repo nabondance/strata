@@ -4,6 +4,7 @@
 
 ## Validation
 
+- [ ] `pnpm lint`
 - [ ] `pnpm typecheck`
 - [ ] `pnpm test`
 - [ ] For packaging changes, inspected and installed the tarball

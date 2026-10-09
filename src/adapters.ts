@@ -24,21 +24,28 @@ export interface Classification {
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
 function skill(_path: string, parts: string[]): Classification | null {
-  for (const [directory, provider] of [[".agents", "codex"], [".claude", "claude"], [".gemini", "gemini"]] as const) {
+  for (const [directory, provider] of [
+    [".agents", "codex"],
+    [".claude", "claude"],
+    [".gemini", "gemini"],
+  ] as const) {
     const index = parts.indexOf(directory);
     if (index < 0) continue;
     const within = parts.slice(index + 1);
     if (within[0] !== "skills" || within.length < 3) continue;
     const manifest = within.length === 3 && parts.at(-1) === "SKILL.md";
     return {
-      provider, category: "skills", instructionalText: manifest,
-      skillRoot: parts.slice(0, index + 3).join("/"), skillRole: manifest ? "manifest" : "resource",
+      provider,
+      category: "skills",
+      instructionalText: manifest,
+      skillRoot: parts.slice(0, index + 3).join("/"),
+      skillRole: manifest ? "manifest" : "resource",
     };
   }
   return null;
 }
 
-function gemini(path: string, parts: string[]): Classification | null {
+function gemini(_path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
   if (filename === "GEMINI.md") {
     return { provider: "gemini", category: "instructions", instructionalText: true };
@@ -91,12 +98,8 @@ function codex(_path: string, parts: string[]): Classification | null {
   if (filename === "AGENTS.override.md") {
     return { provider: "codex", category: "instructions", instructionalText: true };
   }
-  const skillsIndex = parts.indexOf(".agents");
-  if (skillsIndex >= 0) {
-    const within = parts.slice(skillsIndex + 1);
-    if (candidateExtension(filename)) {
-      return { provider: "unknown", category: "other", instructionalText: false };
-    }
+  if (parts.includes(".agents") && candidateExtension(filename)) {
+    return { provider: "unknown", category: "other", instructionalText: false };
   }
   const index = parts.indexOf(".codex");
   if (index < 0) return null;

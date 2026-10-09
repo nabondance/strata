@@ -1,341 +1,359 @@
-import { execFileSync } from "node:child_process";
 import { basename, resolve } from "node:path";
-import { categories, classify, type Category, type Provider } from "./adapters.js";
-import { createMeasurer, modeForModel, type Measurement, type MeasurementMode } from "./measurement.js";
-import { countProviderText, providerMeasurementMetadata, type ProviderCountOptions, type ProviderTextCount } from "./provider-count.js";
+import { classify } from "./adapters.js";
+import { git, gitText, gitTokens, readBlobs } from "./git.js";
+import {
+  type BlobMeasurement,
+  byPath,
+  measureBlobs,
+  summarize,
+  type TrackedFile,
+  toComponent,
+  trackedFile,
+} from "./inventory.js";
+import {
+  createMeasurer,
+  type MeasurementMode,
+  type Measurer,
+  modeForModel,
+  tiktokenImplementation,
+} from "./measurement.js";
+import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
+import {
+  countProviderText,
+  type ProviderCountOptions,
+  type ProviderTextCount,
+  providerMeasurementMetadata,
+} from "./provider-count.js";
 
 export { categories } from "./adapters.js";
-
-export interface Component {
-  path: string;
-  provider: Provider;
-  category: Category;
-  blob: string;
-  bytes: number;
-  estimatedTokens: number | null;
-  providerTokenCounts?: Partial<Record<"claude" | "gemini" | "codex", ProviderTextCount>>;
-  skill?: { root: string; role: "manifest" | "resource" };
-}
-
-export interface SkillGroup {
-  root: string;
-  provider: Provider;
-  manifestPath: string | null;
-  manifestEstimatedTokens: number;
-  resourceCount: number;
-  resourceBytes: number;
-}
-
-export interface Change {
-  kind: "added" | "removed" | "modified" | "renamed";
-  path: string;
-  previousPath?: string;
-  previousTokens: number | null;
-  estimatedTokens: number | null;
-  deltaTokens: number;
-}
-
-export interface Revision {
-  id: string;
-  date: string;
-  firstParent: string | null;
-  components: Component[];
-  skillGroups: SkillGroup[];
-  categoryTotals: Record<Category, { count: number; bytes: number; estimatedTokens: number; sourceOnlyCount: number }>;
-  estimatedTokens: number;
-  changes: Change[];
-  providerTokenTotals?: Partial<Record<"claude" | "gemini" | "codex", number>>;
-}
-
-export interface Report {
-  schemaVersion: 8;
-  repository: string;
-  branch: string;
-  shallow: boolean;
-  privacy: { mode: "local" | "shareable" };
-  measurement: Measurement;
-  providerMeasurements?: ReturnType<typeof providerMeasurementMetadata>;
-  revisions: Revision[];
-}
+export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
 
 export interface AnalysisProgress {
   completed: number;
   total: number;
 }
 
-interface TreeEntry {
-  path: string;
-  blob: string;
+export interface AnalysisOptions {
+  onProgress?: (progress: AnalysisProgress) => void;
+  mode?: MeasurementMode;
+  model?: string | null;
+  providerCounts?: ProviderCountOptions;
 }
 
-function git(repo: string, args: string[]): Buffer {
-  try {
-    return execFileSync("git", ["-C", repo, ...args], {
-      encoding: "buffer",
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Git failed (${args[0]}): ${detail}`);
-  }
+/** What one commit changed, relative to its first parent, among recognized paths. */
+interface CommitDelta {
+  id: string;
+  date: string;
+  firstParent: string | null;
+  removed: string[];
+  written: TrackedFile[];
+  renames: Map<string, string>;
 }
 
-function gitText(repo: string, args: string[]): string {
-  return git(repo, args).toString("utf8").trim();
-}
+const providerRequestConcurrency = 8;
 
-function treeEntries(repo: string, revision: string): TreeEntry[] {
-  const output = git(repo, ["ls-tree", "-r", "-z", "--full-tree", revision]);
-  const entries: TreeEntry[] = [];
-  for (let start = 0; start < output.length; ) {
-    const end = output.indexOf(0, start);
-    if (end < 0) throw new Error("Malformed git ls-tree output");
-    const entry = output.toString("utf8", start, end);
-    const tab = entry.indexOf("\t");
-    const header = entry.slice(0, tab).split(" ");
-    const path = entry.slice(tab + 1);
-    if (tab > 0 && (header[0] === "100644" || header[0] === "100755")) {
-      const blob = header[2];
-      if (blob && classify(path)) entries.push({ path, blob });
+/**
+ * Read the whole first-parent history in one streamed Git process. Each commit's raw diff against
+ * its first parent is reduced to the recognized paths it removed, wrote, or renamed.
+ */
+async function readHistory(root: string, onCommit: (count: number) => void): Promise<CommitDelta[]> {
+  const deltas: CommitDelta[] = [];
+  let current: CommitDelta | undefined;
+  let status = "";
+  let mode = "";
+  let blob = "";
+  let expected = 0;
+  let paths: string[] = [];
+  const tokens = gitTokens(root, [
+    "log",
+    "--first-parent",
+    "--reverse",
+    "--diff-merges=first-parent",
+    "--root",
+    "--raw",
+    "-z",
+    "--no-abbrev",
+    "-M",
+    "--no-ext-diff",
+    "--no-color",
+    "--no-show-signature",
+    "--format=%x01%H%x09%aI%x09%P",
+    "HEAD",
+  ]);
+  for await (const batch of tokens) {
+    for (let token of batch) {
+      if (expected > 0) {
+        paths.push(token);
+        expected -= 1;
+        if (expected > 0) continue;
+        if (!current) throw new Error("Malformed git log output");
+        const path = paths.at(-1)!;
+        const source = paths[0]!;
+        if (status === "D" || status[0] === "R") {
+          if (classify(source)) current.removed.push(source);
+        }
+        if (status !== "D") {
+          const file = trackedFile(mode, blob, path);
+          if (file) current.written.push(file);
+          else if (classify(path)) current.removed.push(path);
+          if (file && status[0] === "R" && classify(source)) current.renames.set(source, path);
+        }
+        continue;
+      }
+      if (token[0] === "\n") token = token.slice(1);
+      if (!token) continue;
+      if (token[0] === "\x01") {
+        const [id, date, parents] = token.slice(1).split("\t");
+        if (!id || !date) throw new Error("Malformed git log output");
+        current = {
+          id,
+          date,
+          firstParent: parents?.split(" ")[0] || null,
+          removed: [],
+          written: [],
+          renames: new Map(),
+        };
+        deltas.push(current);
+        onCommit(deltas.length);
+      } else if (token[0] === ":") {
+        const fields = token.split(" ");
+        mode = fields[1] ?? "";
+        blob = fields[3] ?? "";
+        status = fields[4] ?? "";
+        if (!status) throw new Error("Malformed git log output");
+        expected = status[0] === "R" || status[0] === "C" ? 2 : 1;
+        paths = [];
+      } else {
+        throw new Error("Malformed git log output");
+      }
     }
-    start = end + 1;
   }
-  return entries;
+  return deltas;
 }
 
-function renamePairs(repo: string, previous: string, current: string): Map<string, string> {
-  const output = git(repo, ["diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z", "-M", previous, current]);
-  const fields = output.toString("utf8").split("\0");
-  const renamed = new Map<string, string>();
-  for (let index = 0; index < fields.length - 1; ) {
-    const status = fields[index++] ?? "";
-    if (status.startsWith("R") || status.startsWith("C")) {
-      const oldPath = fields[index++];
-      const newPath = fields[index++];
-      if (status.startsWith("R") && oldPath && newPath) renamed.set(oldPath, newPath);
-    } else {
-      index += 1;
-    }
-  }
-  return renamed;
-}
-
+/**
+ * Describe what a commit did to the inventory. `before` holds the earlier entry of every path the
+ * commit touched; `inventory` is the state after it. Entries are indexes into `table`.
+ */
 function buildChanges(
-  previous: Revision | undefined,
-  components: Component[],
+  before: Map<string, number | undefined>,
+  inventory: Map<string, number>,
   renames: Map<string, string>,
+  table: Component[],
 ): Change[] {
-  const before = new Map(previous?.components.map((component) => [component.path, component]));
-  const after = new Map(components.map((component) => [component.path, component]));
-  const consumedBefore = new Set<string>();
-  const consumedAfter = new Set<string>();
+  const tokens = (index: number | undefined) => (index === undefined ? null : table[index]!.estimatedTokens);
+  const renamedFrom = new Set<string>();
+  const renamedTo = new Set<string>();
   const changes: Change[] = [];
 
   for (const [oldPath, newPath] of renames) {
-    const oldComponent = before.get(oldPath);
-    const newComponent = after.get(newPath);
-    if (!oldComponent || !newComponent || after.has(oldPath) || before.has(newPath)) continue;
+    const oldIndex = before.get(oldPath);
+    const newIndex = inventory.get(newPath);
+    if (oldIndex === undefined || newIndex === undefined) continue;
+    if (inventory.has(oldPath) || before.get(newPath) !== undefined) continue;
     changes.push({
       kind: "renamed",
       path: newPath,
       previousPath: oldPath,
-      previousTokens: oldComponent.estimatedTokens,
-      estimatedTokens: newComponent.estimatedTokens,
-      deltaTokens: (newComponent.estimatedTokens ?? 0) - (oldComponent.estimatedTokens ?? 0),
+      previousTokens: tokens(oldIndex),
+      estimatedTokens: tokens(newIndex),
+      deltaTokens: (tokens(newIndex) ?? 0) - (tokens(oldIndex) ?? 0),
+      component: newIndex,
     });
-    consumedBefore.add(oldPath);
-    consumedAfter.add(newPath);
+    renamedFrom.add(oldPath);
+    renamedTo.add(newPath);
   }
 
-  for (const component of components) {
-    if (consumedAfter.has(component.path)) continue;
-    const oldComponent = before.get(component.path);
-    if (oldComponent?.blob === component.blob) continue;
+  for (const [path, oldIndex] of before) {
+    const newIndex = inventory.get(path);
+    if (newIndex === oldIndex || renamedTo.has(path) || renamedFrom.has(path)) continue;
     changes.push({
-      kind: oldComponent ? "modified" : "added",
-      path: component.path,
-      previousTokens: oldComponent?.estimatedTokens ?? null,
-      estimatedTokens: component.estimatedTokens,
-      deltaTokens: (component.estimatedTokens ?? 0) - (oldComponent?.estimatedTokens ?? 0),
+      kind: newIndex === undefined ? "removed" : oldIndex === undefined ? "added" : "modified",
+      path,
+      previousTokens: tokens(oldIndex),
+      estimatedTokens: tokens(newIndex),
+      deltaTokens: (tokens(newIndex) ?? 0) - (tokens(oldIndex) ?? 0),
+      component: newIndex ?? null,
     });
   }
-  for (const component of previous?.components ?? []) {
-    if (after.has(component.path) || consumedBefore.has(component.path)) continue;
-    changes.push({
-      kind: "removed",
-      path: component.path,
-      previousTokens: component.estimatedTokens,
-      estimatedTokens: null,
-      deltaTokens: -(component.estimatedTokens ?? 0),
-    });
-  }
-  return changes.sort((a, b) => a.path.localeCompare(b.path));
+  return changes.sort(byPath);
 }
 
-export async function analyzeRepository(
-  repoPath: string,
-  onProgress?: (progress: AnalysisProgress) => void,
-  mode: MeasurementMode = "estimate",
-  model: string | null = null,
-  providerCounts?: ProviderCountOptions,
-): Promise<Report> {
+function countedProviders(file: TrackedFile, codex: boolean): CountedProvider[] {
+  const { provider, instructionalText } = file.classification;
+  if (!instructionalText) return [];
+  if (provider === "shared") return codex ? ["claude", "gemini", "codex"] : ["claude", "gemini"];
+  if (provider === "claude" || provider === "gemini") return [provider];
+  return provider === "codex" && codex ? ["codex"] : [];
+}
+
+/** Count each distinct provider/blob pair once across the history, with bounded request concurrency. */
+async function countProviderBlobs(
+  root: string,
+  files: TrackedFile[],
+  measured: Map<string, BlobMeasurement>,
+  options: ProviderCountOptions,
+  codexMeasurer: Measurer | null,
+): Promise<Map<string, ProviderTextCount>> {
+  const wanted = new Map<string, { path: string; providers: Set<CountedProvider> }>();
+  for (const file of files) {
+    const providers = countedProviders(file, codexMeasurer !== null);
+    if (!providers.length) continue;
+    let entry = wanted.get(file.blob);
+    if (!entry) {
+      entry = { path: file.path, providers: new Set() };
+      wanted.set(file.blob, entry);
+    }
+    for (const provider of providers) entry.providers.add(provider);
+  }
+
+  const counts = new Map<string, ProviderTextCount>();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const running = new Set<Promise<void>>();
+  let failure: Error | undefined;
+  for (const [blob, body] of readBlobs(root, [...wanted.keys()], (id) => measured.get(id)?.bytes ?? 0)) {
+    const { path, providers } = wanted.get(blob)!;
+    for (const provider of providers) {
+      const fail = (error: unknown) => {
+        failure ??= new Error(
+          `Could not count ${provider} instructions at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      };
+      try {
+        if (provider === "codex") {
+          const model = options.codexModel!;
+          counts.set(`${provider}\0${blob}`, {
+            tokens: codexMeasurer!.count(body),
+            provider,
+            model,
+            method: `${tiktokenImplementation}: ${model} → ${codexMeasurer!.measurement.encoding}, counted per instructional file`,
+            version: tiktokenImplementation,
+            accuracy: "encoding-exact",
+          });
+          continue;
+        }
+        const model = provider === "claude" ? options.claudeModel : options.geminiModel;
+        const task: Promise<void> = countProviderText(provider, model, decoder.decode(body), options)
+          .then((count) => {
+            counts.set(`${provider}\0${blob}`, count);
+          }, fail)
+          .finally(() => running.delete(task));
+        running.add(task);
+      } catch (error) {
+        fail(error);
+      }
+      if (running.size >= providerRequestConcurrency) await Promise.race(running);
+      if (failure) break;
+    }
+    if (failure) break;
+  }
+  await Promise.all(running);
+  if (failure) throw failure;
+  return counts;
+}
+
+export async function analyzeRepository(repoPath: string, options: AnalysisOptions = {}): Promise<Report> {
+  const { onProgress, mode = "estimate", model = null, providerCounts } = options;
+  if (providerCounts && mode !== "estimate") {
+    throw new Error("Provider API counts accompany the default estimate; do not combine them with another tokenizer");
+  }
   const measurer = createMeasurer(mode, model);
   const codexMeasurer = providerCounts?.codexModel
     ? createMeasurer(modeForModel(providerCounts.codexModel), providerCounts.codexModel)
     : null;
-  const repo = resolve(repoPath);
-  const root = gitText(repo, ["rev-parse", "--show-toplevel"]);
+  const root = gitText(resolve(repoPath), ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
   const shallow = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
   try {
-    git(root, ["rev-parse", "--verify", "HEAD"]);
+    git(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   } catch {
     throw new Error("The repository has no commits to analyze");
   }
-  const log = gitText(root, ["log", "--first-parent", "--reverse", "--format=%H%x09%aI%x09%P", "HEAD"]);
-  if (!log) throw new Error("The repository has no commits to analyze");
-  const commits = log.split("\n");
 
-  const blobMeasurements = new Map<string, { bytes: number; estimatedTokens: number | null }>();
-  const providerBlobMeasurements = new Map<string, ProviderTextCount>();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const total = Number(gitText(root, ["rev-list", "--count", "--first-parent", "HEAD"]));
+  onProgress?.({ completed: 0, total });
+  const deltas = await readHistory(root, (completed) => onProgress?.({ completed, total: Math.max(total, completed) }));
+  if (!deltas.length) throw new Error("The repository has no commits to analyze");
+
+  const written = deltas.flatMap((delta) => delta.written);
+  const measured = measureBlobs(root, written, measurer);
+  const providerBlobCounts = providerCounts
+    ? await countProviderBlobs(root, written, measured, providerCounts, codexMeasurer)
+    : null;
+
+  // Each distinct file version is stored once; revisions refer to it by index.
+  const table: Component[] = [];
+  const tableIndex = new Map<string, number>();
+  const intern = (file: TrackedFile): number => {
+    const key = `${file.path}\0${file.blob}`;
+    let index = tableIndex.get(key);
+    if (index === undefined) {
+      const providerTokenCounts: NonNullable<Component["providerTokenCounts"]> = {};
+      if (providerBlobCounts) {
+        for (const provider of countedProviders(file, codexMeasurer !== null)) {
+          providerTokenCounts[provider] = providerBlobCounts.get(`${provider}\0${file.blob}`)!;
+        }
+      }
+      index = table.push(toComponent(file, measured.get(file.blob)!, providerTokenCounts)) - 1;
+      tableIndex.set(key, index);
+    }
+    return index;
+  };
+
+  const inventory = new Map<string, number>();
   const revisions: Revision[] = [];
-  onProgress?.({ completed: 0, total: commits.length });
-  for (const line of commits) {
-    const [id, date, parents] = line.split("\t");
-    if (!id || !date) throw new Error("Malformed git log output");
-    const components = await Promise.all(treeEntries(root, id).map(async ({ path, blob }) => {
-      const classification = classify(path);
-      if (!classification) throw new Error(`Unexpected unclassified path: ${path}`);
-      let measured = blobMeasurements.get(blob);
-      if (!measured || (classification.instructionalText && measured.estimatedTokens === null)) {
-        const body = git(root, ["cat-file", "blob", blob]);
-        let estimatedTokens: number | null = null;
-        if (classification.instructionalText && !providerCounts) {
-          try {
-            estimatedTokens = measurer.count(body);
-          } catch (error) {
-            throw new Error(`Could not count instructional blob ${blob} at ${path}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        measured = { bytes: body.length, estimatedTokens };
-        blobMeasurements.set(blob, measured);
-      }
-      const componentProviderCounts: Partial<Record<"claude" | "gemini" | "codex", ProviderTextCount>> = {};
-      if (providerCounts && classification.instructionalText) {
-        const body = git(root, ["cat-file", "blob", blob]);
-        const applicable: Array<"claude" | "gemini" | "codex"> = classification.provider === "shared"
-          ? ["claude", "gemini", ...(codexMeasurer ? ["codex" as const] : [])]
-          : classification.provider === "claude" || classification.provider === "gemini"
-            ? [classification.provider]
-            : classification.provider === "codex" && codexMeasurer ? ["codex"] : [];
-        for (const provider of applicable) {
-          const modelForProvider = provider === "claude" ? providerCounts.claudeModel
-            : provider === "gemini" ? providerCounts.geminiModel : providerCounts.codexModel!;
-          const cacheKey = `${provider}\0${modelForProvider}\0${blob}`;
-          let providerCount = providerBlobMeasurements.get(cacheKey);
-          if (!providerCount) {
-            try {
-              if (provider === "codex") {
-                providerCount = {
-                  tokens: codexMeasurer!.count(body), provider, model: modelForProvider,
-                  method: `js-tiktoken@1.0.21: ${modelForProvider} → ${codexMeasurer!.measurement.encoding}, counted per instructional file`,
-                  version: "js-tiktoken@1.0.21", accuracy: "encoding-exact",
-                };
-              } else {
-                const text = decoder.decode(body);
-                providerCount = await countProviderText(provider, modelForProvider, text, providerCounts);
-              }
-            } catch (error) {
-              throw new Error(`Could not count ${provider} instructions at ${path}: ${error instanceof Error ? error.message : String(error)}`);
-            }
-            providerBlobMeasurements.set(cacheKey, providerCount);
-          }
-          componentProviderCounts[provider] = providerCount;
-        }
-      }
-      return {
-        path,
-        blob,
-        provider: classification.provider,
-        category: classification.category,
-        bytes: measured.bytes,
-        estimatedTokens: classification.instructionalText ? (providerCounts ? Math.ceil(measured.bytes / 4) : measured.estimatedTokens) : null,
-        ...(Object.keys(componentProviderCounts).length ? { providerTokenCounts: componentProviderCounts } : {}),
-        ...(classification.skillRoot && classification.skillRole
-          ? { skill: { root: classification.skillRoot, role: classification.skillRole } }
-          : {}),
-      } satisfies Component;
-    }));
-    components.sort((a, b) => a.path.localeCompare(b.path));
-
-    const groupedSkills = new Map<string, SkillGroup>();
-    for (const component of components) {
-      if (!component.skill) continue;
-      let group = groupedSkills.get(component.skill.root);
-      if (!group) {
-        group = {
-          root: component.skill.root, provider: component.provider,
-          manifestPath: null, manifestEstimatedTokens: 0, resourceCount: 0, resourceBytes: 0,
-        };
-        groupedSkills.set(component.skill.root, group);
-      }
-      if (component.skill.role === "manifest") {
-        group.manifestPath = component.path;
-        group.manifestEstimatedTokens = component.estimatedTokens ?? 0;
-      } else {
-        group.resourceCount += 1;
-        group.resourceBytes += component.bytes;
-      }
-    }
-    const skillGroups = [...groupedSkills.values()].sort((a, b) => a.root.localeCompare(b.root));
-
-    const categoryTotals = Object.fromEntries(
-      categories.map((category) => [category, { count: 0, bytes: 0, estimatedTokens: 0, sourceOnlyCount: 0 }]),
-    ) as Revision["categoryTotals"];
-    for (const component of components) {
-      const total = categoryTotals[component.category];
-      total.count += 1;
-      total.bytes += component.bytes;
-      total.estimatedTokens += component.estimatedTokens ?? 0;
-      if (component.estimatedTokens === null) total.sourceOnlyCount += 1;
-    }
+  for (const delta of deltas) {
     const previous = revisions.at(-1);
-    const changes = buildChanges(
-      previous,
-      components,
-      previous ? renamePairs(root, previous.id, id) : new Map(),
-    );
-    const providerTokenTotals: Partial<Record<"claude" | "gemini" | "codex", number>> = {};
+    const { id, date, firstParent } = delta;
+    const before = new Map<string, number | undefined>();
+    for (const path of delta.removed) before.set(path, inventory.get(path));
+    for (const { path } of delta.written) before.set(path, inventory.get(path));
+    for (const path of delta.removed) inventory.delete(path);
+    for (const file of delta.written) inventory.set(file.path, intern(file));
+    const changes = buildChanges(before, inventory, delta.renames, table);
+    // A revision that changes no recognized file keeps the previous revision's totals.
+    if (previous && !changes.length) {
+      revisions.push({ ...previous, id, date, firstParent, changes });
+      continue;
+    }
+    const components = [...inventory.values()].map((index) => table[index]!);
+    const providerTokenTotals: NonNullable<Revision["providerTokenTotals"]> = {};
     for (const component of components) {
-      for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {})) {
-        providerTokenTotals[provider as "claude" | "gemini" | "codex"] =
-          (providerTokenTotals[provider as "claude" | "gemini" | "codex"] ?? 0) + count.tokens;
+      for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {}) as Array<
+        [CountedProvider, ProviderTextCount]
+      >) {
+        providerTokenTotals[provider] = (providerTokenTotals[provider] ?? 0) + count.tokens;
       }
     }
     revisions.push({
       id,
       date,
-      firstParent: parents?.split(" ")[0] || null,
-      components,
-      skillGroups,
-      categoryTotals,
-      estimatedTokens: categories.reduce((sum, category) => sum + categoryTotals[category].estimatedTokens, 0),
+      firstParent,
+      ...summarize(components),
       changes,
       ...(providerCounts ? { providerTokenTotals } : {}),
     });
-    onProgress?.({ completed: revisions.length, total: commits.length });
+  }
+
+  // Order the table by path, so that sorting indexes sorts an inventory, and renumber the changes.
+  const order = table.map((_, index) => index).sort((a, b) => byPath(table[a]!, table[b]!));
+  const renumbered = new Array<number>(table.length);
+  for (const [position, index] of order.entries()) renumbered[index] = position;
+  for (const revision of revisions) {
+    for (const change of revision.changes) {
+      if (change.component !== null) change.component = renumbered[change.component]!;
+    }
   }
 
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     repository: basename(root),
     branch,
     shallow,
     privacy: { mode: "local" },
     measurement: measurer.measurement,
     ...(providerCounts ? { providerMeasurements: providerMeasurementMetadata(providerCounts) } : {}),
+    components: order.map((index) => table[index]!),
     revisions,
   };
 }
