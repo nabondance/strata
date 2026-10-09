@@ -20,3 +20,8 @@ Strata shows how Git-tracked AI-agent configuration changes through time. It ana
 ## Verification
 
 Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm typecheck` and `pnpm test`. For packaging changes, inspect `pnpm pack` and try the installed tarball from a clean directory. A real-repository smoke check is useful for history or rendering changes, but never modify the repository being analyzed.
+
+## External tools and services
+
+- Prefer service APIs, MCP integrations, and command-line tools such as `gh` for reading or changing external project data. Check CLI authentication and use the supported API before considering browser automation.
+- Use browser automation for visual/UI checks or as a last resort when no suitable API or CLI is available. Never use it as the default way to inspect or manage project boards, issues, pull requests, or repository settings.
