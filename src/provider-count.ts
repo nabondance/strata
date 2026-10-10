@@ -1,3 +1,5 @@
+import { tiktokenImplementation } from "./measurement.js";
+
 export type RemoteProvider = "claude" | "gemini";
 
 export interface ProviderTextCount {
@@ -19,11 +21,29 @@ export interface ProviderMeasurementMetadata {
 
 export function providerMeasurementMetadata(options: ProviderCountOptions): ProviderMeasurementMetadata[] {
   const result: ProviderMeasurementMetadata[] = [
-    { provider: "claude", model: options.claudeModel, method: "POST /v1/messages/count_tokens with one user text message", version: "Anthropic API 2023-06-01", accuracy: "api-counted" },
-    { provider: "gemini", model: options.geminiModel, method: "POST models.countTokens with one user text content", version: "Gemini API v1beta", accuracy: "api-counted" },
+    {
+      provider: "claude",
+      model: options.claudeModel,
+      method: "POST /v1/messages/count_tokens with one user text message",
+      version: "Anthropic API 2023-06-01",
+      accuracy: "api-counted",
+    },
+    {
+      provider: "gemini",
+      model: options.geminiModel,
+      method: "POST models.countTokens with one user text content",
+      version: "Gemini API v1beta",
+      accuracy: "api-counted",
+    },
   ];
   if (options.codexModel) {
-    result.push({ provider: "codex", model: options.codexModel, method: "js-tiktoken@1.0.21 model encoding, counted per instructional file", version: "js-tiktoken@1.0.21", accuracy: "encoding-exact" });
+    result.push({
+      provider: "codex",
+      model: options.codexModel,
+      method: `${tiktokenImplementation} model encoding, counted per instructional file`,
+      version: tiktokenImplementation,
+      accuracy: "encoding-exact",
+    });
   }
   return result;
 }
@@ -58,7 +78,12 @@ async function postCount(
   }
   let response: Response;
   try {
-    response = await fetchImpl(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
+    response = await fetchImpl(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
   } catch {
     throw new Error(`${provider} token count request failed to connect`);
   }

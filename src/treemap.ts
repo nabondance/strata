@@ -1,5 +1,5 @@
 import { hierarchy, treemap } from "d3-hierarchy";
-import type { Component } from "./analyze.js";
+import type { Component } from "./model.js";
 
 export interface Rectangle {
   x: number;
@@ -34,6 +34,7 @@ interface LayoutDatum {
   children?: LayoutDatum[];
 }
 
+/** The HTML report embeds this function's source; it may use only its arguments, `hierarchy`, and `treemap`. */
 export function layoutTreemap(components: Component[]): TreemapLayout {
   const grouped = new Map<Component["category"], LayoutDatum[]>();
   let sourceOnlyCount = 0;

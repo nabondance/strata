@@ -1,4 +1,7 @@
-import type { Component, Revision } from "./analyze.js";
+import type { Component, RevisionSnapshot } from "./model.js";
+
+/** The part of a revision a comparison reads. */
+export type ComparedRevision = Pick<RevisionSnapshot, "components" | "estimatedTokens">;
 
 export interface ComparisonDelta {
   key: string;
@@ -36,7 +39,7 @@ export interface Comparison {
 
 // This function is also embedded in the standalone HTML report. Keep its runtime
 // dependencies inside the function so the browser uses the same comparison logic.
-export function compareRevisions(baseline: Revision, target: Revision): Comparison {
+export function compareRevisions(baseline: ComparedRevision, target: ComparedRevision): Comparison {
   const groups = (keyFor: (component: Component) => string): ComparisonDelta[] => {
     const totals = new Map<string, ComparisonDelta>();
     const add = (component: Component, side: "before" | "after") => {
@@ -54,13 +57,15 @@ export function compareRevisions(baseline: Revision, target: Revision): Comparis
         total.afterTokens += component.estimatedTokens ?? 0;
       }
     };
-    baseline.components.forEach((component) => add(component, "before"));
-    target.components.forEach((component) => add(component, "after"));
-    return [...totals.values()].map((total) => ({
-      ...total,
-      deltaFiles: total.afterFiles - total.beforeFiles,
-      deltaTokens: total.afterTokens - total.beforeTokens,
-    })).sort((a, b) => a.key.localeCompare(b.key));
+    for (const component of baseline.components) add(component, "before");
+    for (const component of target.components) add(component, "after");
+    return [...totals.values()]
+      .map((total) => ({
+        ...total,
+        deltaFiles: total.afterFiles - total.beforeFiles,
+        deltaTokens: total.afterTokens - total.beforeTokens,
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
   };
 
   const identity = (component: Component) => `${component.provider}\0${component.category}\0${component.path}`;
@@ -90,7 +95,7 @@ export function compareRevisions(baseline: Revision, target: Revision): Comparis
     beforeTokens: baseline.estimatedTokens,
     afterTokens: target.estimatedTokens,
     deltaTokens,
-    percentChange: baseline.estimatedTokens === 0 ? null : deltaTokens / baseline.estimatedTokens * 100,
+    percentChange: baseline.estimatedTokens === 0 ? null : (deltaTokens / baseline.estimatedTokens) * 100,
     beforeFiles: baseline.components.length,
     afterFiles: target.components.length,
     deltaFiles: target.components.length - baseline.components.length,

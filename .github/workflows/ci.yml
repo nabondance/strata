@@ -20,6 +20,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm install --global pnpm@10.29.3
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: node dist/cli.js --help
