@@ -15,6 +15,7 @@ import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
+import { renderSvg } from "../dist/svg.js";
 import { layoutTreemap } from "../dist/treemap.js";
 
 function exerciseReportUi(html, report) {
@@ -680,6 +681,41 @@ test("tracks configuration across first-parent history without reading untracked
       compareRevisions(revisions[0], revisions.at(-1)).deltaTokens,
     );
     exerciseReportUi(renderHtml(shareable), shareable);
+
+    // The SVG image draws stored totals only: no script, links, paths, or commit IDs.
+    const svg = renderSvg(report);
+    assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="800" height="\d+"/);
+    assert.doesNotMatch(svg, /<script|<foreignObject|href=|on\w+=/i);
+    for (const component of report.components) assert.ok(!svg.includes(component.path), component.path);
+    for (const revision of report.revisions) assert.ok(!svg.includes(revision.id));
+    assert.ok(svg.includes(`${report.repository} / ${report.branch}`));
+    for (const category of categories) {
+      const present = report.revisions.some((revision) => revision.categoryTotals[category].estimatedTokens > 0);
+      assert.equal(svg.includes(`>${category}</text>`), present, category);
+    }
+    assert.match(svg, new RegExp(`<text[^>]*>${report.revisions.at(-1).date.slice(0, 10)}</text>`));
+    assert.doesNotMatch(svg, /steps\./);
+    assert.match(renderSvg(longHistory), /revisions shown as 100 steps\./);
+    assert.equal(
+      renderSvg(longHistory)
+        .match(/<polyline points="([^"]*)"/)[1]
+        .split(" ").length,
+      200,
+    );
+    const lateSvg = renderSvg(lateStart);
+    assert.ok(lateSvg.includes(`Since ${report.revisions[0].date.slice(0, 10)}`.toUpperCase()));
+    assert.match(lateSvg, new RegExp(`>REVISIONS</text>\\n<text[^>]*>${lateStart.revisions.length}</text>`));
+    const shareableSvg = renderSvg(shareable);
+    assert.ok(!shareableSvg.includes(report.repository));
+    assert.ok(shareableSvg.includes("redacted repository / redacted branch"));
+    const hostileSvg = renderSvg({ ...report, repository: '<script>&"\u0001x' });
+    assert.ok(hostileSvg.includes("&lt;script&gt;&amp;&quot;x"));
+    assert.ok(!hostileSvg.includes("<script") && !hostileSvg.includes("\u0001"));
+    const emptySvg = renderSvg({ ...report, revisions: [nothingTracked] });
+    assert.match(emptySvg, /No instructional text is tracked yet\./);
+    assert.doesNotMatch(emptySvg, /<polygon|<polyline/);
+    assert.match(renderSvg({ ...report, revisions: [] }), /No instructional text is tracked yet\./);
+
     const hostileName = "<img onerror=alert(1)>.md";
     report.components[0].path = hostileName;
     assert.ok(!renderHtml(report).includes(hostileName));
@@ -870,7 +906,7 @@ test("tracks configuration across first-parent history without reading untracked
       encoding: "utf8",
     });
     assert.equal(badOpen.status, 2);
-    assert.match(badOpen.stderr, /--open requires HTML output/);
+    assert.match(badOpen.stderr, /--open requires HTML or SVG output/);
     if (process.platform !== "win32") {
       const openDir = mkdtempSync(join(tmpdir(), "strata-open-"));
       try {
@@ -887,6 +923,16 @@ test("tracks configuration across first-parent history without reading untracked
         assert.ok(openedPath);
         assert.equal(readFileSync(openLog, "utf8"), pathToFileURL(openedPath).href);
         rmSync(join(openedPath, ".."), { recursive: true, force: true });
+        const openedSvg = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "-f", "svg", "--open", "-q"], {
+          encoding: "utf8",
+          env: { ...process.env, PATH: `${openDir}:${process.env.PATH}`, STRATA_OPEN_LOG: openLog },
+        });
+        assert.equal(openedSvg.status, 0, openedSvg.stderr);
+        const svgPath = openedSvg.stdout.trim();
+        assert.match(svgPath, /report\.svg$/);
+        assert.match(readFileSync(svgPath, "utf8"), /^<svg /);
+        assert.equal(readFileSync(openLog, "utf8"), pathToFileURL(svgPath).href);
+        rmSync(join(svgPath, ".."), { recursive: true, force: true });
       } finally {
         rmSync(openDir, { recursive: true, force: true });
       }

@@ -86,6 +86,12 @@ The HTML report uses component measurements to draw a category-grouped treemap a
 
 Rectangle layout uses `d3-hierarchy@3.1.2`'s squarified treemap. The generated report embeds the minified library and its ISC license and calculates the selected revision's layout in the browser; it requires no network access or separate assets.
 
+## SVG image
+
+`strata analyze --format svg` writes a static image of the history for a README or similar page. It draws the all-files view from the stored revision totals, so it needs no inventory replay. Each category with stored-text tokens is a stepped layer stacked on the previous ones in category order, using the HTML report's colors. The chart follows the HTML timeline's rules: it starts at the first revision with a tracked file, holds at most 100 steps, and each step shows the last revision in its group; a note states when revisions were grouped. A header gives the latest token total, tracked-file count, revision count, and the token change since the first charted revision. The measurement label and a statement that this is stored configuration, not loaded session context or billing, are part of the image, as is a shallow-clone warning when it applies.
+
+The image contains the repository and branch names, the first and last charted dates, category labels, and totals. It contains no paths, commit IDs, blob IDs, source text, script, links, or external resources, so it displays wherever SVG images are allowed, including GitHub READMEs. `--shareable` replaces the repository and branch names. Repository-derived text is XML-escaped, and characters XML cannot carry are removed. Text width is not measured, so the repository label is truncated to 60 characters and legend entries are placed by an estimated width. The output is deterministic for a given report: it contains no generation time.
+
 ## Pull-request comparison
 
 `strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and selected measurement mode as the history report. Its JSON has a separate schema version 3; Markdown is intended for a local file or an opt-in GitHub Actions job summary. Paths and commit IDs are visible, but source text is not. The composite Action does not post comments or enforce a token budget.

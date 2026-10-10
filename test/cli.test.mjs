@@ -177,7 +177,7 @@ test("command line follows common conventions", () => {
       [["help", "frobnicate"], /Unknown command/],
       [["analyze", repo, "--frobnicate"], /Unknown option '--frobnicate'/],
       [["analyze", repo, "extra"], /Unexpected argument: extra/],
-      [["analyze", repo, "--format", "pdf"], /--format must be html or json/],
+      [["analyze", repo, "--format", "pdf"], /--format must be html, json, or svg/],
       [["analyze", repo, "--output"], /--output/],
       [["analyze", repo, "--open", "--output", "-"], /--open requires a report file/],
       [["analyze", repo, "--claude-model", "x"], /require --provider-api/],
@@ -213,6 +213,10 @@ test("command line follows common conventions", () => {
     assert.deepEqual(JSON.parse(silent.stdout), report);
     const html = strata(["analyze", repo, "--output", "-"]);
     assert.match(html.stdout, /^<!doctype html>/);
+    const svg = strata(["analyze", repo, "-f", "svg", "-o", "-"]);
+    assert.equal(svg.status, 0, svg.stderr);
+    assert.match(svg.stdout, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+    assert.match(svg.stdout, /<\/svg>\n$/);
 
     const quiet = strata(["analyze", repo, "--quiet"]);
     assert.equal(quiet.status, 0, quiet.stderr);

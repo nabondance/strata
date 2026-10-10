@@ -25,13 +25,21 @@ Analyze a repository to create the interactive HTML report:
 node dist/cli.js analyze /path/to/git/repository
 ```
 
-The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path. Use `--open` to open HTML in a browser or `--output report.html` (`-o`) to choose a destination. For machine-readable output, use `--format json` (`-f json`), and `--output -` to write the report to standard output for another program. Progress and the summary go to stderr in that case; `--quiet` silences both and prints only the report path.
+The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path. Use `--open` to open an HTML report or SVG image in a browser or `--output report.html` (`-o`) to choose a destination. For machine-readable output, use `--format json` (`-f json`), and `--output -` to write the report to standard output for another program. Progress and the summary go to stderr in that case; `--quiet` silences both and prints only the report path.
 
 ```sh
 node dist/cli.js analyze /path/to/repository --open
 node dist/cli.js analyze /path/to/repository --format json --output report.json
 node dist/cli.js analyze --format json --output - | jq '.revisions[] | [.date, .estimatedTokens]'
 ```
+
+For a picture of the history to put in a README, use `--format svg`. The image shows stored-text tokens per category through time, with the latest totals. It contains the repository and branch names, dates, and totals, but no paths, commit IDs, or file contents; `--shareable` also replaces the repository and branch names.
+
+```sh
+node dist/cli.js analyze /path/to/repository --format svg --output docs/strata.svg
+```
+
+Then reference it from the README as `![Agent context through time](docs/strata.svg)`. To keep it current without committing it by hand, see [Running Strata in CI](docs/ci.md#readme-image).
 
 Strata exits with status 0 on success, 2 when the command line is invalid, and 1 for any other failure, such as a path that is not a Git repository.
 
@@ -79,7 +87,7 @@ pnpm dev --help
 
 Run `pnpm build && pnpm benchmark` for a disposable large-history analysis fixture, or see [the benchmark notes](docs/benchmark.md) for the baseline and read-only real-repository mode.
 
-For pull requests, the opt-in [composite Action and `strata diff` command](docs/pr-action.md) compare two full commit IDs and produce a Markdown or JSON configuration delta. They read Git blobs without checking out either revision or posting a comment. To publish the full history report from CI as a workflow artifact, see [Running Strata in CI](docs/ci.md).
+For pull requests, the opt-in [composite Action and `strata diff` command](docs/pr-action.md) compare two full commit IDs and produce a Markdown or JSON configuration delta. They read Git blobs without checking out either revision or posting a comment. To publish the full history report or a README image from CI, see [Running Strata in CI](docs/ci.md).
 
 The npm package name is `context-strata`, with `strata` as the executable. Version 0.1.0 is a release candidate and has not been published yet. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 

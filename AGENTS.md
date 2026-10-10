@@ -9,7 +9,7 @@ Strata shows how Git-tracked AI-agent configuration changes through time. It ana
 - `src/analyze.ts` replays first-parent history into revisions; `src/inventory.ts` measures blobs and derives totals; `src/model.ts` holds the report types.
 - `src/expand.ts` rebuilds each revision's inventory from the report's component table and per-revision changes; reports never store a per-revision file list.
 - `src/pr-delta.ts` compares two commits for `strata diff`, sharing the same inventory code.
-- `src/report.ts` renders the self-contained HTML report; `src/cli.ts` handles command-line input and output.
+- `src/report.ts` renders the self-contained HTML report and `src/svg.ts` the static SVG image; both take category colors from `src/palette.ts`. `src/cli.ts` handles command-line input and output.
 - `src/expand.ts`, `src/compare.ts`, `src/provider-view.ts`, `src/treemap.ts`, and `src/timeline.ts` are embedded into the HTML report as source text, so each exported function must stay self-contained.
 - `test/analyze.test.mjs` and `test/cli.test.mjs` build synthetic Git histories to verify analysis and CLI behavior.
 
