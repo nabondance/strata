@@ -1,96 +1,99 @@
-# strata
+# Strata
 
-See how your agent context evolved across Git history.
+**See how your agent context evolved across Git history.**
 
-Strata is in early development. The CLI reads tracked configuration across Git history and produces an offline interactive report. See [the project foundation](brief.md), [the current analysis scope](docs/analysis-scope.md), and [first-release decisions](docs/decisions.md).
-
-See [the tokenizer study](docs/tokenizers.md) for the evidence and limits behind optional local token-counting modes.
-
-Strata is released under the [MIT license](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution guidance, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community expectations, and [SECURITY.md](SECURITY.md) for vulnerability reporting.
-
-## Using the CLI
-
-Strata reads tracked Git blobs from a repository's first-parent history and creates a local report of how recognized agent configuration changed over time. It does not inspect the repository's working tree or send its contents anywhere. The report inventories supported Claude, Codex, and Gemini CLI instruction, skill, agent, rule, and configuration paths. Instructional text gets a labeled stored-text token measurement; structured configuration and supporting resources are measured in source bytes. These measurements do not show what an agent loaded in a session. Reports include paths and measurements, never file contents.
-
-To run from a checkout, install dependencies and build the CLI:
+Your `CLAUDE.md`, `AGENTS.md`, skills, rules, and agent definitions started small. Then every incident, convention, and "always remember to…" got appended. Strata replays your Git history and shows what that configuration weighs today, when it grew, and which files did it.
 
 ```sh
-pnpm install
-pnpm build
+npx context-strata analyze --open
 ```
 
-Analyze a repository to create the interactive HTML report:
+One command, run inside any Git repository. You get a single offline HTML report. Nothing is uploaded and the repository is never modified.
+
+## What you get
+
+- **A timeline** of stored instruction tokens across your branch's history, split by category.
+- **A treemap** of any revision, so the file eating most of the budget is the biggest rectangle.
+- **A comparison** between any two revisions, with signed token and file-count changes per provider, category, and file.
+- **Per-provider views** for Claude Code, Codex, and Gemini CLI, with shared files such as `AGENTS.md` counted once in the overall total.
+- **A pull-request delta**, as Markdown or JSON, to see what a change adds before it merges.
+- **An SVG image** of the history to embed in your own README.
+- **JSON output** for your own scripts, plus a bundled skill that teaches a coding agent how to read it.
+
+`strata diff` prints a summary like this one:
+
+```text
+Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4).
+
+| File      | Change | Δ tokens |
+| --------- | ------ | -------: |
+| AGENTS.md | edited |     +330 |
+```
+
+## Is it for you?
+
+Strata is useful if you maintain agent configuration in a repository and want to answer questions like:
+
+- When did our instructions double, and which commit did it?
+- Did moving guidance from the root file into skills actually shrink it?
+- How much does this pull request add?
+- Which skills carry the most text and bundled resources?
+
+It is honest about what it cannot tell you. Strata measures the text **stored in Git**. It counts every tracked instruction file, including skills and nested instructions that an agent only loads on demand, so totals describe what the repository holds, not what a session loaded or what you were billed.
+
+## Private by default
+
+- **Read-only.** Strata reads tracked Git blobs. It never touches your working tree, index, or history.
+- **Offline.** No network access, unless you explicitly opt in to provider token-count APIs with `--provider-api`.
+- **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions.
+- **Shareable mode.** `--shareable` replaces repository and branch names, paths, and commit IDs with stable aliases before you send a report to someone else.
+
+## Usage
+
+Requires Node.js 22.13 or newer and Git 2.31 or newer.
 
 ```sh
-node dist/cli.js analyze /path/to/git/repository
+# Analyze the current repository and open the report
+npx context-strata analyze --open
+
+# Analyze another repository and choose where the report goes
+npx context-strata analyze ~/src/project --output report.html
+
+# Machine-readable output
+npx context-strata analyze --format json --output report.json
+
+# A picture of the history for your README
+npx context-strata analyze --format svg --output docs/strata.svg
+
+# What changed between two commits
+npx context-strata diff --base <base-commit> --head <head-commit>
 ```
 
-The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path. Use `--open` to open an HTML report or SVG image with the default application or `--output report.html` (`-o`) to choose a destination. For machine-readable output, use `--format json` (`-f json`), and `--output -` to write the report to standard output for another program. Progress and the summary go to stderr in that case; `--quiet` silences both and prints only the report path.
+Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` for every option.
 
-```sh
-node dist/cli.js analyze /path/to/repository --open
-node dist/cli.js analyze /path/to/repository --format json --output report.json
-node dist/cli.js analyze --format json --output - | jq '.revisions[] | [.date, .estimatedTokens]'
-```
+### Token counts
 
-For a picture of the history to put in a README, use `--format svg`. The image shows stored-text tokens per category through time, with the latest totals. It contains the repository and branch names, dates, and totals, but no paths, commit IDs, or file contents; `--shareable` also replaces the repository and branch names.
+By default Strata estimates tokens as UTF-8 bytes divided by four: fast, offline, and consistent across a whole history. For offline OpenAI encoding counts, pass `--model gpt-4o` or `--tokenizer openai-o200k_base`. Every report names the method it used. See [the tokenizer study](docs/tokenizers.md) for the evidence and limits.
 
-```sh
-node dist/cli.js analyze /path/to/repository --format svg --output docs/strata.svg
-```
+### In pull requests
 
-Then reference it from the README as `![Agent context through time](docs/strata.svg)`. To keep it current without committing it by hand, see [Running Strata in CI](docs/ci.md#readme-image).
+An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments. [Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
 
-Strata exits with status 0 on success, 2 when the command line is invalid, and 1 for any other failure, such as a path that is not a Git repository.
+## What Strata recognizes
 
-Compare two full commit IDs with `diff`. It reads both revisions directly from Git and prints a Markdown summary by default; choose `--format json` for structured data or `--output` to save the result.
+Claude Code, Codex, and Gemini CLI configuration tracked in the repository: root and nested instruction files, skills with their bundled resources, agents, rules, commands, and settings. Structured configuration and supporting resources are measured in bytes rather than given an invented token count. [The analysis scope](docs/analysis-scope.md) lists every recognized path.
 
-```sh
-node dist/cli.js diff /path/to/repository --base <base-commit> --head <head-commit>
-node dist/cli.js diff /path/to/repository --base <base-commit> --head <head-commit> --format json --output delta.json
-```
+## Learn more
 
-The default `--tokenizer estimate` divides instructional text's UTF-8 byte length by four. For offline OpenAI text-encoding counts, use `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`, or select a supported model with `--model gpt-4o` (also `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`). Use either `--model` or `--tokenizer`, not both. The chosen method applies consistently across the history and measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](docs/tokenizers.md) for details and limits.
+- [Using Strata](docs/usage.md): CLI output options, reading the report, and the JSON format.
+- [Running Strata in CI](docs/ci.md): reports, README images, and pull-request deltas from a workflow.
+- [Analysis scope](docs/analysis-scope.md): recognized paths and exclusions.
+- [Decisions](docs/decisions.md): measurement and report contracts.
+- [Benchmark notes](docs/benchmark.md): performance on large histories.
+- [Changelog](CHANGELOG.md)
 
-For HTML or JSON analysis output, `--shareable` replaces repository and branch names, file paths, skill directory names, commit IDs, and blob IDs with deterministic aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
+## Contributing
 
-To print the bundled JSON interpretation skill for a coding agent, or save it at a chosen path:
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the development setup and checks, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) the community expectations, and [SECURITY.md](SECURITY.md) how to report a vulnerability.
 
-```sh
-node dist/cli.js skill
-node dist/cli.js skill --output .agents/skills/strata-interpret/SKILL.md
-```
-
-The `skill` command refuses to overwrite an existing file. Run `node dist/cli.js --help` for the command list and `node dist/cli.js <command> --help` for a command's options. The same commands work as `strata` after installing the package.
-
-In the HTML report, select any baseline and target revision to compare signed estimated-token and file-count changes by provider, category, and component. The timeline controls the target revision. For histories longer than 100 revisions, the chart groups adjacent revisions into at most 100 bars; each bar shows its group's last revision, while the slider still reaches every charted commit. The chart and slider start at the first revision with tracked configuration in the current view; earlier revisions stay available in the baseline and target selectors. Comparison is based on stored files at those two points; a moved file may appear as a removal and an addition.
-
-The report opens on **All files**, counting each tracked file once. Provider tabs show a provider's files together with shared instruction candidates; shared files can appear in multiple provider tabs, so the tab totals should not be added together. These are stored-file views, not measurements of what an agent actually loaded. The selected view applies to the chart, summary, treemap, skill bundles, comparison, and inventory. The tracked-components table can also be filtered by provider, category, and a case-insensitive path search. Those inventory filters stay active as you move along the timeline and reset when you change provider tabs.
-
-The treemap shows the selected revision's instructional components with rectangle area proportional to each stored-text token estimate and color by category. Rectangles of files that the selected revision added, edited, or renamed are outlined. Hover or focus any rectangle for its full path and token count; select it to locate its file in the inventory. Source-only and zero-token files stay in the inventory and receive no invented area. The skill-bundle table initially shows eight rows and can be expanded to the full list.
-
-JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 9 and that replay rule, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish.
-
-## Development
-
-Use Node.js 22.13 or newer, Git 2.31 or newer, and pnpm 10.29.3:
-
-```sh
-pnpm install
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-node dist/cli.js --help
-pnpm dev --help
-```
-
-Run `pnpm build && pnpm benchmark` for a disposable large-history analysis fixture, or see [the benchmark notes](docs/benchmark.md) for the baseline and read-only real-repository mode.
-
-For pull requests, the opt-in [composite Action and `strata diff` command](docs/pr-action.md) compare two full commit IDs and produce a Markdown or JSON configuration delta. They read Git blobs without checking out either revision or posting a comment. To publish the full history report or a README image from CI, see [Running Strata in CI](docs/ci.md).
-
-The npm package name is `context-strata`, with `strata` as the executable. Version 0.1.0 is a release candidate and has not been published yet. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
-
-## Agent-assisted development
-
-[AGENTS.md](AGENTS.md) gives coding agents the repository's purpose, code map, and checks. [CLAUDE.md](CLAUDE.md) imports that same guidance for Claude Code. Optional `strata_reviewer` for Codex and `strata-reviewer` for Claude Code focus on the correctness and privacy of analysis changes; their definitions live in [.codex/agents](.codex/agents/strata_reviewer.toml) and [.claude/agents](.claude/agents/strata-reviewer.md). Invoke a reviewer when that focused check is useful.
+Strata is released under the [MIT license](LICENSE).
