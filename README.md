@@ -10,6 +10,10 @@ npx context-strata analyze --open
 
 One command, run inside any Git repository. You get a single offline HTML report. Nothing is uploaded and the repository is never modified.
 
+![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
+
+The screenshots on this page are Strata's report on its own repository.
+
 ## What you get
 
 - **A timeline** of stored instruction tokens across your branch's history, split by category.
@@ -20,7 +24,15 @@ One command, run inside any Git repository. You get a single offline HTML report
 - **An SVG image** of the history to embed in your own README.
 - **JSON output** for your own scripts, plus a bundled skill that teaches a coding agent how to read it.
 
-`strata diff` prints a summary like this one:
+The treemap sizes each file by its stored-text tokens at the selected revision:
+
+![Treemap of instruction files at one revision, sized by tokens and colored by category](docs/images/report-treemap.png)
+
+Pick any two revisions to see what changed between them:
+
+![Comparison of two revisions with token and file deltas by provider, category, and file](docs/images/report-compare.png)
+
+From the command line, `strata diff` prints a summary like this one:
 
 ```text
 Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4).
