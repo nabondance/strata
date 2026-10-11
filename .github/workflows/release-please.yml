@@ -12,10 +12,50 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_PLEASE_VERSION: 17.11.2
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          node-version: 24
+      # The repository only allows GitHub-maintained actions, so run the
+      # release-please CLI instead of googleapis/release-please-action.
+      - name: Create the GitHub release for a merged release PR
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          tag="v$version"
+          existed=false
+          if gh release view "$tag" >/dev/null 2>&1; then existed=true; fi
+          npx --yes "release-please@$RELEASE_PLEASE_VERSION" github-release \
+            --token "$GH_TOKEN" \
+            --repo-url "$GITHUB_REPOSITORY" \
+            --config-file release-please-config.json \
+            --manifest-file .release-please-manifest.json
+          created=false
+          if [ "$existed" = false ] && gh release view "$tag" >/dev/null 2>&1; then created=true; fi
+          published=false
+          if npm view "$name@$version" version >/dev/null 2>&1; then published=true; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "created=$created" >> "$GITHUB_OUTPUT"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+      - name: Open or update the release PR
+        run: |
+          npx --yes "release-please@$RELEASE_PLEASE_VERSION" release-pr \
+            --token "$GH_TOKEN" \
+            --repo-url "$GITHUB_REPOSITORY" \
+            --config-file release-please-config.json \
+            --manifest-file .release-please-manifest.json
+      # Tags pushed with GITHUB_TOKEN do not trigger other workflows, so start
+      # the publish workflow explicitly on the new tag.
+      - name: Start the npm publish workflow
+        if: steps.release.outputs.created == 'true' && steps.release.outputs.published == 'false'
+        run: gh workflow run publish.yml --ref "${{ steps.release.outputs.tag }}"
