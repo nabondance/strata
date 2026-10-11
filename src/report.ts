@@ -5,6 +5,7 @@ import { categories } from "./adapters.js";
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
+import { categoryColors } from "./palette.js";
 import { viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
 import { layoutTreemap } from "./treemap.js";
@@ -234,7 +235,7 @@ export function renderHtml(report: Report): string {
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
     const providerColumns = data.providerMeasurements ? ['claude', 'gemini', 'codex'] : [];
-    const colors = {instructions:'#31575b', skills:'#88472d', agents:'#645976', rules:'#766023', commands:'#813b43', memory:'#476d44', settings:'#52676a', tools:'#4b607d', other:'#5f665b'};
+    const colors = ${JSON.stringify(categoryColors)};
     const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);

@@ -12,6 +12,7 @@ import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
 import { redactReport } from "./privacy.js";
 import type { ProviderCountOptions } from "./provider-count.js";
 import { renderHtml } from "./report.js";
+import { renderSvg } from "./svg.js";
 
 /** A mistake in how the command was invoked. Exits with status 2; other failures exit with 1. */
 class UsageError extends Error {}
@@ -54,8 +55,8 @@ current directory. Without --output, the report goes to a private temporary dire
 
 Output:
   -o, --output <file>        Write the report to a file, or - for standard output
-  -f, --format <format>      html or json (default: html)
-      --open                 Open the HTML report in a browser
+  -f, --format <format>      html, json, or svg (default: html)
+      --open                 Open the HTML report or SVG image with the default application
       --shareable            Replace repository names, paths, commit IDs, and blob IDs with aliases
   -q, --quiet                Print only the report path
 
@@ -74,6 +75,7 @@ Provider API counts (opt-in content transfer):
 Examples:
   strata analyze --open
   strata analyze ~/src/project --format json --output report.json
+  strata analyze --format svg --output docs/strata.svg
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
 `,
   diff: `Usage:
@@ -159,13 +161,19 @@ function writePrivate(destination: string, content: string, flag: "w" | "wx" = "
   chmodSync(destination, 0o600);
 }
 
+/** The SVG image is meant to be published, so it keeps the permissions the user's umask gives it. */
+function writePublic(destination: string, content: string): void {
+  mkdirSync(dirname(destination), { recursive: true });
+  writeFileSync(destination, content);
+}
+
 function openReport(path: string): void {
   const url = pathToFileURL(path).href;
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "rundll32.exe" : "xdg-open";
   const arguments_ = process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];
   const result = spawnSync(command, arguments_, { stdio: "ignore" });
   if (result.error || result.status !== 0) {
-    throw new Error(`Could not open the report in a browser. Open this file manually: ${path}`);
+    throw new Error(`Could not open the report with the default application. Open this file manually: ${path}`);
   }
 }
 
@@ -205,9 +213,9 @@ async function analyze(args: string[]): Promise<void> {
     "codex-model": { type: "string" },
   });
   const repository = repositoryArgument(positionals);
-  const format = choice("--format", values.format, ["html", "json"], "html");
+  const format = choice("--format", values.format, ["html", "json", "svg"], "html");
   const toStdout = values.output === "-";
-  if (values.open && format !== "html") throw new UsageError("--open requires HTML output");
+  if (values.open && format === "json") throw new UsageError("--open requires HTML or SVG output");
   if (values.open && toStdout) throw new UsageError("--open requires a report file, not standard output");
   const measurement = measurementArguments(values);
 
@@ -236,7 +244,12 @@ async function analyze(args: string[]): Promise<void> {
     ...(providerCounts ? { providerCounts } : {}),
   });
   const report = values.shareable ? redactReport(analyzed) : analyzed;
-  const content = format === "json" ? `${JSON.stringify(report, null, 2)}\n` : renderHtml(report);
+  const content =
+    format === "json"
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : format === "svg"
+        ? renderSvg(report)
+        : renderHtml(report);
   // With the report on stdout, everything meant for a person moves to stderr.
   const say = (line: string) => {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
@@ -252,7 +265,8 @@ async function analyze(args: string[]): Promise<void> {
     const destination = values.output
       ? resolve(values.output)
       : join(mkdtempSync(join(tmpdir(), "strata-report-")), `report.${format}`);
-    writePrivate(destination, content);
+    if (format === "svg") writePublic(destination, content);
+    else writePrivate(destination, content);
     process.stdout.write(values.quiet ? `${destination}\n` : `Report: ${destination}\n`);
     if (values.open) openReport(destination);
   }

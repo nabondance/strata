@@ -177,7 +177,7 @@ test("command line follows common conventions", () => {
       [["help", "frobnicate"], /Unknown command/],
       [["analyze", repo, "--frobnicate"], /Unknown option '--frobnicate'/],
       [["analyze", repo, "extra"], /Unexpected argument: extra/],
-      [["analyze", repo, "--format", "pdf"], /--format must be html or json/],
+      [["analyze", repo, "--format", "pdf"], /--format must be html, json, or svg/],
       [["analyze", repo, "--output"], /--output/],
       [["analyze", repo, "--open", "--output", "-"], /--open requires a report file/],
       [["analyze", repo, "--claude-model", "x"], /require --provider-api/],
@@ -213,6 +213,10 @@ test("command line follows common conventions", () => {
     assert.deepEqual(JSON.parse(silent.stdout), report);
     const html = strata(["analyze", repo, "--output", "-"]);
     assert.match(html.stdout, /^<!doctype html>/);
+    const svg = strata(["analyze", repo, "-f", "svg", "-o", "-"]);
+    assert.equal(svg.status, 0, svg.stderr);
+    assert.match(svg.stdout, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+    assert.match(svg.stdout, /<\/svg>\n$/);
 
     const quiet = strata(["analyze", repo, "--quiet"]);
     assert.equal(quiet.status, 0, quiet.stderr);
@@ -227,6 +231,12 @@ test("command line follows common conventions", () => {
     assert.equal(strata(["analyze", repo, "-f", "json", "-o", existing]).status, 0);
     assert.equal(JSON.parse(readFileSync(existing, "utf8")).revisions.length, 2);
     if (process.platform !== "win32") assert.equal(statSync(existing).mode & 0o777, 0o600);
+    // The SVG image is meant to be published, so it gets ordinary file permissions.
+    const image = join(outside, "strata.svg");
+    const ordinary = join(outside, "ordinary");
+    writeFileSync(ordinary, "");
+    assert.equal(strata(["analyze", repo, "-f", "svg", "-o", image]).status, 0);
+    assert.equal(statSync(image).mode & 0o777, statSync(ordinary).mode & 0o777);
 
     const delta = strata(["diff", "--base", base, "--head", head, "--format", "json"], { cwd: repo });
     assert.equal(delta.status, 0, delta.stderr);
