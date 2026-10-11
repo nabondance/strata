@@ -69,4 +69,4 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@11.5.1
       - name: Publish verified tarball with trusted publishing
-        run: npm publish release/*.tgz --access public
+        run: npm publish ./release/*.tgz --access public
