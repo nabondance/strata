@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/nabondance/strata/compare/v0.2.0...v0.2.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* publish the release tarball by explicit path ([8cec515](https://github.com/nabondance/strata/commit/8cec5151d0f82a429a8aed9a5abca337f44974b7))
+* publish the release tarball by explicit path ([de3fd09](https://github.com/nabondance/strata/commit/de3fd09079e8dfeb60f5dd7c1ed8786312bff145))
+
 ## [0.2.0](https://github.com/nabondance/strata/compare/v0.1.0...v0.2.0) (2026-10-11)
 
 
