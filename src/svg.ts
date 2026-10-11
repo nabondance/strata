@@ -32,8 +32,10 @@ export function renderSvg(report: Report): string {
   const buckets = revisions.length ? timelineBuckets(revisions.length, 100, chartStart) : [];
   const charted = buckets.map((bucket) => revisions[bucket.end]!);
   const first = revisions[chartStart];
-  const layers = categories.filter((category) => charted.some((revision) => tokens(revision, category) > 0));
-  const max = Math.max(0, ...charted.map((revision) => revision.estimatedTokens));
+  // Like the HTML timeline, the scale and legend cover every charted revision, not only the last in each step.
+  const range = revisions.slice(chartStart);
+  const layers = categories.filter((category) => range.some((revision) => tokens(revision, category) > 0));
+  const max = Math.max(0, ...range.map((revision) => revision.estimatedTokens));
   const step = niceStep(max / 4);
   const yMax = Math.max(step, Math.ceil(max / step) * step);
   const y = (value: number) => round(plotBottom - (value / yMax) * plotHeight);
@@ -139,8 +141,15 @@ export function renderSvg(report: Report): string {
 
   const notes = [
     `${report.measurement.label}. Stored configuration in Git, not loaded session context or billing.`,
-    ...(buckets.length < revisions.length - chartStart
-      ? [`${numberFormat.format(revisions.length - chartStart)} revisions shown as ${buckets.length} steps.`]
+    ...(buckets.length < range.length
+      ? [
+          `${numberFormat.format(range.length)} revisions shown as ${buckets.length} steps; each step shows the last revision in its group.`,
+        ]
+      : []),
+    ...(chartStart
+      ? [
+          `The chart starts at revision ${numberFormat.format(chartStart + 1)}: the ${numberFormat.format(chartStart)} earlier revisions have no tracked configuration.`,
+        ]
       : []),
     ...(report.shallow ? ["Shallow clone: earlier history is missing."] : []),
   ];
@@ -169,11 +178,12 @@ function tokens(revision: Report["revisions"][number], category: Category): numb
   return revision.categoryTotals[category].estimatedTokens;
 }
 
-/** A 1, 2, 2.5, or 5 multiple of a power of ten, so axis labels stay round. */
+/** A 1, 2, 2.5, or 5 multiple of a power of ten, so axis labels stay round; token counts are whole, so 2.5 needs ten or more. */
 function niceStep(raw: number): number {
   if (!(raw > 0)) return 1;
   const power = 10 ** Math.floor(Math.log10(raw));
-  const multiple = [1, 2, 2.5, 5, 10].find((candidate) => candidate * power >= raw) ?? 10;
+  const multiples = power >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
+  const multiple = multiples.find((candidate) => candidate * power >= raw) ?? 10;
   return Math.max(1, multiple * power);
 }
 

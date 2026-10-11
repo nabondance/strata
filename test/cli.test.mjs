@@ -231,6 +231,12 @@ test("command line follows common conventions", () => {
     assert.equal(strata(["analyze", repo, "-f", "json", "-o", existing]).status, 0);
     assert.equal(JSON.parse(readFileSync(existing, "utf8")).revisions.length, 2);
     if (process.platform !== "win32") assert.equal(statSync(existing).mode & 0o777, 0o600);
+    // The SVG image is meant to be published, so it gets ordinary file permissions.
+    const image = join(outside, "strata.svg");
+    const ordinary = join(outside, "ordinary");
+    writeFileSync(ordinary, "");
+    assert.equal(strata(["analyze", repo, "-f", "svg", "-o", image]).status, 0);
+    assert.equal(statSync(image).mode & 0o777, statSync(ordinary).mode & 0o777);
 
     const delta = strata(["diff", "--base", base, "--head", head, "--format", "json"], { cwd: repo });
     assert.equal(delta.status, 0, delta.stderr);

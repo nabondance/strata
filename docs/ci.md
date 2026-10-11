@@ -24,18 +24,20 @@ jobs:
   strata:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: actions/checkout@v7
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: nabondance/strata
           ref: <release-tag-or-commit>
           path: .strata-tool
-      - uses: pnpm/action-setup@v6
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           package_json_file: .strata-tool/package.json
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
       - name: Build Strata
@@ -45,10 +47,9 @@ jobs:
           pnpm build
       - name: Analyze history
         run: |
-          mkdir -p "$RUNNER_TEMP/strata"
           node .strata-tool/dist/cli.js analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
           node .strata-tool/dist/cli.js analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-report
           path: ${{ runner.temp }}/strata/
@@ -56,7 +57,7 @@ jobs:
 
 Download `strata-report` from the workflow run and open `report.html` in a browser; it works offline. The JSON report suits scripts, and `strata skill` prints guidance for agents that interpret it.
 
-The Strata checkout in `.strata-tool` is an untracked directory, so it is not part of the analysis. Once the package is published, the checkout and build steps can be replaced with `npx context-strata@<version> analyze …`.
+The Strata checkout in `.strata-tool` is an untracked directory, so it is not part of the analysis. Strata creates the output directory itself. The examples pin each action to a commit SHA, as this repository's own workflows do; review and update those pins like any other dependency. `persist-credentials: false` keeps the job token out of the checkouts' Git configuration, since nothing in the job pushes. Once the package is published, the checkout and build steps can be replaced with `npx context-strata@<version> analyze …`.
 
 ### Checkout depth
 
@@ -78,7 +79,7 @@ HTML and JSON reports contain file paths, commit IDs, dates, and measurements, n
 
 The simplest option is to render it locally and commit it, for example to `docs/strata.svg`, and reference it with `![Agent context through time](docs/strata.svg)`. The image then changes only when you regenerate it.
 
-To keep it current automatically, the workflow below renders the image on every push to `main` and force-pushes it as the single commit of a `strata-image` branch. This keeps the image out of `main`'s history and keeps `strata-image` at one commit. The push uses the job's `GITHUB_TOKEN`, which is why the workflow needs `contents: write`, and it does not trigger other workflows.
+To keep it current automatically, the workflow below renders the image on every push to `main` and force-pushes it as the single commit of a `strata-image` branch. This keeps the image out of `main`'s history and keeps `strata-image` at one commit. Rendering runs with read-only permissions. A separate job, which runs no project or dependency code, gets `contents: write` to push the image with the job's `GITHUB_TOKEN`. A push made with that token does not trigger other workflows.
 
 ```yaml
 name: Agent context image
@@ -87,26 +88,28 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: strata-image
   cancel-in-progress: true
 jobs:
-  strata-image:
+  render:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: actions/checkout@v7
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: nabondance/strata
           ref: <release-tag-or-commit>
           path: .strata-tool
-      - uses: pnpm/action-setup@v6
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           package_json_file: .strata-tool/package.json
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
       - name: Build Strata
@@ -116,8 +119,22 @@ jobs:
           pnpm build
       - name: Render image
         run: node .strata-tool/dist/cli.js analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: strata-image
+          path: ${{ runner.temp }}/strata-image/strata.svg
+  publish:
+    needs: render
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1
+        with:
+          name: strata-image
+          path: strata-image
       - name: Publish to the strata-image branch
-        working-directory: ${{ runner.temp }}/strata-image
+        working-directory: strata-image
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |

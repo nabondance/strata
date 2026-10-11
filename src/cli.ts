@@ -56,7 +56,7 @@ current directory. Without --output, the report goes to a private temporary dire
 Output:
   -o, --output <file>        Write the report to a file, or - for standard output
   -f, --format <format>      html, json, or svg (default: html)
-      --open                 Open the HTML report or SVG image in a browser
+      --open                 Open the HTML report or SVG image with the default application
       --shareable            Replace repository names, paths, commit IDs, and blob IDs with aliases
   -q, --quiet                Print only the report path
 
@@ -161,13 +161,19 @@ function writePrivate(destination: string, content: string, flag: "w" | "wx" = "
   chmodSync(destination, 0o600);
 }
 
+/** The SVG image is meant to be published, so it keeps the permissions the user's umask gives it. */
+function writePublic(destination: string, content: string): void {
+  mkdirSync(dirname(destination), { recursive: true });
+  writeFileSync(destination, content);
+}
+
 function openReport(path: string): void {
   const url = pathToFileURL(path).href;
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "rundll32.exe" : "xdg-open";
   const arguments_ = process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];
   const result = spawnSync(command, arguments_, { stdio: "ignore" });
   if (result.error || result.status !== 0) {
-    throw new Error(`Could not open the report in a browser. Open this file manually: ${path}`);
+    throw new Error(`Could not open the report with the default application. Open this file manually: ${path}`);
   }
 }
 
@@ -259,7 +265,8 @@ async function analyze(args: string[]): Promise<void> {
     const destination = values.output
       ? resolve(values.output)
       : join(mkdtempSync(join(tmpdir(), "strata-report-")), `report.${format}`);
-    writePrivate(destination, content);
+    if (format === "svg") writePublic(destination, content);
+    else writePrivate(destination, content);
     process.stdout.write(values.quiet ? `${destination}\n` : `Report: ${destination}\n`);
     if (values.open) openReport(destination);
   }

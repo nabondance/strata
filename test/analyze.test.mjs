@@ -16,6 +16,7 @@ import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
 import { renderSvg } from "../dist/svg.js";
+import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 
 function exerciseReportUi(html, report) {
@@ -694,15 +695,40 @@ test("tracks configuration across first-parent history without reading untracked
       assert.equal(svg.includes(`>${category}</text>`), present, category);
     }
     assert.match(svg, new RegExp(`<text[^>]*>${report.revisions.at(-1).date.slice(0, 10)}</text>`));
-    assert.doesNotMatch(svg, /steps\./);
-    assert.match(renderSvg(longHistory), /revisions shown as 100 steps\./);
+    assert.doesNotMatch(svg, /steps;|chart starts/);
+    assert.match(
+      renderSvg(longHistory),
+      /revisions shown as 100 steps; each step shows the last revision in its group\./,
+    );
     assert.equal(
       renderSvg(longHistory)
         .match(/<polyline points="([^"]*)"/)[1]
         .split(" ").length,
       200,
     );
+    // A category or peak inside a group still sets the legend and scale, as in the HTML timeline.
+    const hidden = timelineBuckets(longHistory.revisions.length, 100).find((bucket) => bucket.start < bucket.end).start;
+    const peaked = structuredClone(longHistory);
+    peaked.revisions[hidden].categoryTotals.commands.estimatedTokens = 100000;
+    peaked.revisions[hidden].estimatedTokens += 100000;
+    const peakedSvg = renderSvg(peaked);
+    assert.ok(peakedSvg.includes(">commands</text>"));
+    assert.ok(peakedSvg.includes(">100K</text>"));
+    assert.match(peakedSvg, /each step shows the last revision in its group\./);
+    // Token counts are whole, so a small scale never gets fractional ticks.
+    const small = structuredClone(nothingTracked);
+    small.componentCount = 1;
+    small.estimatedTokens = 9;
+    small.categoryTotals.instructions.estimatedTokens = 9;
+    const smallTicks = [
+      ...renderSvg({ ...report, revisions: [small] }).matchAll(/text-anchor="end"[^>]*font-size="10"[^>]*>([^<]+)</g),
+    ];
+    assert.deepEqual(
+      smallTicks.map((match) => match[1]),
+      ["0", "5", "10"],
+    );
     const lateSvg = renderSvg(lateStart);
+    assert.match(lateSvg, /The chart starts at revision 3: the 2 earlier revisions have no tracked configuration\./);
     assert.ok(lateSvg.includes(`Since ${report.revisions[0].date.slice(0, 10)}`.toUpperCase()));
     assert.match(lateSvg, new RegExp(`>REVISIONS</text>\\n<text[^>]*>${lateStart.revisions.length}</text>`));
     const shareableSvg = renderSvg(shareable);
