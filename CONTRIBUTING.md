@@ -8,6 +8,12 @@ Include a short explanation of what changed and how it was tested. Add a synthet
 
 Keep analyzed repositories read-only. Reports must work offline, keep source text out of default outputs, and describe stored token estimates without implying actual session or billing tokens. Do not include private repository paths, prompt content, or credentials in issues or test fixtures.
 
+Run `pnpm build && pnpm benchmark` for a disposable large-history analysis fixture; [the benchmark notes](docs/benchmark.md) describe the baseline and a read-only real-repository mode. From a checkout, `node dist/cli.js` or `pnpm dev` runs the CLI in place of `strata`.
+
+## Agent-assisted development
+
+[AGENTS.md](AGENTS.md) gives coding agents the repository's purpose, code map, and checks. [CLAUDE.md](CLAUDE.md) imports that same guidance for Claude Code. Optional `strata_reviewer` for Codex and `strata-reviewer` for Claude Code focus on the correctness and privacy of analysis changes; their definitions live in [.codex/agents](.codex/agents/strata_reviewer.toml) and [.claude/agents](.claude/agents/strata-reviewer.md). Invoke a reviewer when that focused check is useful.
+
 ## Commit messages and releases
 
 Write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/): `fix: handle empty repositories`, `feat: add a --since option`, `docs: ...`, `chore: ...`. Mark a breaking change with `!` (`feat!: ...`) or a `BREAKING CHANGE:` footer. When a pull request is squash-merged, its title becomes the commit subject, so the title needs the same form.
