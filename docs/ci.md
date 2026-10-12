@@ -10,7 +10,7 @@ None of them runs unless you add a workflow to the repository you want to analyz
 
 ## Full history report as an artifact
 
-The npm package `context-strata` has not been published yet, so the workflow checks out Strata at a pinned release tag or commit and builds it. Replace `<release-tag-or-commit>` with a reviewed ref.
+The workflow runs the published npm package `context-strata` at a pinned version. Replace `0.2.1` with the version you have reviewed.
 
 ```yaml
 name: Agent context report
@@ -28,27 +28,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          repository: nabondance/strata
-          ref: <release-tag-or-commit>
-          path: .strata-tool
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          package_json_file: .strata-tool/package.json
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
-      - name: Build Strata
-        working-directory: .strata-tool
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
       - name: Analyze history
         run: |
-          node .strata-tool/dist/cli.js analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
-          node .strata-tool/dist/cli.js analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
+          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
+          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-report
@@ -57,7 +43,7 @@ jobs:
 
 Download `strata-report` from the workflow run and open `report.html` in a browser; it works offline. The JSON report suits scripts, and `strata skill` prints guidance for agents that interpret it.
 
-The Strata checkout in `.strata-tool` is an untracked directory, so it is not part of the analysis. Strata creates the output directory itself. The examples pin each action to a commit SHA, as this repository's own workflows do; review and update those pins like any other dependency. `persist-credentials: false` keeps the job token out of the checkouts' Git configuration, since nothing in the job pushes. Once the package is published, the checkout and build steps can be replaced with `npx context-strata@<version> analyze …`.
+Strata creates the output directory itself. The examples pin each action to a commit SHA, as this repository's own workflows do; review and update those pins like any other dependency. `persist-credentials: false` keeps the job token out of the checkout's Git configuration, since nothing in the job pushes.
 
 ### Checkout depth
 
@@ -100,25 +86,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          repository: nabondance/strata
-          ref: <release-tag-or-commit>
-          path: .strata-tool
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          package_json_file: .strata-tool/package.json
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
-      - name: Build Strata
-        working-directory: .strata-tool
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
       - name: Render image
-        run: node .strata-tool/dist/cli.js analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+        run: npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-image
