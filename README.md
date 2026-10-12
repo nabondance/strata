@@ -10,7 +10,7 @@ npx context-strata analyze --open
 
 One command, run inside any Git repository. You get a single offline HTML report. Nothing is uploaded and the repository is never modified.
 
-![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
+![The Strata report: stored instruction tokens per revision, stacked by category](https://cdn.jsdelivr.net/npm/context-strata@latest/docs/images/report-timeline.png)
 
 The screenshots on this page are Strata's report on its own repository.
 
@@ -26,11 +26,11 @@ The screenshots on this page are Strata's report on its own repository.
 
 The treemap sizes each file by its stored-text tokens at the selected revision:
 
-![Treemap of instruction files at one revision, sized by tokens and colored by category](docs/images/report-treemap.png)
+![Treemap of instruction files at one revision, sized by tokens and colored by category](https://cdn.jsdelivr.net/npm/context-strata@latest/docs/images/report-treemap.png)
 
 Pick any two revisions to see what changed between them:
 
-![Comparison of two revisions with token and file deltas by provider, category, and file](docs/images/report-compare.png)
+![Comparison of two revisions with token and file deltas by provider, category, and file](https://cdn.jsdelivr.net/npm/context-strata@latest/docs/images/report-compare.png)
 
 From the command line, `strata diff` prints a summary like this one:
 
