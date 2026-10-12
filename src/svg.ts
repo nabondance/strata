@@ -24,7 +24,7 @@ const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maxi
  * no script, so it displays wherever SVG images are allowed.
  *
  * With `minimal`, it draws only the layers, edge to edge on a transparent background: no visible
- * text, axes, legend, or outline, and no repository or branch name.
+ * text, axes, or legend, and no repository or branch name.
  */
 export function renderSvg(report: Report, options: { minimal?: boolean } = {}): string {
   const revisions = report.revisions;
@@ -111,13 +111,7 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
   }
 
   for (const polygon of layerPolygons(charted, layers, x, y)) add(polygon);
-  if (max > 0) {
-    const outline = charted.flatMap((revision, index) => [
-      `${x(index)},${y(revision.estimatedTokens)}`,
-      `${x(index + 1)},${y(revision.estimatedTokens)}`,
-    ]);
-    add(`<polyline points="${outline.join(" ")}" fill="none" stroke="#24312c" stroke-width="1.5"/>`);
-  } else {
+  if (max === 0) {
     add(
       `<text x="${round((plotLeft + right) / 2)}" y="${plotTop + plotHeight / 2}" text-anchor="middle" font-family="${sans}" font-size="13" fill="#5c6a63">No instructional text is tracked yet.</text>`,
     );

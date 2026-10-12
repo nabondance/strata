@@ -702,10 +702,11 @@ test("tracks configuration across first-parent history without reading untracked
     );
     assert.equal(
       renderSvg(longHistory)
-        .match(/<polyline points="([^"]*)"/)[1]
+        .match(/<polygon points="([^"]*)"/)[1]
         .split(" ").length,
-      200,
+      400,
     );
+    assert.doesNotMatch(svg, /<polyline/);
     // A category or peak inside a group still sets the legend and scale, as in the HTML timeline.
     const hidden = timelineBuckets(longHistory.revisions.length, 100).find((bucket) => bucket.start < bucket.end).start;
     const peaked = structuredClone(longHistory);
