@@ -702,10 +702,11 @@ test("tracks configuration across first-parent history without reading untracked
     );
     assert.equal(
       renderSvg(longHistory)
-        .match(/<polyline points="([^"]*)"/)[1]
+        .match(/<polygon points="([^"]*)"/)[1]
         .split(" ").length,
-      200,
+      400,
     );
+    assert.doesNotMatch(svg, /<polyline/);
     // A category or peak inside a group still sets the legend and scale, as in the HTML timeline.
     const hidden = timelineBuckets(longHistory.revisions.length, 100).find((bucket) => bucket.start < bucket.end).start;
     const peaked = structuredClone(longHistory);
@@ -731,6 +732,21 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(lateSvg, /The chart starts at revision 3: the 2 earlier revisions have no tracked configuration\./);
     assert.ok(lateSvg.includes(`Since ${report.revisions[0].date.slice(0, 10)}`.toUpperCase()));
     assert.match(lateSvg, new RegExp(`>REVISIONS</text>\\n<text[^>]*>${lateStart.revisions.length}</text>`));
+    // The minimal image is the layers alone: the same shapes count, nothing else visible, no names or dates.
+    const minimalSvg = renderSvg(report, { minimal: true });
+    assert.match(minimalSvg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="800" height="200"/);
+    assert.equal(minimalSvg.match(/<polygon/g).length, svg.match(/<polygon/g).length);
+    assert.doesNotMatch(minimalSvg, /<text|<line|<rect|<polyline|<script|<foreignObject|href=|on\w+=/i);
+    assert.ok(!minimalSvg.includes(report.repository) && !minimalSvg.includes(report.branch));
+    assert.ok(!minimalSvg.includes(report.revisions.at(-1).date.slice(0, 10)));
+    for (const [, points] of minimalSvg.matchAll(/points="([^"]+)"/g)) {
+      for (const point of points.split(" ")) {
+        const [pointX, pointY] = point.split(",").map(Number);
+        assert.ok(pointX >= 0 && pointX <= 800 && pointY >= 0 && pointY <= 200, point);
+      }
+    }
+    assert.ok(minimalSvg.includes(",0 "), "the tallest revision reaches the top edge");
+    assert.doesNotMatch(renderSvg({ ...report, revisions: [] }, { minimal: true }), /<polygon|<text/);
     const shareableSvg = renderSvg(shareable);
     assert.ok(!shareableSvg.includes(report.repository));
     assert.ok(shareableSvg.includes("redacted repository / redacted branch"));

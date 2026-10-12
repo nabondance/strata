@@ -56,6 +56,7 @@ current directory. Without --output, the report goes to a private temporary dire
 Output:
   -o, --output <file>        Write the report to a file, or - for standard output
   -f, --format <format>      html, json, or svg (default: html)
+      --minimal              With --format svg, draw only the layers: no text, axes, or legend
       --open                 Open the HTML report or SVG image with the default application
       --shareable            Replace repository names, paths, commit IDs, and blob IDs with aliases
   -q, --quiet                Print only the report path
@@ -76,6 +77,7 @@ Examples:
   strata analyze --open
   strata analyze ~/src/project --format json --output report.json
   strata analyze --format svg --output docs/strata.svg
+  strata analyze --format svg --minimal --output docs/strata-minimal.svg
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
 `,
   diff: `Usage:
@@ -202,6 +204,7 @@ async function analyze(args: string[]): Promise<void> {
   const { values, positionals } = parse(args, {
     output: { type: "string", short: "o" },
     format: { type: "string", short: "f" },
+    minimal: { type: "boolean" },
     open: { type: "boolean" },
     shareable: { type: "boolean" },
     quiet: { type: "boolean", short: "q" },
@@ -215,6 +218,7 @@ async function analyze(args: string[]): Promise<void> {
   const repository = repositoryArgument(positionals);
   const format = choice("--format", values.format, ["html", "json", "svg"], "html");
   const toStdout = values.output === "-";
+  if (values.minimal && format !== "svg") throw new UsageError("--minimal requires --format svg");
   if (values.open && format === "json") throw new UsageError("--open requires HTML or SVG output");
   if (values.open && toStdout) throw new UsageError("--open requires a report file, not standard output");
   const measurement = measurementArguments(values);
@@ -248,7 +252,7 @@ async function analyze(args: string[]): Promise<void> {
     format === "json"
       ? `${JSON.stringify(report, null, 2)}\n`
       : format === "svg"
-        ? renderSvg(report)
+        ? renderSvg(report, { minimal: values.minimal ?? false })
         : renderHtml(report);
   // With the report on stdout, everything meant for a person moves to stderr.
   const say = (line: string) => {

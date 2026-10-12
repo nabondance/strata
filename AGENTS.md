@@ -28,4 +28,5 @@ Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm lint`, `pnpm ty
 ## External tools and services
 
 - Prefer service APIs, MCP integrations, and command-line tools such as `gh` for reading or changing external project data. Check CLI authentication and use the supported API before considering browser automation.
+- To show a screenshot in a pull-request description or comment, upload it with `gh`'s `--attach` flag (`gh pr create`, `gh pr edit`, `gh pr comment`), for example `gh pr comment 16 --attach './report.png#The timeline after the change'`. Do not commit an image or link to a branch file only to display it in a pull request.
 - Use browser automation for visual/UI checks or as a last resort when no suitable API or CLI is available. Never use it as the default way to inspect or manage project boards, issues, pull requests, or repository settings.
