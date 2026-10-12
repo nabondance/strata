@@ -21,7 +21,7 @@ The screenshots on this page are Strata's report on its own repository.
 - **A comparison** between any two revisions, with signed token and file-count changes per provider, category, and file.
 - **Per-provider views** for Claude Code, Codex, and Gemini CLI, with shared files such as `AGENTS.md` counted once in the overall total.
 - **A pull-request delta**, as Markdown or JSON, to see what a change adds before it merges.
-- **An SVG image** of the history to embed in your own README.
+- **An SVG image** of the history to embed in your own README, in full or as the layers alone (`--minimal`).
 - **JSON output** for your own scripts, plus a bundled skill that teaches a coding agent how to read it.
 
 The treemap sizes each file by its stored-text tokens at the selected revision:

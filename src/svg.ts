@@ -10,6 +10,7 @@ const plotLeft = 76;
 const plotTop = 196;
 const plotHeight = 180;
 const plotBottom = plotTop + plotHeight;
+const minimalHeight = 200;
 const sans = `'Avenir Next', 'Helvetica Neue', Arial, sans-serif`;
 const serif = `Georgia, 'Times New Roman', serif`;
 const mono = `ui-monospace, SFMono-Regular, Menlo, monospace`;
@@ -21,8 +22,11 @@ const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maxi
  * all-files view from stored revision totals: one layer per category, at most 100 steps, starting
  * at the first revision with a tracked file. It holds no paths, commit IDs, or source text, and
  * no script, so it displays wherever SVG images are allowed.
+ *
+ * With `minimal`, it draws only the layers, edge to edge on a transparent background: no visible
+ * text, axes, legend, or outline, and no repository or branch name.
  */
-export function renderSvg(report: Report): string {
+export function renderSvg(report: Report, options: { minimal?: boolean } = {}): string {
   const revisions = report.revisions;
   const latest = revisions.at(-1);
   const chartStart = Math.max(
@@ -36,12 +40,30 @@ export function renderSvg(report: Report): string {
   const range = revisions.slice(chartStart);
   const layers = categories.filter((category) => range.some((revision) => tokens(revision, category) > 0));
   const max = Math.max(0, ...range.map((revision) => revision.estimatedTokens));
+  const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
+  const latestTotals = `${numberFormat.format(latest?.estimatedTokens ?? 0)} tokens in ${numberFormat.format(latest?.componentCount ?? 0)} tracked files at the latest of ${numberFormat.format(revisions.length)} revisions`;
+  if (options.minimal) {
+    const minimalStep = width / Math.max(1, charted.length);
+    const description = `${tokenAdjective} stored-text tokens in Git-tracked agent configuration through time, one layer per category: ${latestTotals}.`;
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${minimalHeight}" viewBox="0 0 ${width} ${minimalHeight}" role="img" aria-labelledby="strata-title strata-desc">`,
+      `<title id="strata-title">Strata: agent context through time</title>`,
+      `<desc id="strata-desc">${escapeXml(description)}</desc>`,
+      ...layerPolygons(
+        charted,
+        layers,
+        (index) => round(index * minimalStep),
+        (value) => round(minimalHeight - (value / Math.max(1, max)) * minimalHeight),
+      ),
+      `</svg>`,
+      "",
+    ].join("\n");
+  }
   const step = niceStep(max / 4);
   const yMax = Math.max(step, Math.ceil(max / step) * step);
   const y = (value: number) => round(plotBottom - (value / yMax) * plotHeight);
   const stepWidth = (right - plotLeft) / Math.max(1, charted.length);
   const x = (index: number) => round(plotLeft + index * stepWidth);
-  const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
   const repository = truncate(`${report.repository} / ${report.branch}`, 60);
   const change = latest && first ? latest.estimatedTokens - first.estimatedTokens : 0;
 
@@ -88,20 +110,7 @@ export function renderSvg(report: Report): string {
     );
   }
 
-  // Each category is a stepped layer stacked on the ones before it, like strata in a cut.
-  const below = charted.map(() => 0);
-  for (const category of layers) {
-    const bottom = [...below];
-    for (const [index, revision] of charted.entries()) below[index]! += tokens(revision, category);
-    const top = charted.flatMap((_, index) => [
-      `${x(index)},${y(below[index]!)}`,
-      `${x(index + 1)},${y(below[index]!)}`,
-    ]);
-    const base = charted
-      .flatMap((_, index) => [`${x(index)},${y(bottom[index]!)}`, `${x(index + 1)},${y(bottom[index]!)}`])
-      .reverse();
-    add(`<polygon points="${[...top, ...base].join(" ")}" fill="${categoryColors[category]}"/>`);
-  }
+  for (const polygon of layerPolygons(charted, layers, x, y)) add(polygon);
   if (max > 0) {
     const outline = charted.flatMap((revision, index) => [
       `${x(index)},${y(revision.estimatedTokens)}`,
@@ -160,7 +169,7 @@ export function renderSvg(report: Report): string {
   }
   const height = noteY + 14;
 
-  const description = `${tokenAdjective} stored-text tokens in Git-tracked agent configuration of ${repository}: ${numberFormat.format(latest?.estimatedTokens ?? 0)} tokens in ${numberFormat.format(latest?.componentCount ?? 0)} tracked files at the latest of ${numberFormat.format(revisions.length)} revisions.`;
+  const description = `${tokenAdjective} stored-text tokens in Git-tracked agent configuration of ${repository}: ${latestTotals}.`;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="strata-title strata-desc">`,
     `<title id="strata-title">Strata: agent context through time</title>`,
@@ -172,6 +181,28 @@ export function renderSvg(report: Report): string {
     `</svg>`,
     "",
   ].join("\n");
+}
+
+/** Each category is a stepped layer stacked on the ones before it, like strata in a cut. */
+function layerPolygons(
+  charted: Report["revisions"],
+  layers: Category[],
+  x: (index: number) => number,
+  y: (value: number) => number,
+): string[] {
+  const below = charted.map(() => 0);
+  return layers.map((category) => {
+    const bottom = [...below];
+    for (const [index, revision] of charted.entries()) below[index]! += tokens(revision, category);
+    const top = charted.flatMap((_, index) => [
+      `${x(index)},${y(below[index]!)}`,
+      `${x(index + 1)},${y(below[index]!)}`,
+    ]);
+    const base = charted
+      .flatMap((_, index) => [`${x(index)},${y(bottom[index]!)}`, `${x(index + 1)},${y(bottom[index]!)}`])
+      .reverse();
+    return `<polygon points="${[...top, ...base].join(" ")}" fill="${categoryColors[category]}"/>`;
+  });
 }
 
 function tokens(revision: Report["revisions"][number], category: Category): number {

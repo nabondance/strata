@@ -61,7 +61,7 @@ HTML and JSON reports contain file paths, commit IDs, dates, and measurements, n
 
 ## README image
 
-`--format svg` writes a static image of the stored-instruction history: one colored layer per category, the latest totals, and the measurement label. It holds no paths, commit IDs, or file contents, only the repository and branch names, dates, category labels, and totals. It has no script or external resources, so GitHub displays it in a README.
+`--format svg` writes a static image of the stored-instruction history: one colored layer per category, the latest totals, and the measurement label. It holds no paths, commit IDs, or file contents, only the repository and branch names, dates, category labels, and totals. It has no script or external resources, so GitHub displays it in a README. Add `--minimal` for the layers alone, without text, axes, or legend.
 
 The simplest option is to render it locally and commit it, for example to `docs/strata.svg`, and reference it with `![Agent context through time](docs/strata.svg)`. The image then changes only when you regenerate it.
 

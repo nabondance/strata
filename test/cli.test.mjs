@@ -178,6 +178,7 @@ test("command line follows common conventions", () => {
       [["analyze", repo, "--frobnicate"], /Unknown option '--frobnicate'/],
       [["analyze", repo, "extra"], /Unexpected argument: extra/],
       [["analyze", repo, "--format", "pdf"], /--format must be html, json, or svg/],
+      [["analyze", repo, "--minimal"], /--minimal requires --format svg/],
       [["analyze", repo, "--output"], /--output/],
       [["analyze", repo, "--open", "--output", "-"], /--open requires a report file/],
       [["analyze", repo, "--claude-model", "x"], /require --provider-api/],
@@ -217,6 +218,11 @@ test("command line follows common conventions", () => {
     assert.equal(svg.status, 0, svg.stderr);
     assert.match(svg.stdout, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
     assert.match(svg.stdout, /<\/svg>\n$/);
+    assert.match(svg.stdout, /<text/);
+    const minimal = strata(["analyze", repo, "-f", "svg", "--minimal", "-o", "-"]);
+    assert.equal(minimal.status, 0, minimal.stderr);
+    assert.match(minimal.stdout, /<polygon/);
+    assert.doesNotMatch(minimal.stdout, /<text/);
 
     const quiet = strata(["analyze", repo, "--quiet"]);
     assert.equal(quiet.status, 0, quiet.stderr);

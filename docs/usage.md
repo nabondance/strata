@@ -24,6 +24,18 @@ For a picture of the history to put in a README, use `--format svg`. The image s
 strata analyze /path/to/repository --format svg --output docs/strata.svg
 ```
 
+![The full image: header, latest totals, layered chart with axis, legend, and measurement note](images/strata.svg)
+
+Add `--minimal` to draw only the layers, edge to edge on a transparent background, with no text, axes, or legend. That image carries no repository or branch name and no dates.
+
+```sh
+strata analyze /path/to/repository --format svg --minimal --output docs/strata-minimal.svg
+```
+
+![The minimal image: the category layers alone, with no text or axes](images/strata-minimal.svg)
+
+Both images are Strata's own repository.
+
 Then reference it from the README as `![Agent context through time](docs/strata.svg)`. To keep it current without committing it by hand, see [Running Strata in CI](ci.md#readme-image).
 
 Strata exits with status 0 on success, 2 when the command line is invalid, and 1 for any other failure, such as a path that is not a Git repository.
