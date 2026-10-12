@@ -1,4 +1,5 @@
 import { type Category, categories } from "./adapters.js";
+import { markSvg } from "./brand.js";
 import type { Report } from "./model.js";
 import { categoryColors } from "./palette.js";
 import { timelineBuckets } from "./timeline.js";
@@ -70,8 +71,9 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
   const parts: string[] = [];
   const add = (line: string) => parts.push(line);
 
+  add(`<g transform="translate(${left} 22)">${markSvg(22)}</g>`);
   add(
-    `<text x="${left}" y="40" font-family="${sans}" font-size="12" font-weight="800" letter-spacing="2.6">STRATA</text>`,
+    `<text x="${left + 32}" y="40" font-family="${sans}" font-size="12" font-weight="800" letter-spacing="2.6">STRATA</text>`,
   );
   add(
     `<text x="${right}" y="40" text-anchor="end" font-family="${mono}" font-size="11" fill="#5c6a63">${escapeXml(repository)}</text>`,

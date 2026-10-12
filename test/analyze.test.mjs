@@ -96,6 +96,11 @@ function exerciseReportUi(html, report) {
   runInNewContext(d3Script, context);
   runInNewContext(script, context);
   const get = (id) => elements.get(id);
+  // The masthead silhouette has a layer for each category holding tokens; the legend also lists source-only ones.
+  const tokenCategories = Object.values(revisions.at(-1).categoryTotals).filter((total) => total.estimatedTokens > 0);
+  assert.ok(get("silhouette").children.length >= tokenCategories.length);
+  assert.ok(get("silhouette").children.length <= get("legend").children.length);
+  assert.equal(get("repo").textContent, report.repository);
   assert.equal(get("target").value, String(revisions.length - 1));
   assert.equal(get("skill-groups").children.length, Math.min(8, revisions.at(-1).skillGroups.length) || 1);
   if (revisions.at(-1).skillGroups.length > 8) {
@@ -597,6 +602,11 @@ test("tracks configuration across first-parent history without reading untracked
     }
     const html = renderHtml(report);
     exerciseReportUi(html, report);
+    // The masthead's font and icon are inlined, so the policy admits data: URLs and nothing remote.
+    assert.match(html, /font-src data:; img-src data:"/);
+    assert.match(html, /@font-face \{ font-family: "Strata Display"[^}]*url\(data:font\/woff2;base64,/);
+    assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
+    assert.doesNotMatch(html, /url\((?!data:|#|%23)/);
     const manySkills = structuredClone(report);
     for (let index = 0; index < 12; index += 1) {
       const root = `.claude/skills/zz-example-${index}`;

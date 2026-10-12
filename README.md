@@ -1,4 +1,9 @@
-# Strata
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/npm/context-strata@latest/docs/brand/logo-wordmark-dark.svg">
+    <img src="https://cdn.jsdelivr.net/npm/context-strata@latest/docs/brand/logo-wordmark.svg" alt="Strata" width="272">
+  </picture>
+</h1>
 
 **See how your agent context evolved across Git history.**
 

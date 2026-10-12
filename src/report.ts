@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { categories } from "./adapters.js";
+import { brandColors, displayFontFace, displayFontStack, markSvg } from "./brand.js";
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
@@ -44,31 +45,34 @@ export function renderHtml(report: Report): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; img-src data:">
   <title>Strata — ${escapeHtml(report.repository)}</title>
+  <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(markSvg(64))}">
   <style>
-    :root { color-scheme: light; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --rust: #934e37; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
+    ${displayFontFace}
+    :root { color-scheme: light; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --rust: #934e37; --bedrock: ${brandColors.bedrock}; --bone: ${brandColors.bone}; --ochre: ${brandColors.ochre}; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    header { padding: 0 max(24px, calc((100vw - 1200px) / 2)); background: #e8e4d8; border-bottom: 1px solid #b9b8ac; }
-    .header-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; border-bottom: 1px solid #b9b8ac; padding: 19px 0 15px; }
-    .wordmark { font-size: 16px; letter-spacing: .22em; font-weight: 800; }
-    .folio, .eyebrow, .repo-label { color: var(--rust); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-    .header-main { display: flex; justify-content: space-between; align-items: end; gap: 32px; padding: 52px 0 46px; }
-    h1 { max-width: 760px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(44px, 5.5vw, 78px); font-weight: 400; line-height: .97; letter-spacing: -.065em; margin: 14px 0 0; }
-    .dek { max-width: 295px; font-size: 16px; line-height: 1.5; color: var(--muted); margin: 0 0 4px; }
-    .repo-strip { border-top: 1px solid #b9b8ac; display: flex; gap: 20px; align-items: baseline; padding: 13px 0 16px; }
-    .repo-strip strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+    header { background: var(--bedrock); color: var(--bone); }
+    .masthead { padding: 0 max(24px, calc((100vw - 1200px) / 2)); }
+    .header-top { display: flex; gap: 12px; align-items: center; padding-top: 18px; }
+    .header-top svg { flex: none; }
+    .wordmark { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .03em; line-height: 1; }
+    .folio { margin-left: auto; color: var(--ochre); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; text-transform: uppercase; overflow-wrap: anywhere; margin: 26px 0 10px; }
+    .repo-meta { color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .04em; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; border-top: 1px solid #4a554f; margin-top: 26px; }
+    .stat { padding: 14px 0 20px; min-width: 0; }
+    .stat span { display: block; color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+    .stat strong { font-family: ${displayFontStack}; font-size: clamp(25px, 3vw, 34px); font-weight: 800; letter-spacing: .01em; font-variant-numeric: tabular-nums lining-nums; }
+    header .positive { color: var(--ochre); }
+    header .negative { color: #8fbdb7; }
+    .silhouette { position: relative; height: 78px; }
+    .silhouette i { position: absolute; inset: 0; }
     .muted { color: var(--muted); line-height: 1.5; }
     main { max-width: 1248px; padding: 26px 24px 64px; margin: auto; }
     .notice { max-width: 970px; color: var(--muted); line-height: 1.55; margin: 0 0 24px; font-size: 13px; overflow-wrap: anywhere; }
     .warning { color: #8a442c; font-weight: 600; }
-    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); margin-bottom: 28px; }
-    .stat { padding: 17px 18px 20px; border-right: 1px solid var(--line); min-width: 0; }
-    .stat:first-child { padding-left: 0; }
-    .stat:last-child { border-right: 0; }
-    .stat span { display: block; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
-    .stat strong { font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-size: clamp(25px, 3vw, 34px); font-weight: 650; letter-spacing: -.035em; font-variant-numeric: tabular-nums lining-nums; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
     .panel h2 { font-family: Georgia, "Times New Roman", serif; font-size: 27px; font-weight: 400; letter-spacing: -.035em; margin: 0 0 16px; }
     .panel h2 + p { font-size: 13px; margin: -5px 0 18px; }
@@ -146,26 +150,29 @@ export function renderHtml(report: Report): string {
     .empty { color: var(--muted); font-size: 13px; }
     .table-wrap { overflow-x: auto; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
-    @media (max-width: 800px) { .header-main { align-items: start; flex-direction: column; padding: 38px 0 30px; } .dek { max-width: 470px; } .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(2) { border-right: 0; } .stat:nth-child(n+3) { border-top: 1px solid var(--line); } .stat:nth-child(3) { padding-left: 0; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { header { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } h1 { font-size: 45px; } .stat strong { font-size: 24px; } .panel { padding: 18px; } .panel h2 { font-size: 24px; } .repo-strip { display: block; } .repo-strip strong { display: block; margin-top: 6px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 56px; } .panel { padding: 18px; } .panel h2 { font-size: 24px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
   </style>
 </head>
 <body>
   <header>
-    <div class="header-top"><span class="wordmark">STRATA</span><span class="folio">A field report of agent context</span></div>
-    <div class="header-main"><div><div class="eyebrow">Context archaeology / Git history</div><h1>Agent context<br>through time.</h1></div><p class="dek">Trace the instructions and tools around an agent as they accumulate, move, and disappear.</p></div>
-    <div class="repo-strip"><span class="repo-label">Repository</span><strong id="repo"></strong></div>
+    <div class="masthead">
+      <div class="header-top">${markSvg(30)}<span class="wordmark">STRATA</span><span class="folio">Context archaeology</span></div>
+      <h1 id="repo"></h1>
+      <p class="repo-meta" id="repo-meta"></p>
+      <div class="stats">
+        <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
+        <div class="stat"><span>${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
+        <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
+        <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
+      </div>
+    </div>
+    <div class="silhouette" id="silhouette" aria-hidden="true"></div>
   </header>
   <main>
     <p class="notice" id="method"></p>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
-    <div class="stats">
-      <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
-      <div class="stat"><span>${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
-      <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
-      <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
-    </div>
     <section class="panel">
       <div class="panel-head"><h2>Stored instruction history</h2><div class="revision" id="revision"></div></div>
       <div class="legend" id="legend"></div>
@@ -259,7 +266,8 @@ export function renderHtml(report: Report): string {
     let drawn = {};
     let settleTimer;
 
-    $('repo').textContent = data.repository + ' / ' + data.branch + ' · ' + revisions.length + ' revisions';
+    $('repo').textContent = data.repository;
+    $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + data.measurement.label;
     $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
     if (data.shallow) $('method').classList.add('warning');
     function renderLegend() {
@@ -314,6 +322,27 @@ export function renderHtml(report: Report): string {
         + (chartStart ? ' The chart starts at revision ' + fmt(chartStart + 1) + ': the ' + fmt(chartStart) + ' earlier revisions have no tracked configuration in this view. They remain available in the comparison selectors.' : '');
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
+      // The masthead's lower edge repeats the chart as stepped layers, lightened to read on the dark ground.
+      const tops = buckets.map(() => 0);
+      const layers = [];
+      for (const category of categories) {
+        if (!buckets.some((bucket) => viewRevisions[bucket.end].categoryTotals[category].estimatedTokens)) continue;
+        const points = ['0% 100%'];
+        buckets.forEach((bucket, index) => {
+          tops[index] += viewRevisions[bucket.end].categoryTotals[category].estimatedTokens;
+          const y = (100 - tops[index] / max * 100).toFixed(2) + '%';
+          points.push((index / buckets.length * 100).toFixed(2) + '% ' + y, ((index + 1) / buckets.length * 100).toFixed(2) + '% ' + y);
+        });
+        points.push('100% 100%');
+        const layer = text('i', '');
+        layer.style.clipPath = 'polygon(' + points.join(',') + ')';
+        layer.style.background = colors[category];
+        // Browsers without relative colors ignore this and keep the chart color.
+        layer.style.background = 'oklch(from ' + colors[category] + ' calc(l + .2) calc(c * 1.25) h)';
+        // Upper layers come first so each lower one paints over them down to the baseline.
+        layers.unshift(layer);
+      }
+      $('silhouette').replaceChildren(...layers);
     }
 
     const slider = $('slider');
