@@ -9,6 +9,9 @@ export const brandColors = {
   verdigris: "#5f8f8a",
 };
 
+/** Where the report's own name links to. The package page is public; it is only followed on click. */
+export const brandUrl = "https://www.npmjs.com/package/context-strata";
+
 /** The embedded display face first, then the condensed faces systems ship, for when it cannot load. */
 export const displayFontStack = `"Strata Display", "Avenir Next Condensed", "Helvetica Neue Condensed", Bahnschrift, "Arial Narrow", "Roboto Condensed", sans-serif`;
 

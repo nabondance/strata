@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { categories } from "./adapters.js";
-import { brandColors, displayFontFace, displayFontStack, markSvg } from "./brand.js";
+import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } from "./brand.js";
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
@@ -57,6 +57,8 @@ export function renderHtml(report: Report): string {
     .masthead { padding: 0 max(24px, calc((100vw - 1200px) / 2)); }
     .header-top { display: flex; gap: 12px; align-items: center; padding-top: 18px; }
     .header-top svg { flex: none; }
+    .brand { display: flex; gap: 12px; align-items: center; color: inherit; text-decoration: none; }
+    .brand:hover .wordmark, .brand:focus-visible .wordmark { color: var(--ochre); }
     .wordmark { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .03em; line-height: 1; }
     .folio { margin-left: auto; color: var(--ochre); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
     h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; text-transform: uppercase; overflow-wrap: anywhere; margin: 26px 0 10px; }
@@ -71,15 +73,27 @@ export function renderHtml(report: Report): string {
     .silhouette i { position: absolute; inset: 0; }
     .muted { color: var(--muted); line-height: 1.5; }
     main { max-width: 1248px; padding: 26px 24px 64px; margin: auto; }
-    .notice { max-width: 970px; color: var(--muted); line-height: 1.55; margin: 0 0 24px; font-size: 13px; overflow-wrap: anywhere; }
+    .notice { max-width: 970px; color: var(--muted); line-height: 1.55; margin: 0 0 18px; font-size: 13px; overflow-wrap: anywhere; }
+    .notice summary { cursor: pointer; width: fit-content; }
+    .notice summary:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .notice p { margin: 8px 0 0; }
     .warning { color: #8a442c; font-weight: 600; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
-    .panel h2 { font-family: Georgia, "Times New Roman", serif; font-size: 27px; font-weight: 400; letter-spacing: -.035em; margin: 0 0 16px; }
+    .panel h2 { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .02em; line-height: 1.05; text-transform: uppercase; margin: 0 0 14px; }
     .panel h2 + p { font-size: 13px; margin: -5px 0 18px; }
+    details.panel > summary { display: flex; align-items: baseline; gap: 12px; cursor: pointer; list-style: none; }
+    details.panel > summary::-webkit-details-marker { display: none; }
+    details.panel > summary::after { content: "+"; margin-left: auto; font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; line-height: 1; }
+    details.panel[open] > summary::after { content: "−"; }
+    details.panel[open] > summary { margin-bottom: 16px; }
+    details.panel > summary:focus-visible { outline: 2px solid var(--rust); outline-offset: 4px; }
+    details.panel > summary h2 { margin: 0; }
+    .summary-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
     .panel-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; align-items: baseline; }
     .revision { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     .legend { display: flex; flex-wrap: wrap; gap: 9px 20px; margin: 7px 0 17px; color: var(--muted); font-size: 12px; }
     .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .legend b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
     .swatch { display: inline-block; width: 10px; height: 10px; }
     .chart-scroll { padding: 4px 2px 6px; }
     .chart { display: grid; align-items: end; gap: 2px; height: 220px; width: 100%; border-bottom: 1px solid #8b9289; background: repeating-linear-gradient(to top, transparent 0, transparent 54px, #e4e2d9 55px); }
@@ -91,11 +105,11 @@ export function renderHtml(report: Report): string {
     .segment { display: block; width: 100%; }
     input[type=range] { width: 100%; accent-color: var(--rust); margin-top: 17px; }
     .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-    .timeline-note { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 8px 0 0; }
     .provider-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 11px; }
     .provider-tab { padding: 9px 14px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
     .provider-tab[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
     .provider-tab:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    [hidden] { display: none !important; }
     .view-note { margin: 0 0 21px; color: var(--muted); font-size: 13px; line-height: 1.5; }
     .treemap { position: relative; height: 390px; background: #e8e4d8; overflow: hidden; }
     .treemap-leaf { position: absolute; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 2px solid var(--sheet); padding: 9px; overflow: hidden; color: #fff; text-align: left; cursor: pointer; font: inherit; }
@@ -111,11 +125,11 @@ export function renderHtml(report: Report): string {
     .ring.dashed { border-style: dashed; }
     .treemap-group { position: absolute; border: 3px solid var(--sheet); pointer-events: none; z-index: 1; }
     .treemap-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
+    .treemap-hover:empty { border-color: transparent; background: none; }
     .treemap-hover { min-height: 42px; padding: 10px 12px; margin: 10px 0 0; border-left: 3px solid var(--rust); background: #f0eee6; color: var(--ink); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-    .skill-count { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
-    .skill-toggle { margin-top: 13px; border: 1px solid #9fa99d; padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
-    .skill-toggle:hover { background: #e8e4d8; }
-    .skill-toggle:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .skill-toggle, .more { margin-top: 13px; border: 1px solid #9fa99d; padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+    .skill-toggle:hover, .more:hover { background: #e8e4d8; }
+    .skill-toggle:focus-visible, .more:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
     .compare-controls, .inventory-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 18px; align-items: end; }
     .compare-controls label, .inventory-controls label { display: grid; gap: 6px; min-width: min(100%, 230px); color: var(--muted); font-size: 12px; }
     .inventory-controls label { min-width: min(100%, 180px); }
@@ -131,6 +145,7 @@ export function renderHtml(report: Report): string {
     .compare-summary strong.positive { color: #306f55; }
     .compare-summary strong.negative { color: #a44935; }
     .compare-section { margin-top: 18px; }
+    .compare-section p { font-size: 13px; margin: 0 0 8px; }
     .compare-section h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 9px; }
     .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; }
     .grid > * { min-width: 0; }
@@ -142,22 +157,21 @@ export function renderHtml(report: Report): string {
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     td.path { overflow-wrap: anywhere; }
     .kind { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-    .change { display: flex; gap: 10px; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #deded5; font-size: 13px; }
-    .change span:first-child { overflow-wrap: anywhere; }
     .delta { white-space: nowrap; font-variant-numeric: tabular-nums; }
     .positive { color: #306f55; }
     .negative { color: #a44935; }
     .empty { color: var(--muted); font-size: 13px; }
     .table-wrap { overflow-x: auto; }
+    footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 56px; } .panel { padding: 18px; } .panel h2 { font-size: 24px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 56px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
   </style>
 </head>
 <body>
   <header>
     <div class="masthead">
-      <div class="header-top">${markSvg(30)}<span class="wordmark">STRATA</span><span class="folio">Context archaeology</span></div>
+      <div class="header-top"><a class="brand" href="${brandUrl}" target="_blank" rel="noopener noreferrer" title="Strata on npm">${markSvg(30)}<span class="wordmark">STRATA</span></a><span class="folio">Context archaeology</span></div>
       <h1 id="repo"></h1>
       <p class="repo-meta" id="repo-meta"></p>
       <div class="stats">
@@ -170,7 +184,8 @@ export function renderHtml(report: Report): string {
     <div class="silhouette" id="silhouette" aria-hidden="true"></div>
   </header>
   <main>
-    <p class="notice" id="method"></p>
+    <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
+    <details class="notice"><summary>Stored in Git, not loaded session context · how this is measured</summary><p id="method"></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
     <section class="panel">
@@ -178,57 +193,49 @@ export function renderHtml(report: Report): string {
       <div class="legend" id="legend"></div>
       <div class="chart-scroll"><div class="chart" id="chart"></div></div>
       <input id="slider" type="range" aria-label="Select revision">
-      <div class="timeline-meta"><span id="timeline-start"></span><span id="timeline-selected"></span><span id="timeline-end"></span></div>
-      <p class="timeline-note" id="timeline-note"></p>
+      <div class="timeline-meta"><span id="timeline-start"></span><span id="timeline-end"></span></div>
     </section>
     <section class="panel" aria-labelledby="treemap-heading">
       <h2 id="treemap-heading">Configuration at this revision</h2>
-      <p class="muted">Rectangle area follows ${tokenAdjective.toLowerCase()} stored-text tokens; color groups files by category. Select a rectangle to find its file below.</p>
-      <div class="legend" id="treemap-legend"></div>
+      <div class="legend" id="treemap-legend" hidden></div>
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
-      <p class="treemap-hover" id="treemap-hover" aria-live="polite">Hover or focus a rectangle to see its full path and token count.</p>
+      <p class="treemap-hover" id="treemap-hover" aria-live="polite"></p>
       <p class="treemap-note" id="treemap-note"></p>
     </section>
-    <section class="panel" aria-labelledby="skills-heading">
-      <h2 id="skills-heading">Skill bundles</h2>
-      <p class="muted">Manifest estimates and supporting resource bytes are shown separately. A bundle's files are counted once in the inventory.</p>
-      <p class="skill-count" id="skill-count"></p>
+    <details class="panel" id="skills-panel">
+      <summary><h2>Skill bundles</h2><span class="summary-count" id="skill-count"></span></summary>
       <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
       <button class="skill-toggle" id="skill-toggle" type="button" aria-expanded="false" hidden></button>
-    </section>
+    </details>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
-      <p class="muted">Compare stored configuration at two points on the first-parent timeline. A moved file may appear as a removal and addition.</p>
+      <p class="muted">A moved file can appear as a removal plus an addition.</p>
       <div class="compare-controls">
         <label>Baseline revision<select id="baseline"></select></label>
         <label>Target revision<select id="target"></select></label>
       </div>
       <div class="compare-summary">
         <span>${tokenAdjective} stored-text tokens<strong id="compare-tokens"></strong></span>
-        <span>Percent change<strong id="compare-percent"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
       </div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
       </div>
-      <div class="compare-section"><h3>Changed components</h3><p class="muted">Each row is one file: added is +1 file, removed is −1, edited is 0. The grouped file totals above can be larger.</p><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div></div>
+      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
     </section>
-    <div class="grid">
-      <section class="panel"><h2>Composition</h2><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Files</th><th class="num">Tokens</th><th class="num">Source only</th></tr></thead><tbody id="categories"></tbody></table></div></section>
-      <section class="panel"><h2>Changes at this revision</h2><div id="changes"></div></section>
-    </div>
-    <section class="panel"><h2>Tracked components</h2>
+    <details class="panel" id="files-panel">
+      <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
       <div class="inventory-controls">
         <label>Provider<select id="provider-filter"><option value="">All providers</option></select></label>
         <label>Category<select id="category-filter"><option value="">All categories</option></select></label>
         <label class="search">Path search<input id="path-search" type="search" placeholder="Filter by path" autocomplete="off"></label>
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
-      <p class="inventory-count" id="inventory-count" aria-live="polite"></p>
+      <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
       ${report.providerMeasurements ? `<p class="muted">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
-      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div></section>
-    <footer>Only Git-tracked files are analyzed. No source text is embedded in this report. Source-only files are listed by byte size and excluded from instruction token estimates.</footer>
+      <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
+    <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
   </main>
   <script>${d3Bundle()}</script>
   <script>
@@ -251,7 +258,10 @@ export function renderHtml(report: Report): string {
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
     const revisions = expandRevisions(data);
     let selected = revisions.length - 1;
-    let baseline = 0;
+    // The baseline follows the revision before the selected one until a specific revision is chosen.
+    let baseline = 'previous';
+    const beforeHistory = { components: [], estimatedTokens: 0 };
+    const baselineRevision = () => baseline === 'previous' ? viewRevisions[selected - 1] ?? beforeHistory : viewRevisions[baseline];
     let activeView = 'all';
     let viewRevisions = revisions;
     let showAllSkills = false;
@@ -264,18 +274,31 @@ export function renderHtml(report: Report): string {
     let treemapLabels = [];
     // What each panel last drew, so moving between revisions that share an inventory redraws nothing.
     let drawn = {};
+    // Long lists show their first rows until asked for the rest.
+    const expanded = {};
     let settleTimer;
 
     $('repo').textContent = data.repository;
     $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + data.measurement.label;
-    $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (data.shallow ? ' Warning: this is a shallow clone, so earlier history is missing.' : '');
-    if (data.shallow) $('method').classList.add('warning');
+    $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations;
+    $('shallow').hidden = !data.shallow;
+    function capped(id, items, limit, redraw) {
+      const button = $(id + '-more');
+      button.hidden = items.length <= limit;
+      button.textContent = expanded[id] ? 'Show first ' + fmt(limit) : 'Show all ' + fmt(items.length);
+      button.setAttribute('aria-expanded', String(Boolean(expanded[id])));
+      button.onclick = () => { expanded[id] = !expanded[id]; redraw(); };
+      return expanded[id] ? items : items.slice(0, limit);
+    }
     function renderLegend() {
       const legend = $('legend');
       legend.replaceChildren();
       for (const category of categories) {
         if (!viewRevisions.some((revision) => revision.categoryTotals[category].count)) continue;
+        const total = viewRevisions[selected].categoryTotals[category];
         const label = text('span', category);
+        // Source-only categories have no tokens to show, so they give their file count.
+        label.append(text('b', total.count && total.count === total.sourceOnlyCount ? fmt(total.count) + (total.count === 1 ? ' file' : ' files') : fmt(total.estimatedTokens)));
         const swatch = text('i', '', 'swatch');
         swatch.style.background = colors[category];
         label.prepend(swatch);
@@ -289,7 +312,6 @@ export function renderHtml(report: Report): string {
       chartBuckets = [];
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
-      const charted = viewRevisions.length - chartStart;
       const buckets = timelineBuckets(viewRevisions.length, 100, chartStart);
       slider.min = chartStart;
       chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
@@ -316,10 +338,6 @@ export function renderHtml(report: Report): string {
         chart.append(button);
         chartBuckets.push({ ...bucket, button });
       }
-      $('timeline-note').textContent = (buckets.length === charted
-        ? 'One bar per revision. Select a bar or use the slider to inspect a commit.'
-        : fmt(charted) + ' revisions grouped into ' + fmt(buckets.length) + ' bars. Each bar shows the last revision in its group; the slider selects every charted revision.')
-        + (chartStart ? ' The chart starts at revision ' + fmt(chartStart + 1) + ': the ' + fmt(chartStart) + ' earlier revisions have no tracked configuration in this view. They remain available in the comparison selectors.' : '');
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
       // The masthead's lower edge repeats the chart as stepped layers, lightened to read on the dark ground.
@@ -350,6 +368,8 @@ export function renderHtml(report: Report): string {
     // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
     slider.addEventListener('input', () => render(Number(slider.value), true));
     slider.addEventListener('change', () => render(Number(slider.value)));
+    $('baseline').append(text('option', 'Previous revision'));
+    $('baseline').children[0].value = 'previous';
     for (const [index, revision] of revisions.entries()) {
       const label = (index + 1) + ' · ' + revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8);
       for (const id of ['baseline', 'target']) {
@@ -358,7 +378,7 @@ export function renderHtml(report: Report): string {
         $(id).append(option);
       }
     }
-    $('baseline').addEventListener('change', () => { baseline = Number($('baseline').value); renderComparison(); });
+    $('baseline').addEventListener('change', () => { baseline = $('baseline').value === 'previous' ? 'previous' : Number($('baseline').value); renderComparison(); });
     $('target').addEventListener('change', () => render(Number($('target').value)));
     const allComponents = data.components;
     const providers = [...new Set(allComponents.map((component) => component.provider))].sort();
@@ -393,7 +413,6 @@ export function renderHtml(report: Report): string {
         Array.from($('provider-tabs').children).forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
         renderProviderOptions();
         renderViewNote();
-        renderLegend();
         renderChart();
         render(selected);
       });
@@ -413,12 +432,13 @@ export function renderHtml(report: Report): string {
     }
     function renderViewNote() {
       $('view-note').textContent = activeView === 'all'
-        ? 'All tracked configuration files are counted once. Provider views overlap where shared instructions are present; none of these totals measures loaded session context.'
+        ? ''
         : activeView === 'shared'
-          ? 'Shared instruction candidates are shown on their own here. They also appear in provider views where those providers are present.'
+          ? 'Shared instruction files only. They also appear in each provider view.'
           : activeView === 'unknown'
-            ? 'These candidate files are not assigned to a supported provider and are source-only unless explicitly recognized.'
-            : 'This view contains ' + activeView + '-labeled files plus shared instruction candidates. Shared files can appear in more than one provider view; adding tab totals would double-count them. Inclusion does not prove an agent loaded a file.';
+            ? 'Files not assigned to a supported provider; source-only unless recognized.'
+            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus shared instructions. Shared files can appear in more than one provider view, so view totals do not add up.';
+      $('view-note').hidden = activeView === 'all';
     }
     for (const category of categories) {
       if (!allComponents.some((component) => component.category === category)) continue;
@@ -442,7 +462,6 @@ export function renderHtml(report: Report): string {
     $('skill-toggle').addEventListener('click', () => { showAllSkills = !showAllSkills; renderSkills(); });
     renderProviderOptions();
     renderViewNote();
-    renderLegend();
     renderChart();
 
     function renderInventory() {
@@ -452,7 +471,9 @@ export function renderHtml(report: Report): string {
         (!providerFilter || component.provider === providerFilter) &&
         (!categoryFilter || component.category === categoryFilter) &&
         (!pathSearch || component.path.toLocaleLowerCase().includes(pathSearch)));
-      $('inventory-count').textContent = 'Showing ' + fmt(matching.length) + ' of ' + fmt(revision.components.length) + ' files in this view. Chart and summary totals include all files in this view.';
+      $('files-total').textContent = fmt(revision.components.length);
+      $('inventory-count').hidden = matching.length === revision.components.length;
+      $('inventory-count').textContent = 'Showing ' + fmt(matching.length) + ' of ' + fmt(revision.components.length) + ' files. Filters do not change the totals above.';
       const files = $('files');
       files.replaceChildren();
       inventoryRows = new Map();
@@ -464,7 +485,7 @@ export function renderHtml(report: Report): string {
         files.append(row);
       }
       const sorted = [...matching].sort((a, b) => (b.estimatedTokens ?? -1) - (a.estimatedTokens ?? -1) || a.path.localeCompare(b.path));
-      for (const component of sorted) {
+      for (const component of capped('files', sorted, 25, renderInventory)) {
         const row = document.createElement('tr');
         row.tabIndex = -1;
         row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
@@ -488,14 +509,9 @@ export function renderHtml(report: Report): string {
       root.replaceChildren();
       treeLegend.replaceChildren();
       treemapLabels = [];
-      $('treemap-hover').textContent = 'Hover or focus a rectangle to see its full path and token count.';
+      $('treemap-hover').textContent = '';
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
       for (const group of layout.groups) {
-        const label = text('span', group.category);
-        const swatch = text('i', '', 'swatch');
-        swatch.style.background = colors[group.category];
-        label.prepend(swatch);
-        treeLegend.append(label);
         for (const leaf of group.leaves) {
           const component = viewRevisions[selected].components[leaf.componentIndex];
           const button = text('button', '', 'treemap-leaf');
@@ -524,7 +540,7 @@ export function renderHtml(report: Report): string {
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
           const showDetail = () => { $('treemap-hover').textContent = detail; };
-          const clearDetail = () => { $('treemap-hover').textContent = 'Hover or focus a rectangle to see its full path and token count.'; };
+          const clearDetail = () => { $('treemap-hover').textContent = ''; };
           button.addEventListener('mouseenter', showDetail);
           button.addEventListener('focus', showDetail);
           button.addEventListener('mouseleave', clearDetail);
@@ -536,6 +552,7 @@ export function renderHtml(report: Report): string {
             $('provider-filter').value = providerFilter;
             $('category-filter').value = categoryFilter;
             $('path-search').value = component.path;
+            $('files-panel').open = true;
             renderInventory();
             const row = inventoryRows.get(component.path);
             row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -550,6 +567,7 @@ export function renderHtml(report: Report): string {
         outline.style.height = group.height + '%';
         root.append(outline);
       }
+      treeLegend.hidden = !outlined;
       if (outlined) {
         for (const [label, className] of [['added at this revision', 'ring'], ['edited or renamed at this revision', 'ring dashed']]) {
           const entry = text('span', label);
@@ -557,7 +575,7 @@ export function renderHtml(report: Report): string {
           treeLegend.append(entry);
         }
       }
-      $('treemap-note').textContent = (outlined ? fmt(outlined) + ' outlined files changed at this revision. ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized instructional files · ' + fmt(layout.sourceOnlyCount) + ' source-only files · ' + fmt(layout.zeroTokenCount) + ' zero-token instructional files. Source-only and zero-token files remain in the inventory.';
+      $('treemap-note').textContent = (outlined ? fmt(outlined) + ' outlined files changed at this revision · ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized · ' + fmt(layout.sourceOnlyCount) + ' source-only · ' + fmt(layout.zeroTokenCount) + ' zero-token files';
       drawn.treemap = viewRevisions[selected].components;
       drawn.outlined = outlined;
       fitTreemapLabels();
@@ -602,9 +620,8 @@ export function renderHtml(report: Report): string {
       const visible = showAllSkills ? groups : groups.slice(0, 8);
       const skillBody = $('skill-groups');
       skillBody.replaceChildren();
-      $('skill-count').textContent = groups.length > 8
-        ? 'Showing ' + fmt(visible.length) + ' of ' + fmt(groups.length) + ' skill bundles.'
-        : fmt(groups.length) + ' skill bundles at this revision.';
+      $('skills-panel').hidden = !groups.length;
+      $('skill-count').textContent = fmt(groups.length);
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;
       toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';
@@ -624,14 +641,13 @@ export function renderHtml(report: Report): string {
     }
 
     function renderComparison() {
-      const comparison = compareRevisions(viewRevisions[baseline], viewRevisions[selected]);
-      drawn.baseline = viewRevisions[baseline].components;
+      const comparison = compareRevisions(baselineRevision(), viewRevisions[selected]);
+      drawn.baseline = baselineRevision().components;
       drawn.target = viewRevisions[selected].components;
       $('baseline').value = String(baseline);
-      chartBuckets.forEach((bucket) => bucket.button.classList.toggle('baseline', bucket.start <= baseline && baseline <= bucket.end));
+      chartBuckets.forEach((bucket) => bucket.button.classList.toggle('baseline', baseline !== 'previous' && bucket.start <= baseline && baseline <= bucket.end));
       $('compare-tokens').textContent = signed(comparison.deltaTokens) + ' (' + fmt(comparison.beforeTokens) + ' → ' + fmt(comparison.afterTokens) + ')';
       $('compare-tokens').className = tone(comparison.deltaTokens);
-      $('compare-percent').textContent = comparison.percentChange === null ? '— (baseline is zero)' : (comparison.percentChange > 0 ? '+' : '') + comparison.percentChange.toFixed(1) + '%';
       $('compare-files').textContent = signed(comparison.deltaFiles) + ' (' + fmt(comparison.beforeFiles) + ' → ' + fmt(comparison.afterFiles) + ')';
       $('compare-files').className = tone(comparison.deltaFiles);
       for (const [id, groups] of [['compare-providers', comparison.byProvider], ['compare-categories', comparison.byCategory]]) {
@@ -652,7 +668,7 @@ export function renderHtml(report: Report): string {
         row.append(cell);
         body.append(row);
       }
-      for (const component of comparison.components) {
+      for (const component of capped('compare-components', comparison.components, 25, renderComparison)) {
         const row = document.createElement('tr');
         row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)));
         body.append(row);
@@ -665,6 +681,7 @@ export function renderHtml(report: Report): string {
       const previous = viewRevisions[index - 1];
       const delta = revision.estimatedTokens - (previous?.estimatedTokens ?? 0);
       slider.value = index;
+      renderLegend();
       $('target').value = String(index);
       chartBuckets.forEach((bucket) => bucket.button.classList.toggle('selected', bucket.start <= index && index <= bucket.end));
       $('date').textContent = revision.date.slice(0, 10);
@@ -673,30 +690,8 @@ export function renderHtml(report: Report): string {
       $('delta').textContent = (delta > 0 ? '+' : '') + fmt(delta);
       $('delta').className = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
       $('revision').textContent = (index + 1) + ' / ' + revisions.length + ' · ' + revision.id.slice(0, 10);
-      $('timeline-selected').textContent = 'Selected: ' + revision.date.slice(0, 10) + ' (' + (index + 1) + '/' + revisions.length + ')';
-
-      const categoryBody = $('categories');
-      categoryBody.replaceChildren();
-      for (const category of categories) {
-        const total = revision.categoryTotals[category];
-        if (!total.count) continue;
-        const row = document.createElement('tr');
-        row.append(text('td', category), text('td', fmt(total.count), 'num'), text('td', total.count === total.sourceOnlyCount ? '—' : fmt(total.estimatedTokens), 'num'), text('td', fmt(total.sourceOnlyCount), 'num'));
-        categoryBody.append(row);
-      }
 
       if (drawn.skills !== revision.skillGroups) renderSkills();
-
-      const changes = $('changes');
-      changes.replaceChildren();
-      if (!revision.changes.length) changes.append(text('p', 'No tracked configuration changes.', 'empty'));
-      for (const change of revision.changes) {
-        const row = text('div', '', 'change');
-        const name = change.kind + ': ' + (change.previousPath ? change.previousPath + ' → ' : '') + change.path;
-        const deltaLabel = change.previousTokens === null && change.estimatedTokens === null ? 'source only' : (change.deltaTokens > 0 ? '+' : '') + fmt(change.deltaTokens);
-        row.append(text('span', name), text('span', deltaLabel, 'delta ' + (change.deltaTokens > 0 ? 'positive' : change.deltaTokens < 0 ? 'negative' : '')));
-        changes.append(row);
-      }
 
       if (drawn.treemap !== revision.components || drawn.outlined || revision.changes.length) renderTreemap();
       clearTimeout(settleTimer);
@@ -707,7 +702,7 @@ export function renderHtml(report: Report): string {
     function renderTables() {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
-      if (drawn.target !== revision.components || drawn.baseline !== viewRevisions[baseline].components) renderComparison();
+      if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fitTreemapLabels).observe($('treemap'));
     render(selected);
