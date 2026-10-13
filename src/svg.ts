@@ -71,7 +71,8 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
   const parts: string[] = [];
   const add = (line: string) => parts.push(line);
 
-  add(`<g transform="translate(${left} 22)">${markSvg(22)}</g>`);
+  // The mark is centered on the capitals of the name beside it, whose baseline is at y = 40.
+  add(`<g transform="translate(${left} 25)">${markSvg(22)}</g>`);
   add(
     `<text x="${left + 32}" y="40" font-family="${sans}" font-size="12" font-weight="800" letter-spacing="2.6">STRATA</text>`,
   );
