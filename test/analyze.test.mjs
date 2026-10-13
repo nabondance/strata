@@ -405,6 +405,9 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!providerJson.includes("gemini-test-key"));
     assert.ok(!providerJson.includes("Shared project instructions."));
     assert.match(renderHtml(providerApiReport), /Claude and Gemini counts were sent to their provider APIs/);
+    // The per-provider columns are the point of this mode, so their table starts open.
+    assert.match(renderHtml(providerApiReport), /<details class="panel" id="files-panel" open>/);
+    assert.match(renderHtml(report), /<details class="panel" id="files-panel">/);
     const providerApiUi = exerciseReportUi(renderHtml(providerApiReport), providerApiReport);
     assert.equal(providerApiUi("files").children[0].children.length, 8);
     const sharedRow = providerApiUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");

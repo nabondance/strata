@@ -138,6 +138,7 @@ export function renderHtml(report: Report): string {
     :is(.compare-controls, .inventory-controls) :is(select, input, button):focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .inventory-controls button { border: 1px solid var(--edge); border-radius: 0; padding: 10px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
     .inventory-controls button:hover { background: var(--hover); }
+    .provider-note { font-size: 13px; margin: 0 0 12px; }
     .inventory-count { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
     .compare-summary { display: flex; flex-wrap: wrap; gap: 12px 30px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 0 6px; }
     .compare-summary span { color: var(--muted); font-size: 12px; }
@@ -223,7 +224,7 @@ export function renderHtml(report: Report): string {
       </div>
       <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
     </section>
-    <details class="panel" id="files-panel">
+    <details class="panel" id="files-panel"${report.providerMeasurements ? " open" : ""}>
       <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
       <div class="inventory-controls">
         <label>Provider<select id="provider-filter"><option value="">All providers</option></select></label>
@@ -232,7 +233,7 @@ export function renderHtml(report: Report): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
-      ${report.providerMeasurements ? `<p class="muted">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
+      ${report.providerMeasurements ? `<p class="muted provider-note">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
   </main>
