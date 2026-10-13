@@ -1,13 +1,13 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/npm/context-strata@latest/docs/brand/logo-wordmark-dark.svg">
-    <img src="https://cdn.jsdelivr.net/npm/context-strata@latest/docs/brand/logo-wordmark.svg" alt="Strata" width="272">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-wordmark-dark.svg">
+    <img src="docs/brand/logo-wordmark.svg" alt="Strata" width="272">
   </picture>
 </h1>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dm/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm downloads per month"></a>
+  <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&labelColor=1d2622&color=d9a441&label=ci" alt="CI status"></a>
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="license">
   <img src="https://img.shields.io/badge/runs-offline-d9a441?style=flat-square&labelColor=1d2622" alt="runs offline">
@@ -15,17 +15,29 @@
 
 **See how your agent context evolved across Git history.**
 
-Your `CLAUDE.md`, `AGENTS.md`, skills, rules, and agent definitions started small. Then every incident, convention, and "always remember to…" got appended. Strata replays your Git history and shows what that configuration weighs today, when it grew, and which files did it.
+Your `CLAUDE.md`, `AGENTS.md`, skills, rules, and agent definitions started small. Then every incident, convention, and "always remember to…" got appended. Strata replays your Git history and shows what that configuration weighs today, when it grew, and which files drove it.
+
+Requires Node.js 22.13 or newer and Git 2.31 or newer.
 
 ```sh
 npx context-strata analyze --open
 ```
 
-One command, run inside any Git repository. You get a single offline HTML report. Nothing is uploaded and the repository is never modified.
+One command, run inside any Git repository. You get a single offline HTML report. Nothing is uploaded and the repository is never modified. The command ends with a summary like this:
 
-![The Strata report: stored instruction tokens per revision, stacked by category](https://cdn.jsdelivr.net/npm/context-strata@latest/docs/images/report-timeline.png)
+```text
+Analyzed 46 revisions of strata.
+Latest: 4 tracked components, 1151 stored-text tokens (utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file).
+Report: /tmp/strata-report-k3Xb9Q/report.html
+```
 
-The screenshots on this page are Strata's report on its own repository.
+![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
+
+The images on this page are Strata's report on its own repository.
+
+## How it works
+
+Strata walks the first-parent history of your branch, oldest to newest, and reads the tracked Git blobs at each commit; it never looks at the working tree. Files that match a known agent-configuration path are measured: instruction files by an estimate of their stored-text tokens, structured settings and bundled resources by source bytes. The default estimate is UTF-8 bytes divided by four, which is fast, offline, and consistent across a whole history; an opt-in flag counts with an exact OpenAI encoding instead. Every measurement describes what the repository **stores**, not what an agent loaded in a session or what you were billed.
 
 ## What you get
 
@@ -35,15 +47,15 @@ The screenshots on this page are Strata's report on its own repository.
 - **Per-provider views** for Claude Code, Codex, and Gemini CLI, with shared files such as `AGENTS.md` counted once in the overall total.
 - **A pull-request delta**, as Markdown or JSON, to see what a change adds before it merges.
 - **An SVG image** of the history to embed in your own README, in full or as the layers alone (`--minimal`).
-- **JSON output** for your own scripts, plus a bundled skill that teaches a coding agent how to read it.
+- **JSON output** for your own scripts, plus a bundled `strata-interpret` skill that teaches a coding agent how to read it.
 
 The treemap sizes each file by its stored-text tokens at the selected revision:
 
-![Treemap of instruction files at one revision, sized by tokens and colored by category](https://cdn.jsdelivr.net/npm/context-strata@latest/docs/images/report-treemap.png)
+![Treemap of instruction files at one revision, sized by tokens and colored by category](docs/images/report-treemap.png)
 
 Pick any two revisions to see what changed between them:
 
-![Comparison of two revisions with token and file deltas by provider, category, and file](https://cdn.jsdelivr.net/npm/context-strata@latest/docs/images/report-compare.png)
+![Comparison of two revisions with token and file deltas by provider, category, and file](docs/images/report-compare.png)
 
 From the command line, `strata diff` prints a summary like this one:
 
@@ -54,6 +66,10 @@ Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4
 | --------- | ------ | -------: |
 | AGENTS.md | edited |     +330 |
 ```
+
+And `strata analyze --format svg` draws the history as a static image for a README. This one is generated from this repository:
+
+![Strata's own agent configuration through time, as the SVG image the CLI produces](docs/images/strata.svg)
 
 ## Is it for you?
 
@@ -74,8 +90,6 @@ It is honest about what it cannot tell you. Strata measures the text **stored in
 - **Shareable mode.** `--shareable` replaces repository and branch names, paths, and commit IDs with stable aliases before you send a report to someone else.
 
 ## Usage
-
-Requires Node.js 22.13 or newer and Git 2.31 or newer.
 
 ```sh
 # Analyze the current repository and open the report
@@ -98,20 +112,74 @@ Install it globally with `npm install --global context-strata` to get the `strat
 
 ### Token counts
 
-By default Strata estimates tokens as UTF-8 bytes divided by four: fast, offline, and consistent across a whole history. For offline OpenAI encoding counts, pass `--model gpt-4o` or `--tokenizer openai-o200k_base`. Every report names the method it used. See [the tokenizer study](docs/tokenizers.md) for the evidence and limits.
+By default Strata estimates tokens as UTF-8 bytes divided by four. For offline OpenAI encoding counts, pass `--model gpt-4o` or `--tokenizer openai-o200k_base`. Every report names the method it used. See [the tokenizer study](docs/tokenizers.md) for the evidence and limits.
 
 ### In pull requests
 
-An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments. [Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
+An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments.
+
+```yaml
+name: Agent context delta
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  strata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: nabondance/strata@v0.2.2
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+```
+
+[Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
+
+### With a coding agent
+
+Write a JSON report, then give your agent the bundled skill so it reads the schema correctly instead of guessing:
+
+```sh
+npx context-strata analyze --format json --output strata.json
+npx context-strata skill --output .claude/skills/strata-interpret/SKILL.md   # or .agents/skills/… for Codex
+```
+
+The skill explains the revision and component tables, what the token estimates do and do not mean, and which conclusions the JSON cannot support.
 
 ## What Strata recognizes
 
-Claude Code, Codex, and Gemini CLI configuration tracked in the repository: root and nested instruction files, skills with their bundled resources, agents, rules, commands, and settings. Structured configuration and supporting resources are measured in bytes rather than given an invented token count. [The analysis scope](docs/analysis-scope.md) lists every recognized path.
+Configuration tracked in the repository, at the root or in nested project directories. Instruction files get a token estimate; structured configuration and bundled resources are measured in bytes rather than given an invented token count.
+
+| | Claude Code | Codex | Gemini CLI |
+| --- | --- | --- | --- |
+| Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md` | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md` |
+| Skills | `.claude/skills/*/SKILL.md` + resources | `.agents/skills/*/SKILL.md` + resources | `.gemini/skills/*/SKILL.md` + resources |
+| Agents | `.claude/agents/**/*.md` | `.codex/agents/*.toml` | `.gemini/agents/*.md` |
+| Rules | `.claude/rules/**/*.md` | `.codex/rules/**/*.rules` | |
+| Commands | `.claude/commands/**/*.md` | | `.gemini/commands/**/*.toml` |
+| Settings and tools | `.claude/settings*.json`, `.mcp.json` | `.codex/config.toml` | `.gemini/settings.json` |
+
+[The analysis scope](docs/analysis-scope.md) lists every pattern, its measurement, and the provider documentation it follows. Cursor is the next planned provider; [the adapter study](docs/next-adapter.md) has the proposed classification. Provider additions are welcome as pull requests.
+
+## Questions
+
+**Does it read my working tree or uncommitted files?** No. Strata reads blobs from Git history through read-only commands. Untracked, ignored, and uncommitted files are invisible to it.
+
+**How accurate is "bytes divided by four"?** It is a comparison estimate, good enough to see growth and find the heaviest files, and it stays consistent across revisions. For exact counts under an OpenAI encoding, use `--model` or `--tokenizer`; [the tokenizer study](docs/tokenizers.md) shows how the methods differ. No mode measures Claude or Gemini billing tokens.
+
+**Does the total equal what my agent loads into context?** No. Strata counts everything tracked, including skills and nested instructions that load only on demand. The total is an upper bound on stored instructions, not a measurement of a session.
+
+**Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, paths, and commit IDs with aliases, then inspect the report before sending it.
 
 ## Learn more
 
 - [Using Strata](docs/usage.md): CLI output options, reading the report, and the JSON format.
+- [Pull-request delta](docs/pr-action.md): the GitHub Action and the `strata diff` command.
 - [Running Strata in CI](docs/ci.md): reports, README images, and pull-request deltas from a workflow.
+- [Token counting](docs/tokenizers.md): the estimate, the OpenAI encodings, and their limits.
 - [Analysis scope](docs/analysis-scope.md): recognized paths and exclusions.
 - [Decisions](docs/decisions.md): measurement and report contracts.
 - [Benchmark notes](docs/benchmark.md): performance on large histories.
