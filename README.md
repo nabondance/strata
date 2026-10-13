@@ -1,4 +1,17 @@
-# Strata
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/npm/context-strata@latest/docs/brand/logo-wordmark-dark.svg">
+    <img src="https://cdn.jsdelivr.net/npm/context-strata@latest/docs/brand/logo-wordmark.svg" alt="Strata" width="272">
+  </picture>
+</h1>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dm/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm downloads per month"></a>
+  <img src="https://img.shields.io/node/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="supported Node.js versions">
+  <img src="https://img.shields.io/npm/l/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="license">
+  <img src="https://img.shields.io/badge/runs-offline-d9a441?style=flat-square&labelColor=1d2622" alt="runs offline">
+</p>
 
 **See how your agent context evolved across Git history.**
 

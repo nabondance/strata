@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="strata-logo">
+  <title id="strata-logo">Strata</title>
+  <clipPath id="strata-mark">
+  <rect width="64" height="64" rx="10"/>
+  </clipPath>
+  <g clip-path="url(#strata-mark)">
+  <rect width="64" height="64" fill="#1d2622"/>
+  <path d="M0,0H38L35.38,12H0Z" fill="#d9a441"/>
+  <path d="M42,0H64V21H37.41Z" fill="#d9a441"/>
+  <path d="M0,16H34.5L32.09,27H0Z" fill="#efeadb"/>
+  <path d="M36.53,25H64V36H34.13Z" fill="#efeadb"/>
+  <path d="M0,31H31.22L27.94,46H0Z" fill="#b5573a"/>
+  <path d="M33.25,40H64V55H29.97Z" fill="#b5573a"/>
+  <path d="M0,50H27.06L24,64H0Z" fill="#5f8f8a"/>
+  <path d="M29.09,59H64V64H28Z" fill="#5f8f8a"/>
+  </g>
+</svg>

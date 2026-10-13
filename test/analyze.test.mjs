@@ -96,6 +96,16 @@ function exerciseReportUi(html, report) {
   runInNewContext(d3Script, context);
   runInNewContext(script, context);
   const get = (id) => elements.get(id);
+  // The masthead silhouette has a layer for each category holding tokens; the legend also lists source-only ones.
+  const tokenCategories = Object.values(revisions.at(-1).categoryTotals).filter((total) => total.estimatedTokens > 0);
+  assert.ok(get("silhouette").children.length >= tokenCategories.length);
+  assert.ok(get("silhouette").children.length <= get("legend").children.length);
+  assert.equal(get("repo").textContent, report.repository);
+  // Long lists start with their first rows; the rest of this exercise runs with them expanded.
+  assert.equal(get("files").children.length, Math.min(25, revisions.at(-1).components.length) || 1);
+  assert.equal(get("files-more").hidden, revisions.at(-1).components.length <= 25);
+  for (const id of ["files", "compare-components"]) get(`${id}-more`).onclick();
+  assert.equal(get("files").children.length, revisions.at(-1).components.length || 1);
   assert.equal(get("target").value, String(revisions.length - 1));
   assert.equal(get("skill-groups").children.length, Math.min(8, revisions.at(-1).skillGroups.length) || 1);
   if (revisions.at(-1).skillGroups.length > 8) {
@@ -104,11 +114,17 @@ function exerciseReportUi(html, report) {
     get("skill-toggle").listeners.click();
     assert.equal(get("skill-groups").children.length, revisions.at(-1).skillGroups.length);
   }
-  assert.equal(get("baseline").value, "0");
+  // The comparison starts against the previous revision, so it lists what the selected revision changed.
+  assert.equal(get("baseline").value, "previous");
   assert.equal(
     get("compare-components").children.length,
-    compareRevisions(revisions[0], revisions.at(-1)).components.length,
+    compareRevisions(revisions.at(-2) ?? { components: [], estimatedTokens: 0 }, revisions.at(-1)).components.length ||
+      1,
   );
+  // The legend carries the selected revision's figure for each category, and the two long panels start closed.
+  assert.ok(get("legend").children.every((entry) => entry.children.at(-1).tag === "b"));
+  assert.equal(get("skills-panel").hidden, !revisions.at(-1).skillGroups.length);
+  assert.notEqual(get("files-panel")?.open, true);
   get("baseline").value = "2";
   get("baseline").listeners.change();
   get("target").value = "3";
@@ -117,6 +133,11 @@ function exerciseReportUi(html, report) {
   const expected = compareRevisions(revisions[2], revisions[3]);
   assert.match(get("compare-tokens").textContent, new RegExp(String(expected.deltaTokens)));
   assert.equal(get("compare-components").children.length, expected.components.length);
+  // Providers and categories that did not move are left out of the comparison.
+  assert.equal(
+    get("compare-categories").children.length,
+    expected.byCategory.filter((group) => group.deltaFiles || group.deltaTokens).length || 1,
+  );
   assert.equal(get("slider").value, 3);
   // Rectangles of files this revision added or edited are outlined; removed and source-only files have none.
   const sized = revisions[3].changes.filter(
@@ -131,7 +152,7 @@ function exerciseReportUi(html, report) {
   if (sized.length) {
     outlined[0].listeners.focus();
     assert.match(get("treemap-hover").textContent, / at this revision/);
-    assert.match(get("treemap-note").textContent, /outlined files changed at this revision/);
+    assert.match(get("treemap-hover").textContent, / at this revision/);
   }
   const chartStart = Math.max(
     0,
@@ -165,17 +186,19 @@ function exerciseReportUi(html, report) {
   const firstLeaf = get("treemap").children.find((child) => child.className === "treemap-leaf");
   assert.ok(firstLeaf);
   assert.equal(firstLeaf.title, undefined);
+  assert.match(firstLeaf.style.color, /^#(ffffff|10140f)$/);
   firstLeaf.listeners.mouseenter();
   assert.match(get("treemap-hover").textContent, /stored-text tokens/);
   firstLeaf.listeners.mouseleave();
-  assert.match(get("treemap-hover").textContent, /Hover or focus/);
+  assert.match(get("treemap-hover").textContent, /source-only/);
   firstLeaf.listeners.click();
   // The path filter is a substring search, so CLAUDE.md also lists .claude/CLAUDE.md.
+  assert.equal(get("files-panel").open, true);
   const located = get("files").children.filter((row) => row.scrolled);
   assert.equal(located.length, 1);
   assert.equal(located[0].focused, true);
   assert.ok(get("files").children.length <= 2);
-  assert.match(get("treemap-note").textContent, /source-only files/);
+  assert.match(get("treemap-hover").textContent, /source-only/);
   const claudeTab = get("provider-tabs").children.find((child) => child.textContent === "Claude + shared");
   assert.ok(claudeTab);
   claudeTab.listeners.click();
@@ -382,6 +405,9 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!providerJson.includes("gemini-test-key"));
     assert.ok(!providerJson.includes("Shared project instructions."));
     assert.match(renderHtml(providerApiReport), /Claude and Gemini counts were sent to their provider APIs/);
+    // The per-provider columns are the point of this mode, so their table starts open.
+    assert.match(renderHtml(providerApiReport), /<details class="panel" id="files-panel" open>/);
+    assert.match(renderHtml(report), /<details class="panel" id="files-panel">/);
     const providerApiUi = exerciseReportUi(renderHtml(providerApiReport), providerApiReport);
     assert.equal(providerApiUi("files").children[0].children.length, 8);
     const sharedRow = providerApiUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");
@@ -597,6 +623,20 @@ test("tracks configuration across first-parent history without reading untracked
     }
     const html = renderHtml(report);
     exerciseReportUi(html, report);
+    // The masthead's font and icon are inlined, so the policy admits data: URLs and nothing remote.
+    assert.match(html, /font-src data:; img-src data:"/);
+    assert.match(html, /@font-face \{ font-family: "Strata Display"[^}]*url\(data:font\/woff2;base64,/);
+    assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
+    assert.doesNotMatch(html, /url\((?!data:|#|%23)/);
+    // The only outbound links are the Strata name, to its npm page, opened without a referrer.
+    const links = html.match(/<a [^>]*>/g);
+    assert.equal(links.length, 2);
+    for (const link of links) {
+      assert.match(
+        link,
+        /href="https:\/\/www\.npmjs\.com\/package\/context-strata" target="_blank" rel="noopener noreferrer"/,
+      );
+    }
     const manySkills = structuredClone(report);
     for (let index = 0; index < 12; index += 1) {
       const root = `.claude/skills/zz-example-${index}`;
@@ -633,8 +673,8 @@ test("tracks configuration across first-parent history without reading untracked
     };
     const longUi = exerciseReportUi(renderHtml(longHistory), longHistory);
     assert.equal(longUi("chart").children.length, 100);
-    assert.match(longUi("timeline-note").textContent, /grouped into 100 bars/);
-    assert.doesNotMatch(longUi("timeline-note").textContent, /chart starts/);
+    // A grouped bar names the revisions it covers.
+    assert.ok(longUi("chart").children.some((bar) => /^Revisions \d+–\d+ · /.test(bar.title)));
     // History before the first tracked file is left off the chart and stays selectable.
     const nothingTracked = {
       ...report.revisions[0],
@@ -656,8 +696,8 @@ test("tracks configuration across first-parent history without reading untracked
     const lateUi = exerciseReportUi(renderHtml(lateStart), lateStart);
     assert.equal(lateUi("chart").children.length, report.revisions.length);
     assert.equal(lateUi("slider").min, 2);
-    assert.equal(lateUi("baseline").children.length, lateStart.revisions.length);
-    assert.match(lateUi("timeline-note").textContent, /starts at revision 3: the 2 earlier revisions have no tracked/);
+    assert.equal(lateUi("baseline").children.length, lateStart.revisions.length + 1);
+    assert.match(lateUi("chart").children[0].title, /^Revision 3 · /);
     assert.ok(!html.includes("Follow the project conventions."));
     const shareable = redactReport(report);
     const shareableJson = JSON.stringify(shareable);
