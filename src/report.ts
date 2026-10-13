@@ -61,7 +61,6 @@ export function renderHtml(report: Report): string {
     .brand { display: flex; gap: 12px; align-items: center; color: inherit; text-decoration: none; }
     .brand:hover .wordmark, .brand:focus-visible .wordmark { color: var(--ochre); }
     .wordmark { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .03em; line-height: 1; }
-    .folio { margin-left: auto; color: var(--ochre); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
     h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; overflow-wrap: anywhere; margin: 26px 0 10px; }
     .repo-meta { color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .04em; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; border-top: 1px solid #4a554f; margin-top: 26px; }
@@ -166,13 +165,13 @@ export function renderHtml(report: Report): string {
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
   </style>
 </head>
 <body>
   <header>
     <div class="masthead">
-      <div class="header-top"><a class="brand" href="${brandUrl}" target="_blank" rel="noopener noreferrer" title="Strata on npm">${markSvg(30)}<span class="wordmark">STRATA</span></a><span class="folio">Context archaeology</span></div>
+      <div class="header-top"><a class="brand" href="${brandUrl}" target="_blank" rel="noopener noreferrer" title="Strata on npm">${markSvg(30)}<span class="wordmark">STRATA</span></a></div>
       <h1 id="repo"></h1>
       <p class="repo-meta" id="repo-meta"></p>
       <div class="stats">
