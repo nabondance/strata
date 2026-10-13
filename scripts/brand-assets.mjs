@@ -1,6 +1,7 @@
 // Writes the logo files in docs/brand from the mark the report itself draws. Run after `pnpm build`.
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { brandColors, markSvg } from "../dist/brand.js";
+import { categoryColors } from "../dist/palette.js";
 
 // "STRATA" set in the embedded display face and outlined, so the files need no font. 1000 units per em, baseline at y = 0.
 const wordmark =
@@ -25,3 +26,34 @@ const directory = new URL("../docs/brand/", import.meta.url);
 writeFileSync(new URL("logo.svg", directory), logo(64));
 writeFileSync(new URL("logo-wordmark.svg", directory), withWordmark(brandColors.bedrock));
 writeFileSync(new URL("logo-wordmark-dark.svg", directory), withWordmark(brandColors.bone));
+
+// The link-preview card: 1280 by 640, with the layers along the bottom as in the report's masthead.
+// Render it to PNG for GitHub's social preview; see docs/brand/README.md.
+const steps = [
+  ["agents", [16, 16, 22, 30, 30, 38, 52, 52, 60, 74, 70, 70, 82, 96, 96, 108]],
+  ["skills", [8, 8, 12, 18, 18, 24, 34, 34, 40, 50, 46, 46, 56, 66, 66, 74]],
+  ["instructions", [4, 4, 6, 6, 8, 8, 8, 16, 16, 16, 10, 10, 10, 12, 12, 12]],
+];
+const layers = steps
+  .map(([category, heights]) => {
+    const width = 1280 / heights.length;
+    const top = heights
+      .map((height, index) => `H${index * width}V${640 - height * 1.6}H${(index + 1) * width}`)
+      .join("");
+    return `<path d="M0,640${top}V640Z" fill="${categoryColors[category]}"/>`;
+  })
+  .join("\n  ");
+const social = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="strata-social">
+  <title id="strata-social">Strata: see how your agent context evolved across Git history</title>
+  <rect width="1280" height="640" fill="${brandColors.bedrock}"/>
+  ${layers}
+  <g transform="translate(96 96) scale(1.75)">
+  ${mark}
+  </g>
+  <path transform="translate(240 190) scale(0.16)" fill="${brandColors.bone}" d="${wordmark}"/>
+  <text x="96" y="296" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" fill="${brandColors.bone}">See how your agent context evolved across Git history.</text>
+  <text x="96" y="344" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" fill="${brandColors.ochre}">npx context-strata analyze --open</text>
+</svg>
+`;
+mkdirSync(new URL("social/", directory), { recursive: true });
+writeFileSync(new URL("social/social-preview.svg", directory), social);

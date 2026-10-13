@@ -133,6 +133,11 @@ function exerciseReportUi(html, report) {
   const expected = compareRevisions(revisions[2], revisions[3]);
   assert.match(get("compare-tokens").textContent, new RegExp(String(expected.deltaTokens)));
   assert.equal(get("compare-components").children.length, expected.components.length);
+  // Providers and categories that did not move are left out of the comparison.
+  assert.equal(
+    get("compare-categories").children.length,
+    expected.byCategory.filter((group) => group.deltaFiles || group.deltaTokens).length || 1,
+  );
   assert.equal(get("slider").value, 3);
   // Rectangles of files this revision added or edited are outlined; removed and source-only files have none.
   const sized = revisions[3].changes.filter(
@@ -147,7 +152,7 @@ function exerciseReportUi(html, report) {
   if (sized.length) {
     outlined[0].listeners.focus();
     assert.match(get("treemap-hover").textContent, / at this revision/);
-    assert.match(get("treemap-note").textContent, /outlined files changed at this revision/);
+    assert.match(get("treemap-hover").textContent, / at this revision/);
   }
   const chartStart = Math.max(
     0,
@@ -181,10 +186,11 @@ function exerciseReportUi(html, report) {
   const firstLeaf = get("treemap").children.find((child) => child.className === "treemap-leaf");
   assert.ok(firstLeaf);
   assert.equal(firstLeaf.title, undefined);
+  assert.match(firstLeaf.style.color, /^#(ffffff|10140f)$/);
   firstLeaf.listeners.mouseenter();
   assert.match(get("treemap-hover").textContent, /stored-text tokens/);
   firstLeaf.listeners.mouseleave();
-  assert.equal(get("treemap-hover").textContent, "");
+  assert.match(get("treemap-hover").textContent, /source-only/);
   firstLeaf.listeners.click();
   // The path filter is a substring search, so CLAUDE.md also lists .claude/CLAUDE.md.
   assert.equal(get("files-panel").open, true);
@@ -192,7 +198,7 @@ function exerciseReportUi(html, report) {
   assert.equal(located.length, 1);
   assert.equal(located[0].focused, true);
   assert.ok(get("files").children.length <= 2);
-  assert.match(get("treemap-note").textContent, /source-only/);
+  assert.match(get("treemap-hover").textContent, /source-only/);
   const claudeTab = get("provider-tabs").children.find((child) => child.textContent === "Claude + shared");
   assert.ok(claudeTab);
   claudeTab.listeners.click();

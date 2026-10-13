@@ -14,6 +14,10 @@ All three have a transparent background, and the wordmark is outlined, so the fi
 
 The mark's geometry lives in `markSvg` in [src/brand.ts](../../src/brand.ts); the HTML report, its favicon, and the SVG image draw it from there. After changing it, run `pnpm build && node scripts/brand-assets.mjs` to rewrite these files.
 
+### Social preview
+
+[social/social-preview.png](social/social-preview.png) is the 1280 by 640 link-preview card. `scripts/brand-assets.mjs` writes its SVG source next to it; render the PNG with a browser, for example `chrome --headless --window-size=1280,640 --screenshot=social-preview.png social-preview.svg`. GitHub's social preview is set by uploading the PNG under the repository's Settings.
+
 ## Color
 
 | Name | Hex | Use |
@@ -24,13 +28,13 @@ The mark's geometry lives in `markSvg` in [src/brand.ts](../../src/brand.ts); th
 | Clay | `#b5573a` | Mark layer |
 | Verdigris | `#5f8f8a` | Mark layer |
 
-Below the masthead the report keeps its paper palette, and data is colored by category from [src/palette.ts](../../src/palette.ts). Brand colors never encode data.
+Data is colored by category from [src/palette.ts](../../src/palette.ts). Instructions and skills use verdigris and clay hues stepped for contrast; the other categories are spaced around them. Growth is shown in ochre and reduction in verdigris, never red and green. Below the masthead the report uses a paper ground in light mode and a bedrock-tinted one in dark mode.
 
 ## Type
 
 | Role | Face |
 | --- | --- |
-| Display: wordmark, repository headline, headline figures | Archivo ExtraBold at 70% width, uppercase |
+| Display: wordmark, repository headline, panel headings, headline figures | Archivo ExtraBold at 70% width; the repository name keeps its own capitalization |
 | Text and tables | The system sans-serif stack already in the report |
 | Labels, commit IDs, dates | The system monospace stack |
 

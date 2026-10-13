@@ -6,7 +6,7 @@ import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } fro
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
-import { categoryColors } from "./palette.js";
+import { categoryColors, categoryInk } from "./palette.js";
 import { viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
 import { layoutTreemap } from "./treemap.js";
@@ -50,7 +50,8 @@ export function renderHtml(report: Report): string {
   <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(markSvg(64))}">
   <style>
     ${displayFontFace}
-    :root { color-scheme: light; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --rust: #934e37; --bedrock: ${brandColors.bedrock}; --bone: ${brandColors.bone}; --ochre: ${brandColors.ochre}; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
+    :root { color-scheme: light dark; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --grid: #e4e2d9; --edge: #9fa99d; --hover: #ece9de; --field: #fff; --up: #80590a; --down: #2c6b65; --warn: #8a442c; --clay: ${brandColors.clay}; --bedrock: ${brandColors.bedrock}; --bone: ${brandColors.bone}; --ochre: ${brandColors.ochre}; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
+    @media (prefers-color-scheme: dark) { :root { --paper: #121815; --sheet: #1a221e; --ink: #e7e3d6; --muted: #9ba499; --line: #37423c; --grid: #28322d; --edge: #56625b; --hover: #242e29; --field: #131916; --up: ${brandColors.ochre}; --down: #8fbdb7; --warn: #e39072; } }
     * { box-sizing: border-box; }
     body { margin: 0; }
     header { background: var(--bedrock); color: var(--bone); }
@@ -61,7 +62,7 @@ export function renderHtml(report: Report): string {
     .brand:hover .wordmark, .brand:focus-visible .wordmark { color: var(--ochre); }
     .wordmark { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .03em; line-height: 1; }
     .folio { margin-left: auto; color: var(--ochre); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
-    h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; text-transform: uppercase; overflow-wrap: anywhere; margin: 26px 0 10px; }
+    h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; overflow-wrap: anywhere; margin: 26px 0 10px; }
     .repo-meta { color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .04em; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; border-top: 1px solid #4a554f; margin-top: 26px; }
     .stat { padding: 14px 0 20px; min-width: 0; }
@@ -69,15 +70,15 @@ export function renderHtml(report: Report): string {
     .stat strong { font-family: ${displayFontStack}; font-size: clamp(25px, 3vw, 34px); font-weight: 800; letter-spacing: .01em; font-variant-numeric: tabular-nums lining-nums; }
     header .positive { color: var(--ochre); }
     header .negative { color: #8fbdb7; }
-    .silhouette { position: relative; height: 78px; }
+    .silhouette { position: relative; height: 110px; }
     .silhouette i { position: absolute; inset: 0; }
     .muted { color: var(--muted); line-height: 1.5; }
     main { max-width: 1248px; padding: 26px 24px 64px; margin: auto; }
     .notice { max-width: 970px; color: var(--muted); line-height: 1.55; margin: 0 0 18px; font-size: 13px; overflow-wrap: anywhere; }
     .notice summary { cursor: pointer; width: fit-content; }
-    .notice summary:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .notice summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .notice p { margin: 8px 0 0; }
-    .warning { color: #8a442c; font-weight: 600; }
+    .warning { color: var(--warn); font-weight: 600; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
     .panel h2 { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .02em; line-height: 1.05; text-transform: uppercase; margin: 0 0 14px; }
     .panel h2 + p { font-size: 13px; margin: -5px 0 18px; }
@@ -86,7 +87,7 @@ export function renderHtml(report: Report): string {
     details.panel > summary::after { content: "+"; margin-left: auto; font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; line-height: 1; }
     details.panel[open] > summary::after { content: "−"; }
     details.panel[open] > summary { margin-bottom: 16px; }
-    details.panel > summary:focus-visible { outline: 2px solid var(--rust); outline-offset: 4px; }
+    details.panel > summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 4px; }
     details.panel > summary h2 { margin: 0; }
     .summary-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
     .panel-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; align-items: baseline; }
@@ -96,76 +97,76 @@ export function renderHtml(report: Report): string {
     .legend b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
     .swatch { display: inline-block; width: 10px; height: 10px; }
     .chart-scroll { padding: 4px 2px 6px; }
-    .chart { display: grid; align-items: end; gap: 2px; height: 220px; width: 100%; border-bottom: 1px solid #8b9289; background: repeating-linear-gradient(to top, transparent 0, transparent 54px, #e4e2d9 55px); }
+    .chart { display: grid; align-items: end; gap: 2px; height: 220px; width: 100%; border-bottom: 1px solid var(--edge); background: repeating-linear-gradient(to top, transparent 0, transparent 54px, var(--grid) 55px); }
     .bar { border: 0; padding: 0; margin: 0; min-width: 0; background: transparent; display: flex; align-items: end; justify-content: center; height: 100%; cursor: pointer; }
-    .bar:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .bar:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .bar.selected .stack { outline: 2px solid var(--ink); outline-offset: 2px; }
-    .bar.baseline .stack { box-shadow: 0 0 0 2px #b98542; }
+    .bar.baseline .stack { box-shadow: 0 0 0 2px var(--ochre); }
     .stack { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; min-height: 2px; }
     .segment { display: block; width: 100%; }
-    input[type=range] { width: 100%; accent-color: var(--rust); margin-top: 17px; }
+    input[type=range] { width: 100%; accent-color: var(--clay); margin-top: 17px; }
     .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .provider-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 11px; }
     .provider-tab { padding: 9px 14px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
-    .provider-tab[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
-    .provider-tab:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .provider-tab[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+    .provider-tab:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     [hidden] { display: none !important; }
     .view-note { margin: 0 0 21px; color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .treemap { position: relative; height: 390px; background: #e8e4d8; overflow: hidden; }
-    .treemap-leaf { position: absolute; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 2px solid var(--sheet); padding: 9px; overflow: hidden; color: #fff; text-align: left; cursor: pointer; font: inherit; }
+    .treemap { position: relative; height: 390px; background: var(--hover); overflow: hidden; }
+    .treemap-leaf { position: absolute; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 2px solid var(--sheet); padding: 9px; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
     .treemap-leaf:hover, .treemap-leaf:focus-visible { outline: 3px solid var(--ink); outline-offset: -4px; z-index: 2; }
     .treemap-leaf .leaf-name { display: block; flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.2; font-weight: 700; }
     .treemap-leaf .leaf-size { flex-shrink: 0; margin-top: auto; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
     .treemap-leaf [hidden] { display: none; }
+    .treemap-leaf.upright .leaf-name { writing-mode: vertical-rl; max-width: none; max-height: 100%; overflow: hidden; overflow-wrap: normal; white-space: nowrap; text-overflow: ellipsis; }
     .treemap-leaf.compact { padding: 3px 5px; }
     .treemap-leaf.compact .leaf-name { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-    .treemap-leaf.changed::after { content: ""; position: absolute; inset: 2px; border: 2px solid #f6d26b; pointer-events: none; }
+    .treemap-leaf.changed::after { content: ""; position: absolute; inset: 2px; border: 2px solid currentColor; pointer-events: none; }
     .treemap-leaf.changed.edited::after { border-style: dashed; }
-    .ring { display: inline-block; width: 12px; height: 12px; border: 2px solid #a87a12; }
+    .ring { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--ink); }
     .ring.dashed { border-style: dashed; }
     .treemap-group { position: absolute; border: 3px solid var(--sheet); pointer-events: none; z-index: 1; }
-    .treemap-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 12px 0 0; }
-    .treemap-hover:empty { border-color: transparent; background: none; }
-    .treemap-hover { min-height: 42px; padding: 10px 12px; margin: 10px 0 0; border-left: 3px solid var(--rust); background: #f0eee6; color: var(--ink); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-    .skill-toggle, .more { margin-top: 13px; border: 1px solid #9fa99d; padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
-    .skill-toggle:hover, .more:hover { background: #e8e4d8; }
-    .skill-toggle:focus-visible, .more:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+    .treemap-hover { min-height: 2.9em; margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .treemap-hover.detail { color: var(--ink); }
+    .skill-toggle, .more { margin-top: 13px; border: 1px solid var(--edge); padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+    .skill-toggle:hover, .more:hover { background: var(--hover); }
+    .skill-toggle:focus-visible, .more:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .compare-controls, .inventory-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 18px; align-items: end; }
     .compare-controls label, .inventory-controls label { display: grid; gap: 6px; min-width: min(100%, 230px); color: var(--muted); font-size: 12px; }
     .inventory-controls label { min-width: min(100%, 180px); }
     .inventory-controls label.search { flex: 1 1 240px; }
-    :is(.compare-controls, .inventory-controls) :is(select, input) { width: 100%; border: 1px solid #9fa99d; border-radius: 0; padding: 10px 11px; background: #fff; color: var(--ink); font: inherit; }
-    :is(.compare-controls, .inventory-controls) :is(select, input, button):focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
-    .inventory-controls button { border: 1px solid #9fa99d; border-radius: 0; padding: 10px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
-    .inventory-controls button:hover { background: #e8e4d8; }
+    :is(.compare-controls, .inventory-controls) :is(select, input) { width: 100%; border: 1px solid var(--edge); border-radius: 0; padding: 10px 11px; background: var(--field); color: var(--ink); font: inherit; }
+    :is(.compare-controls, .inventory-controls) :is(select, input, button):focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+    .inventory-controls button { border: 1px solid var(--edge); border-radius: 0; padding: 10px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+    .inventory-controls button:hover { background: var(--hover); }
     .inventory-count { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
     .compare-summary { display: flex; flex-wrap: wrap; gap: 12px 30px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 0 6px; }
     .compare-summary span { color: var(--muted); font-size: 12px; }
-    .compare-summary strong { display: block; color: var(--ink); font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-size: 21px; font-weight: 650; margin-top: 5px; font-variant-numeric: tabular-nums lining-nums; }
-    .compare-summary strong.positive { color: #306f55; }
-    .compare-summary strong.negative { color: #a44935; }
+    .compare-summary strong { display: block; color: var(--ink); font-family: ${displayFontStack}; font-size: 28px; font-weight: 800; letter-spacing: .01em; margin-top: 4px; font-variant-numeric: tabular-nums lining-nums; }
+    .compare-summary strong.positive { color: var(--up); }
+    .compare-summary strong.negative { color: var(--down); }
     .compare-section { margin-top: 18px; }
     .compare-section p { font-size: 13px; margin: 0 0 8px; }
     .compare-section h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 9px; }
     .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; }
     .grid > * { min-width: 0; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { color: var(--muted); text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; border-bottom: 1px solid #aeb6aa; }
+    th { color: var(--muted); text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; border-bottom: 1px solid var(--edge); }
     th, td { padding: 10px 8px; vertical-align: top; }
-    tbody tr + tr { border-top: 1px solid #deded5; }
-    tbody tr:hover { background: #f0eee6; }
+    tbody tr + tr { border-top: 1px solid var(--grid); }
+    tbody tr:hover { background: var(--hover); }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     td.path { overflow-wrap: anywhere; }
     .kind { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
     .delta { white-space: nowrap; font-variant-numeric: tabular-nums; }
-    .positive { color: #306f55; }
-    .negative { color: #a44935; }
+    .positive { color: var(--up); }
+    .negative { color: var(--down); }
     .empty { color: var(--muted); font-size: 13px; }
     .table-wrap { overflow-x: auto; }
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 56px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } .folio { display: none; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
   </style>
 </head>
 <body>
@@ -200,7 +201,6 @@ export function renderHtml(report: Report): string {
       <div class="legend" id="treemap-legend" hidden></div>
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-hover" id="treemap-hover" aria-live="polite"></p>
-      <p class="treemap-note" id="treemap-note"></p>
     </section>
     <details class="panel" id="skills-panel">
       <summary><h2>Skill bundles</h2><span class="summary-count" id="skill-count"></span></summary>
@@ -250,6 +250,7 @@ export function renderHtml(report: Report): string {
     const layoutTreemap = ${treemapSource};
     const providerColumns = data.providerMeasurements ? ['claude', 'gemini', 'codex'] : [];
     const colors = ${JSON.stringify(categoryColors)};
+    const inks = ${JSON.stringify(categoryInk)};
     const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);
@@ -272,6 +273,8 @@ export function renderHtml(report: Report): string {
     let chartBuckets = [];
     let chartStart = 0;
     let treemapLabels = [];
+    // What the line under the treemap says while no rectangle is hovered or focused.
+    let treemapNote = '';
     // What each panel last drew, so moving between revisions that share an inventory redraws nothing.
     let drawn = {};
     // Long lists show their first rows until asked for the rest.
@@ -340,7 +343,7 @@ export function renderHtml(report: Report): string {
       }
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
-      // The masthead's lower edge repeats the chart as stepped layers, lightened to read on the dark ground.
+      // The masthead's lower edge repeats the chart as stepped layers.
       const tops = buckets.map(() => 0);
       const layers = [];
       for (const category of categories) {
@@ -355,8 +358,6 @@ export function renderHtml(report: Report): string {
         const layer = text('i', '');
         layer.style.clipPath = 'polygon(' + points.join(',') + ')';
         layer.style.background = colors[category];
-        // Browsers without relative colors ignore this and keep the chart color.
-        layer.style.background = 'oklch(from ' + colors[category] + ' calc(l + .2) calc(c * 1.25) h)';
         // Upper layers come first so each lower one paints over them down to the baseline.
         layers.unshift(layer);
       }
@@ -509,7 +510,6 @@ export function renderHtml(report: Report): string {
       root.replaceChildren();
       treeLegend.replaceChildren();
       treemapLabels = [];
-      $('treemap-hover').textContent = '';
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
       for (const group of layout.groups) {
         for (const leaf of group.leaves) {
@@ -521,6 +521,7 @@ export function renderHtml(report: Report): string {
           button.style.width = leaf.width + '%';
           button.style.height = leaf.height + '%';
           button.style.background = colors[component.category];
+          button.style.color = inks[component.category];
           const change = changedHere.get(component.path);
           const changeLabel = !change ? '' : change.kind === 'added' ? ' · added at this revision' : change.kind === 'renamed' ? ' · renamed at this revision from ' + change.previousPath : ' · edited at this revision';
           const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + changeLabel;
@@ -539,8 +540,8 @@ export function renderHtml(report: Report): string {
             treemapLabels.push({ button, name, size });
             if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
           }
-          const showDetail = () => { $('treemap-hover').textContent = detail; };
-          const clearDetail = () => { $('treemap-hover').textContent = ''; };
+          const showDetail = () => { $('treemap-hover').textContent = detail; $('treemap-hover').classList.add('detail'); };
+          const clearDetail = () => { $('treemap-hover').textContent = treemapNote; $('treemap-hover').classList.remove('detail'); };
           button.addEventListener('mouseenter', showDetail);
           button.addEventListener('focus', showDetail);
           button.addEventListener('mouseleave', clearDetail);
@@ -575,7 +576,9 @@ export function renderHtml(report: Report): string {
           treeLegend.append(entry);
         }
       }
-      $('treemap-note').textContent = (outlined ? fmt(outlined) + ' outlined files changed at this revision · ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized · ' + fmt(layout.sourceOnlyCount) + ' source-only · ' + fmt(layout.zeroTokenCount) + ' zero-token files';
+      treemapNote = (outlined ? fmt(outlined) + ' outlined files changed at this revision · ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized · ' + fmt(layout.sourceOnlyCount) + ' source-only · ' + fmt(layout.zeroTokenCount) + ' zero-token files';
+      $('treemap-hover').textContent = treemapNote;
+      $('treemap-hover').classList.remove('detail');
       drawn.treemap = viewRevisions[selected].components;
       drawn.outlined = outlined;
       fitTreemapLabels();
@@ -585,6 +588,10 @@ export function renderHtml(report: Report): string {
       if (typeof getComputedStyle !== 'function') return;
       for (const { button, name, size } of treemapLabels) {
         button.classList.remove('compact');
+        // A tall, narrow rectangle reads its name top to bottom instead of breaking it mid-word.
+        const shape = button.getBoundingClientRect();
+        if (shape.width < 90 && shape.height > shape.width * 1.8) button.classList.add('upright');
+        else button.classList.remove('upright');
         name.hidden = false;
         name.style.fontSize = '';
         size.hidden = false;
@@ -653,7 +660,15 @@ export function renderHtml(report: Report): string {
       for (const [id, groups] of [['compare-providers', comparison.byProvider], ['compare-categories', comparison.byCategory]]) {
         const body = $(id);
         body.replaceChildren();
-        for (const group of groups) {
+        const moved = groups.filter((group) => group.deltaFiles || group.deltaTokens);
+        if (!moved.length) {
+          const row = document.createElement('tr');
+          const cell = text('td', 'No change.', 'empty');
+          cell.colSpan = 3;
+          row.append(cell);
+          body.append(row);
+        }
+        for (const group of moved) {
           const row = document.createElement('tr');
           row.append(text('td', group.key), text('td', signed(group.deltaFiles), 'num ' + tone(group.deltaFiles)), text('td', signed(group.deltaTokens), 'num ' + tone(group.deltaTokens)));
           body.append(row);
