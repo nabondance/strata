@@ -18,16 +18,16 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      with:
-        version: 10.29.3
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: '22'
+    # Installed with npm rather than pnpm/action-setup so the Action only
+    # depends on GitHub-owned actions and runs under a restrictive policy.
     - name: Build Strata
       shell: bash
       working-directory: ${{ github.action_path }}
       run: |
+        npm install --global pnpm@10.29.3
         pnpm install --frozen-lockfile
         pnpm build
     - name: Compare PR commits
