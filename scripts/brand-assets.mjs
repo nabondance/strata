@@ -43,6 +43,7 @@ const layers = steps
     return `<path d="M0,640${top}V640Z" fill="${categoryColors[category]}"/>`;
   })
   .join("\n  ");
+// The mark is 112 high from y = 110; the wordmark's caps are 110 high, so its baseline sits at 221 to center them.
 const social = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="strata-social">
   <title id="strata-social">Strata: see how your agent context evolved across Git history</title>
   <rect width="1280" height="640" fill="${brandColors.bedrock}"/>
@@ -50,7 +51,7 @@ const social = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640
   <g transform="translate(306 110) scale(1.75)">
   ${mark}
   </g>
-  <path transform="translate(450 204) scale(0.16)" fill="${brandColors.bone}" d="${wordmark}"/>
+  <path transform="translate(450 221) scale(0.16)" fill="${brandColors.bone}" d="${wordmark}"/>
   <text x="640" y="312" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" fill="${brandColors.bone}">See how your agent context evolved across Git history.</text>
   <text x="640" y="360" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" fill="${brandColors.ochre}">npx context-strata analyze --open</text>
 </svg>
