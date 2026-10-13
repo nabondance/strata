@@ -27,7 +27,7 @@ writeFileSync(new URL("logo.svg", directory), logo(64));
 writeFileSync(new URL("logo-wordmark.svg", directory), withWordmark(brandColors.bedrock));
 writeFileSync(new URL("logo-wordmark-dark.svg", directory), withWordmark(brandColors.bone));
 
-// The link-preview card: 1280 by 640, with the layers along the bottom as in the report's masthead.
+// The link-preview card: 1280 by 640, centered so a cropped preview keeps the name, with the layers along the bottom as in the report's masthead.
 // Render it to PNG for GitHub's social preview; see docs/brand/README.md.
 const steps = [
   ["agents", [16, 16, 22, 30, 30, 38, 52, 52, 60, 74, 70, 70, 82, 96, 96, 108]],
@@ -47,12 +47,12 @@ const social = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640
   <title id="strata-social">Strata: see how your agent context evolved across Git history</title>
   <rect width="1280" height="640" fill="${brandColors.bedrock}"/>
   ${layers}
-  <g transform="translate(96 96) scale(1.75)">
+  <g transform="translate(306 110) scale(1.75)">
   ${mark}
   </g>
-  <path transform="translate(240 190) scale(0.16)" fill="${brandColors.bone}" d="${wordmark}"/>
-  <text x="96" y="296" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" fill="${brandColors.bone}">See how your agent context evolved across Git history.</text>
-  <text x="96" y="344" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" fill="${brandColors.ochre}">npx context-strata analyze --open</text>
+  <path transform="translate(450 204) scale(0.16)" fill="${brandColors.bone}" d="${wordmark}"/>
+  <text x="640" y="312" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" fill="${brandColors.bone}">See how your agent context evolved across Git history.</text>
+  <text x="640" y="360" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" fill="${brandColors.ochre}">npx context-strata analyze --open</text>
 </svg>
 `;
 mkdirSync(new URL("social/", directory), { recursive: true });
