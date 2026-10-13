@@ -7,6 +7,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dm/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm downloads per month"></a>
   <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&labelColor=1d2622&color=d9a441&label=ci" alt="CI status"></a>
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="license">
@@ -67,9 +68,9 @@ Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4
 | AGENTS.md | edited |     +330 |
 ```
 
-And `strata analyze --format svg` draws the history as a static image for a README. This one is generated from this repository:
+And `strata analyze --format svg` draws the history as a static image for a README. This one is rendered from `main` by [this repository's own workflow](.github/workflows/strata-image.yml) on every push:
 
-![Strata's own agent configuration through time, as the SVG image the CLI produces](docs/images/strata.svg)
+![Strata's own agent configuration through time, as the SVG image the CLI produces](https://raw.githubusercontent.com/nabondance/strata/strata-image/strata.svg)
 
 ## Is it for you?
 
@@ -136,7 +137,7 @@ jobs:
           head: ${{ github.event.pull_request.head.sha }}
 ```
 
-[Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
+This repository runs the same workflow on its own pull requests ([strata-pr-delta.yml](.github/workflows/strata-pr-delta.yml)) and renders the image above on every push to `main` ([strata-image.yml](.github/workflows/strata-image.yml)). [Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
 
 ### With a coding agent
 

@@ -6,7 +6,7 @@ Strata needs only Node.js, Git, and a checkout with history. It reads tracked Gi
 - **Full history report**: a workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact. See [below](#full-history-report-as-an-artifact).
 - **README image**: a workflow renders the history as an SVG image and publishes it to a dedicated branch for a README to display. See [below](#readme-image).
 
-None of them runs unless you add a workflow to the repository you want to analyze.
+None of them runs unless you add a workflow to the repository you want to analyze. Strata's own repository runs the [pull-request delta](../.github/workflows/strata-pr-delta.yml) and the [README image](../.github/workflows/strata-image.yml) workflows on itself; they build from the checkout instead of running the published package, which is the only difference from the examples below.
 
 ## Full history report as an artifact
 
