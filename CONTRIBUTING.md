@@ -16,7 +16,7 @@ Run `pnpm build && pnpm benchmark` for a disposable large-history analysis fixtu
 
 ## Commit messages and releases
 
-Write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/): `fix: handle empty repositories`, `feat: add a --since option`, `docs: ...`, `chore: ...`. Mark a breaking change with `!` (`feat!: ...`) or a `BREAKING CHANGE:` footer. When a pull request is squash-merged, its title becomes the commit subject, so the title needs the same form.
+Write commit subjects as [Conventional Commits](https://www.conventionalcommits.org/): `fix: handle empty repositories`, `feat: add a --since option`, `docs: ...`, `chore: ...`. Mark a breaking change with `!` (`feat!: ...`) or a `BREAKING CHANGE:` footer. Pull requests are always squash-merged: the pull request title becomes the commit subject and its description the commit body, so the title needs the same form (a workflow checks it) and the description should not contain `feat:` or `fix:` lines of its own, which release-please would count as extra changes.
 
 Do not edit `CHANGELOG.md` or the version in `package.json` by hand. On every push to `main`, [release-please](https://github.com/googleapis/release-please) opens or updates a release pull request that bumps the version and writes the changelog from `feat` and `fix` commits since the last release. Merging that pull request creates the `vX.Y.Z` tag and GitHub release, and starts the publish workflow on that tag. It runs the checks, smoke-tests the packed tarball, and publishes it to npm with trusted publishing, so no npm token is stored. To retry a failed publish, run `gh workflow run publish.yml --ref vX.Y.Z`.
 
