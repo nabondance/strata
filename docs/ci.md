@@ -4,7 +4,7 @@ Strata needs only Node.js, Git, and a checkout with history. It reads tracked Gi
 
 - **Pull-request delta**: the composite Action runs `strata diff` on the PR's base and head commits and writes a Markdown summary of the change in stored configuration to the job summary. See [the PR delta guide](pr-action.md).
 - **Full history report**: a workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact. See [below](#full-history-report-as-an-artifact).
-- **README image**: a workflow renders the history as an SVG image and publishes it to a dedicated branch for a README to display. See [below](#readme-image).
+- **README image and badge**: a workflow renders the history as an SVG image, plus a token-total badge, and publishes them to a dedicated branch for a README to display. See [below](#readme-image).
 
 None of them runs unless you add a workflow to the repository you want to analyze. Strata's own repository runs the [pull-request delta](../.github/workflows/strata-pr-delta.yml) and the [README image](../.github/workflows/strata-image.yml) workflows on itself; they build from the checkout instead of running the published package, which is the only difference from the examples below.
 
@@ -65,7 +65,7 @@ HTML and JSON reports contain file paths, commit IDs, dates, and measurements, n
 
 The simplest option is to render it locally and commit it, for example to `docs/strata.svg`, and reference it with `![Agent context through time](docs/strata.svg)`. The image then changes only when you regenerate it.
 
-To keep it current automatically, the workflow below renders the image on every push to `main` and force-pushes it as the single commit of a `strata-image` branch. This keeps the image out of `main`'s history and keeps `strata-image` at one commit. Rendering runs with read-only permissions. A separate job, which runs no project or dependency code, gets `contents: write` to push the image with the job's `GITHUB_TOKEN`. A push made with that token does not trigger other workflows.
+To keep it current automatically, the workflow below renders the image on every push to `main`, together with a `strata-badge.json` file for a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge) showing the latest total, and force-pushes both as the single commit of a `strata-image` branch. This keeps the image out of `main`'s history and keeps `strata-image` at one commit. Rendering runs with read-only permissions. A separate job, which runs no project or dependency code, gets `contents: write` to push the image with the job's `GITHUB_TOKEN`. A push made with that token does not trigger other workflows.
 
 ```yaml
 name: Agent context image
@@ -89,12 +89,14 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
-      - name: Render image
-        run: npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+      - name: Render image and badge
+        run: |
+          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format badge --output "$RUNNER_TEMP/strata-image/strata-badge.json" --quiet
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-image
-          path: ${{ runner.temp }}/strata-image/strata.svg
+          path: ${{ runner.temp }}/strata-image/
   publish:
     needs: render
     runs-on: ubuntu-latest
@@ -111,16 +113,19 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           git init -q -b strata-image
-          git add strata.svg
+          git add strata.svg strata-badge.json
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Update Strata image for $GITHUB_SHA"
           git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:strata-image
 ```
 
-In the README of a public repository, reference the published file:
+In the README of a public repository, reference the published files:
 
 ```markdown
 ![Agent context through time](https://raw.githubusercontent.com/<owner>/<repository>/strata-image/strata.svg)
+![Agent context](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repository>/strata-image/strata-badge.json)
 ```
+
+The badge reads `agent context | ≈1,151 tokens`; `≈` marks the default estimate and is absent under an encoding-exact tokenizer. The JSON holds that number only, no repository name, path, or commit ID. Shields caches it for a few minutes.
 
 GitHub caches images, so a new version can take a few minutes to appear. Raw URLs of a private repository need authentication and do not display in its README; commit the image to the repository instead.
 

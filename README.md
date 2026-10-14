@@ -12,6 +12,7 @@
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="license">
   <img src="https://img.shields.io/badge/runs-offline-d9a441?style=flat-square&labelColor=1d2622" alt="runs offline">
+  <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square" alt="stored agent context tokens on main"></a>
   <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="GitHub stars"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-d9a441?style=flat-square&labelColor=1d2622" alt="pull requests welcome"></a>
 </p>
@@ -55,7 +56,7 @@ Strata walks the first-parent history of your branch, oldest to newest, and read
 - **A comparison** between any two revisions, with signed token and file-count changes per provider, category, and file.
 - **Per-provider views** for Claude Code, Codex, and Gemini CLI, with shared files such as `AGENTS.md` counted once in the overall total.
 - **A pull-request delta**, as Markdown or JSON, to see what a change adds before it merges.
-- **An SVG image** of the history to embed in your own README, in full or as the layers alone (`--minimal`).
+- **An SVG image** of the history to embed in your own README, in full or as the layers alone (`--minimal`), and a **badge** with the latest total.
 - **JSON output** for your own scripts, plus a bundled `strata-interpret` skill that teaches a coding agent how to read it.
 
 The treemap sizes each file by its stored-text tokens at the selected revision:
@@ -122,8 +123,9 @@ npx context-strata analyze ~/src/project --output report.html
 # Machine-readable output
 npx context-strata analyze --format json --output report.json
 
-# A picture of the history for your README
+# A picture of the history for your README, and a shields.io badge with the latest total
 npx context-strata analyze --format svg --output docs/strata.svg
+npx context-strata analyze --format badge --output strata-badge.json
 
 # What changed between two commits
 npx context-strata diff --base <base-commit> --head <head-commit>
@@ -157,7 +159,9 @@ jobs:
           head: ${{ github.event.pull_request.head.sha }}
 ```
 
-This repository runs the same workflow on its own pull requests ([strata-pr-delta.yml](.github/workflows/strata-pr-delta.yml)) and renders the image above on every push to `main` ([strata-image.yml](.github/workflows/strata-image.yml)). [Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
+### README image and badge
+
+This repository runs the same workflow on its own pull requests ([strata-pr-delta.yml](.github/workflows/strata-pr-delta.yml)) and renders the image above and the `agent context` badge at the top of this page on every push to `main` ([strata-image.yml](.github/workflows/strata-image.yml)). [Running Strata in CI](docs/ci.md) covers publishing the full report or keeping a README image current.
 
 ### With a coding agent
 
