@@ -7,12 +7,12 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
+import { renderBadge } from "./badge.js";
 import { type MeasurementMode, modeForModel, modelEncodings } from "./measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
 import { redactReport } from "./privacy.js";
 import type { ProviderCountOptions } from "./provider-count.js";
 import { renderHtml } from "./report.js";
-import { renderBadge } from "./badge.js";
 import { renderSvg } from "./svg.js";
 
 /** A mistake in how the command was invoked. Exits with status 2; other failures exit with 1. */
