@@ -382,7 +382,8 @@ export function renderHtml(report: Report): string {
     $('baseline').addEventListener('change', () => { baseline = $('baseline').value === 'previous' ? 'previous' : Number($('baseline').value); renderComparison(); });
     $('target').addEventListener('change', () => render(Number($('target').value)));
     const allComponents = data.components;
-    const providers = [...new Set(allComponents.map((component) => component.provider))].sort();
+    // A provider that only reads shared files, such as Codex with only .agents/skills, still gets a view.
+    const providers = [...new Set(allComponents.flatMap((component) => [component.provider, ...(component.readers ?? [])]))].sort();
     const viewTabs = [{ key: 'all', label: 'All files' },
       ...providers.filter((provider) => provider !== 'shared').map((provider) => ({
         key: provider, label: provider === 'unknown' ? 'Unknown' : provider[0].toUpperCase() + provider.slice(1) + ' + shared',
@@ -435,10 +436,10 @@ export function renderHtml(report: Report): string {
       $('view-note').textContent = activeView === 'all'
         ? ''
         : activeView === 'shared'
-          ? 'Shared instruction files only. They also appear in each provider view.'
+          ? 'Files that more than one tool reads. Each also appears in the view of every provider that reads it.'
           : activeView === 'unknown'
             ? 'Files not assigned to a supported provider; source-only unless recognized.'
-            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus shared instructions. Shared files can appear in more than one provider view, so view totals do not add up.';
+            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? ' (AGENTS.md only in revisions whose .gemini/settings.json names it in context.fileName)' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
       $('view-note').hidden = activeView === 'all';
     }
     for (const category of categories) {

@@ -8,6 +8,8 @@ export type CountedProvider = ProviderTextCount["provider"];
 export interface Component {
   path: string;
   provider: Provider;
+  /** On a shared component, the providers whose documented discovery always includes its path. */
+  readers?: Provider[];
   category: Category;
   blob: string;
   bytes: number;
@@ -19,6 +21,7 @@ export interface Component {
 export interface SkillGroup {
   root: string;
   provider: Provider;
+  readers?: Provider[];
   manifestPath: string | null;
   manifestEstimatedTokens: number;
   resourceCount: number;
@@ -54,6 +57,8 @@ export interface Revision {
   estimatedTokens: number;
   changes: Change[];
   providerTokenTotals?: Partial<Record<CountedProvider, number>>;
+  /** Present when the root `.gemini/settings.json` names `AGENTS.md` in `context.fileName`. */
+  geminiReadsAgentsMd?: true;
 }
 
 /** A revision together with its rebuilt inventory. Unchanged revisions share one inventory. */
@@ -63,7 +68,7 @@ export interface RevisionSnapshot extends Revision {
 }
 
 export interface Report {
-  schemaVersion: 9;
+  schemaVersion: 10;
   repository: string;
   branch: string;
   shallow: boolean;

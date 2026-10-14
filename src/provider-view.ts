@@ -4,7 +4,9 @@ import type { RevisionSnapshot } from "./model.js";
 export type ProviderView = "all" | Provider;
 
 /**
- * Project a revision for display. Shared files overlap provider views but occur once in All.
+ * Project a revision for display. A shared file appears in the view of each provider that reads it,
+ * and once in All. Gemini reads a shared `AGENTS.md` only in revisions whose settings name it, so a
+ * settings change can bring that file into or out of the Gemini view without changing the file.
  * The HTML report embeds this function's source, so it may use only its arguments and `categories`.
  */
 export function viewRevision(
@@ -13,9 +15,16 @@ export function viewRevision(
   previous?: RevisionSnapshot,
 ): RevisionSnapshot {
   if (view === "all") return revision;
-  const includes = (provider: Provider) =>
-    provider === view || (provider === "shared" && view !== "shared" && view !== "unknown");
-  const components = revision.components.filter((component) => includes(component.provider));
+  const includes = (
+    entry: { provider: Provider; readers?: Provider[]; path?: string },
+    at: Pick<RevisionSnapshot, "geminiReadsAgentsMd"> | undefined,
+  ) =>
+    entry.provider === view ||
+    (entry.provider === "shared" &&
+      (view === "shared" ||
+        !!entry.readers?.includes(view) ||
+        (view === "gemini" && !!at?.geminiReadsAgentsMd && entry.path?.split("/").at(-1) === "AGENTS.md")));
+  const components = revision.components.filter((component) => includes(component, revision));
   const before = new Map(previous?.components.map((component) => [component.path, component]));
   const after = new Map(revision.components.map((component) => [component.path, component]));
   const categoryTotals = Object.fromEntries(
@@ -40,14 +49,14 @@ export function viewRevision(
     ...revision,
     components,
     componentCount: components.length,
-    skillGroups: revision.skillGroups.filter((group) => includes(group.provider)),
+    skillGroups: revision.skillGroups.filter((group) => includes(group, revision)),
     categoryTotals,
     estimatedTokens: components.reduce((sum, component) => sum + (component.estimatedTokens ?? 0), 0),
     changes: revision.changes.flatMap((change) => {
       const oldComponent = before.get(change.previousPath ?? change.path);
       const newComponent = after.get(change.path);
-      const oldVisible = oldComponent && includes(oldComponent.provider);
-      const newVisible = newComponent && includes(newComponent.provider);
+      const oldVisible = oldComponent && includes(oldComponent, previous);
+      const newVisible = newComponent && includes(newComponent, revision);
       if (oldVisible && newVisible) return [change];
       if (oldVisible)
         return [

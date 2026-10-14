@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path";
 import { classify } from "./adapters.js";
+import { geminiReadsAgentsMd, geminiSettingsPath } from "./gemini-settings.js";
 import { git, gitText, gitTokens, readBlobs } from "./git.js";
 import {
   type BlobMeasurement,
@@ -179,12 +180,41 @@ function buildChanges(
   return changes.sort(byPath);
 }
 
-function countedProviders(file: TrackedFile, codex: boolean): CountedProvider[] {
-  const { provider, instructionalText } = file.classification;
+const countedOrder = ["claude", "gemini", "codex"] as const satisfies readonly CountedProvider[];
+
+function isAgentsMd(path: string): boolean {
+  return path === "AGENTS.md" || path.endsWith("/AGENTS.md");
+}
+
+/**
+ * The providers to count a file under: its own provider, or a shared file's readers. Gemini reads
+ * a shared `AGENTS.md` only in revisions whose settings name it, so it is counted for Gemini only
+ * when some revision does.
+ */
+function countedProviders(file: TrackedFile, codex: boolean, geminiAgentsMd: boolean): CountedProvider[] {
+  const { provider, instructionalText, readers = [] } = file.classification;
   if (!instructionalText) return [];
-  if (provider === "shared") return codex ? ["claude", "gemini", "codex"] : ["claude", "gemini"];
-  if (provider === "claude" || provider === "gemini") return [provider];
-  return provider === "codex" && codex ? ["codex"] : [];
+  const read = new Set(provider === "shared" ? readers : [provider]);
+  if (provider === "shared" && geminiAgentsMd && isAgentsMd(file.path)) read.add("gemini");
+  return countedOrder.filter((counted) => read.has(counted) && (counted !== "codex" || codex));
+}
+
+/** Whether a component counts toward a provider's total in a revision. */
+function readIn(component: Component, provider: CountedProvider, geminiAgentsMd: boolean): boolean {
+  if (component.provider !== "shared") return component.provider === provider;
+  if (component.readers?.includes(provider)) return true;
+  return provider === "gemini" && geminiAgentsMd && isAgentsMd(component.path);
+}
+
+/** Resolve each distinct root Gemini settings blob to whether it makes Gemini read `AGENTS.md`. */
+function geminiSettings(root: string, files: TrackedFile[], measured: Map<string, BlobMeasurement>) {
+  const blobs = [...new Set(files.filter((file) => file.path === geminiSettingsPath).map((file) => file.blob))];
+  const decoder = new TextDecoder();
+  const reads = new Map<string, boolean>();
+  for (const [blob, body] of readBlobs(root, blobs, (id) => measured.get(id)?.bytes ?? 0)) {
+    reads.set(blob, geminiReadsAgentsMd(decoder.decode(body)));
+  }
+  return reads;
 }
 
 /** Count each distinct provider/blob pair once across the history, with bounded request concurrency. */
@@ -194,10 +224,11 @@ async function countProviderBlobs(
   measured: Map<string, BlobMeasurement>,
   options: ProviderCountOptions,
   codexMeasurer: Measurer | null,
+  geminiAgentsMd: boolean,
 ): Promise<Map<string, ProviderTextCount>> {
   const wanted = new Map<string, { path: string; providers: Set<CountedProvider> }>();
   for (const file of files) {
-    const providers = countedProviders(file, codexMeasurer !== null);
+    const providers = countedProviders(file, codexMeasurer !== null, geminiAgentsMd);
     if (!providers.length) continue;
     let entry = wanted.get(file.blob);
     if (!entry) {
@@ -277,8 +308,10 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const written = deltas.flatMap((delta) => delta.written);
   const measured = measureBlobs(root, written, measurer);
+  const settingsReadAgentsMd = geminiSettings(root, written, measured);
+  const geminiEverReadsAgentsMd = [...settingsReadAgentsMd.values()].includes(true);
   const providerBlobCounts = providerCounts
-    ? await countProviderBlobs(root, written, measured, providerCounts, codexMeasurer)
+    ? await countProviderBlobs(root, written, measured, providerCounts, codexMeasurer, geminiEverReadsAgentsMd)
     : null;
 
   // Each distinct file version is stored once; revisions refer to it by index.
@@ -290,7 +323,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     if (index === undefined) {
       const providerTokenCounts: NonNullable<Component["providerTokenCounts"]> = {};
       if (providerBlobCounts) {
-        for (const provider of countedProviders(file, codexMeasurer !== null)) {
+        for (const provider of countedProviders(file, codexMeasurer !== null, geminiEverReadsAgentsMd)) {
           providerTokenCounts[provider] = providerBlobCounts.get(`${provider}\0${file.blob}`)!;
         }
       }
@@ -317,11 +350,14 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       continue;
     }
     const components = [...inventory.values()].map((index) => table[index]!);
+    const settings = inventory.get(geminiSettingsPath);
+    const geminiAgentsMd = settings !== undefined && settingsReadAgentsMd.get(table[settings]!.blob) === true;
     const providerTokenTotals: NonNullable<Revision["providerTokenTotals"]> = {};
     for (const component of components) {
       for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {}) as Array<
         [CountedProvider, ProviderTextCount]
       >) {
+        if (!readIn(component, provider, geminiAgentsMd)) continue;
         providerTokenTotals[provider] = (providerTokenTotals[provider] ?? 0) + count.tokens;
       }
     }
@@ -332,6 +368,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       ...summarize(components),
       changes,
       ...(providerCounts ? { providerTokenTotals } : {}),
+      ...(geminiAgentsMd ? { geminiReadsAgentsMd: true as const } : {}),
     });
   }
 
@@ -346,7 +383,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     repository: basename(root),
     branch,
     shallow,

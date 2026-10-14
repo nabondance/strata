@@ -366,7 +366,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 9);
+    assert.equal(providerApiReport.schemaVersion, 10);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -379,7 +379,12 @@ test("tracks configuration across first-parent history without reading untracked
     const providerApiRevisions = expandRevisions(providerApiReport);
     const sharedMeasured = providerApiRevisions[0].components.find((component) => component.path === "AGENTS.md");
     assert.equal(sharedMeasured.providerTokenCounts.claude.tokens, 7);
-    assert.equal(sharedMeasured.providerTokenCounts.gemini.tokens, 9);
+    // The fixture's Gemini settings keep the default context file, so Gemini does not read AGENTS.md.
+    assert.equal(sharedMeasured.providerTokenCounts.gemini, undefined);
+    const sharedSkill = providerApiRevisions[0].components.find(
+      (component) => component.path === ".agents/skills/release/SKILL.md",
+    );
+    assert.deepEqual(Object.keys(sharedSkill.providerTokenCounts), ["gemini", "codex"]);
     assert.equal(
       sharedMeasured.providerTokenCounts.codex.tokens,
       getEncoding("o200k_base").encode("Shared project instructions.\n").length,
@@ -395,9 +400,8 @@ test("tracks configuration across first-parent history without reading untracked
     const sharedRequests = providerRequests.filter(({ body }) =>
       JSON.stringify(body).includes("Shared project instructions."),
     );
-    assert.equal(sharedRequests.length, 2);
+    assert.equal(sharedRequests.length, 1);
     assert.ok(sharedRequests.some(({ url }) => url.includes("anthropic.com")));
-    assert.ok(sharedRequests.some(({ url }) => url.includes("generativelanguage.googleapis.com")));
     assert.ok(providerRequests.some(({ body }) => JSON.stringify(body).includes("Root instructions.")));
     assert.ok(!providerRequests.some(({ body }) => JSON.stringify(body).includes("settings.json")));
     const providerJson = JSON.stringify(providerApiReport);
@@ -412,7 +416,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(providerApiUi("files").children[0].children.length, 8);
     const sharedRow = providerApiUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");
     assert.equal(sharedRow.children[5].textContent, "7");
-    assert.equal(sharedRow.children[6].textContent, "9");
+    assert.equal(sharedRow.children[6].textContent, "—");
     assert.ok(
       providerApiUi("files").children.some((row) =>
         row.children.some((cell) => cell.title?.includes("claude-test-model")),
@@ -429,7 +433,10 @@ test("tracks configuration across first-parent history without reading untracked
       codexView.components.every((component) => component.provider === "codex" || component.provider === "shared"),
     );
     assert.equal(sharedView.components.filter((component) => component.path === "AGENTS.md").length, 1);
-    assert.equal(geminiView.components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.equal(geminiView.components.filter((component) => component.path === "AGENTS.md").length, 0);
+    assert.ok(geminiView.components.some((component) => component.path === ".agents/skills/release/SKILL.md"));
+    assert.ok(codexView.components.some((component) => component.path === ".agents/skills/release/SKILL.md"));
+    assert.ok(!claudeView.components.some((component) => component.path.startsWith(".agents/")));
     assert.ok(geminiView.components.some((component) => component.path === "GEMINI.md"));
     assert.ok(geminiView.components.some((component) => component.path === "packages/app/GEMINI.md"));
     assert.ok(claudeView.components.some((component) => component.path === "AGENTS.md"));
@@ -440,7 +447,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 3);
+    assert.equal(prDelta.schemaVersion, 4);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -457,7 +464,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 9);
+    assert.equal(report.schemaVersion, 10);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -515,12 +522,13 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!revisions[0].components.some((component) => component.path === ".claude/rules/linked.md"));
     assert.equal(
       revisions[0].components.find((component) => component.path === ".agents/skills/release/SKILL.md")?.provider,
-      "codex",
+      "shared",
     );
     const checklist = revisions[0].components.find(
       (component) => component.path === ".agents/skills/release/references/checklist.md",
     );
-    assert.equal(checklist?.provider, "codex");
+    assert.equal(checklist?.provider, "shared");
+    assert.deepEqual(checklist?.readers, ["codex", "gemini"]);
     assert.equal(checklist?.category, "skills");
     assert.equal(checklist?.estimatedTokens, null);
     assert.deepEqual(checklist?.skill, { root: ".agents/skills/release", role: "resource" });
@@ -531,7 +539,8 @@ test("tracks configuration across first-parent history without reading untracked
     assert.deepEqual(revisions[0].skillGroups, [
       {
         root: ".agents/skills/release",
-        provider: "codex",
+        provider: "shared",
+        readers: ["codex", "gemini"],
         manifestPath: ".agents/skills/release/SKILL.md",
         manifestEstimatedTokens: revisions[0].components.find(
           (component) => component.path === ".agents/skills/release/SKILL.md",
@@ -821,7 +830,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 9);
+    assert.equal(openAiReport.schemaVersion, 10);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -872,7 +881,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 9],
+      ["gpt-4o", "o200k_base", 10],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
@@ -1096,6 +1105,99 @@ test("tracks configuration across first-parent history without reading untracked
     const detached = await analyzeRepository(repo);
     assert.equal(detached.branch, "detached HEAD");
     assert.equal(detached.revisions.length, splitReport.revisions.length);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("follows Gemini context.fileName for AGENTS.md and Gemini's agent and skill discovery", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "strata-gemini-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  const put = (path, content) => {
+    const fullPath = join(repo, path);
+    mkdirSync(join(fullPath, ".."), { recursive: true });
+    writeFileSync(fullPath, content);
+  };
+  const commit = (message) => {
+    git("add", "-A");
+    git("commit", "-m", message);
+  };
+  try {
+    git("init", "-b", "main");
+    git("config", "user.name", "Strata Test");
+    git("config", "user.email", "strata-test@example.invalid");
+    put("AGENTS.md", "Shared project instructions.\n");
+    put("GEMINI.md", "Gemini project instructions.\n");
+    put(".gemini/settings.json", "{}\n");
+    put(".gemini/agents/reviewer.md", "---\nname: reviewer\n---\nReview the diff.\n");
+    put(".gemini/agents/_draft.md", "Not loaded by Gemini CLI.\n");
+    put(".gemini/agents/nested/helper.md", "Not loaded by Gemini CLI either.\n");
+    put(".gemini/skills/SKILL.md", "---\nname: single\n---\nA single workspace skill.\n");
+    commit("Default Gemini context");
+
+    put(
+      ".gemini/settings.json",
+      '{\n  // Read the shared file too.\n  "context": { "fileName": ["AGENTS.md", "GEMINI.md"] } /* trailing */\n}\n',
+    );
+    commit("Name AGENTS.md as a Gemini context file");
+
+    put(".gemini/settings.json", '{"contextFileName":"AGENTS.md"}\n');
+    commit("Legacy settings key");
+
+    put(".gemini/settings.json", '{"context":{"fileName":"GEMINI.md"},"contextFileName":"AGENTS.md"}\n');
+    commit("Current key wins over the legacy one");
+
+    rmSync(join(repo, ".gemini/settings.json"));
+    commit("Remove Gemini settings");
+
+    const report = await analyzeRepository(repo, {
+      providerCounts: {
+        claudeModel: "claude-test-model",
+        geminiModel: "gemini-test-model",
+        anthropicApiKey: "anthropic-test-key",
+        geminiApiKey: "gemini-test-key",
+        fetchImpl: async (url) =>
+          new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      },
+    });
+    const revisions = expandRevisions(report);
+    assert.deepEqual(
+      report.revisions.map((revision) => revision.geminiReadsAgentsMd ?? false),
+      [false, true, true, false, false],
+    );
+    const gemini = revisions.map((revision, index) => viewRevision(revision, "gemini", revisions[index - 1]));
+    assert.deepEqual(
+      gemini.map((view) => view.components.some((component) => component.path === "AGENTS.md")),
+      [false, true, true, false, false],
+    );
+    assert.ok(
+      revisions.every((revision) => viewRevision(revision, "claude").components.some((c) => c.path === "AGENTS.md")),
+    );
+    // Gemini's count for AGENTS.md exists, but joins Gemini's total only while the settings name it.
+    const shared = revisions[0].components.find((component) => component.path === "AGENTS.md");
+    assert.equal(shared.providerTokenCounts.gemini.tokens, 9);
+    assert.deepEqual(
+      report.revisions.map((revision) => revision.providerTokenTotals.gemini),
+      [27, 36, 36, 27, 27],
+    );
+    assert.deepEqual(
+      report.revisions.map((revision) => revision.providerTokenTotals.claude),
+      [7, 7, 7, 7, 7],
+    );
+
+    const byPath = new Map(revisions[0].components.map((component) => [component.path, component]));
+    assert.equal(byPath.get(".gemini/agents/reviewer.md")?.category, "agents");
+    for (const path of [".gemini/agents/_draft.md", ".gemini/agents/nested/helper.md"]) {
+      assert.deepEqual([byPath.get(path)?.category, byPath.get(path)?.estimatedTokens], ["other", null]);
+    }
+    assert.deepEqual(byPath.get(".gemini/skills/SKILL.md")?.skill, { root: ".gemini/skills", role: "manifest" });
+    assert.deepEqual(
+      revisions[0].skillGroups.map(({ root, provider, manifestPath }) => [root, provider, manifestPath]),
+      [[".gemini/skills", "gemini", ".gemini/skills/SKILL.md"]],
+    );
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

@@ -17,25 +17,42 @@ export interface Classification {
   provider: Provider;
   category: Category;
   instructionalText: boolean;
+  /** For a shared file, the providers whose documented discovery always includes its path. */
+  readers?: Provider[];
   skillRoot?: string;
   skillRole?: "manifest" | "resource";
 }
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
+// Codex and Gemini CLI both discover project skills under `.agents/skills`.
+const skillDirectories: Array<[directory: string, provider: Provider, readers?: Provider[]]> = [
+  [".agents", "shared", ["codex", "gemini"]],
+  [".claude", "claude"],
+  [".gemini", "gemini"],
+];
+
 function skill(_path: string, parts: string[]): Classification | null {
-  for (const [directory, provider] of [
-    [".agents", "codex"],
-    [".claude", "claude"],
-    [".gemini", "gemini"],
-  ] as const) {
+  for (const [directory, provider, readers] of skillDirectories) {
     const index = parts.indexOf(directory);
     if (index < 0) continue;
     const within = parts.slice(index + 1);
-    if (within[0] !== "skills" || within.length < 3) continue;
+    if (within[0] !== "skills") continue;
+    const labels = { provider, ...(readers ? { readers: [...readers] } : {}) };
+    // Gemini CLI also accepts a single skill whose manifest sits directly in `.gemini/skills`.
+    if (directory === ".gemini" && within.length === 2 && within[1] === "SKILL.md") {
+      return {
+        ...labels,
+        category: "skills",
+        instructionalText: true,
+        skillRoot: parts.slice(0, index + 2).join("/"),
+        skillRole: "manifest",
+      };
+    }
+    if (within.length < 3) continue;
     const manifest = within.length === 3 && parts.at(-1) === "SKILL.md";
     return {
-      provider,
+      ...labels,
       category: "skills",
       instructionalText: manifest,
       skillRoot: parts.slice(0, index + 3).join("/"),
@@ -59,7 +76,8 @@ function gemini(_path: string, parts: string[]): Classification | null {
   if (within.length === 1 && filename === "system.md") {
     return { provider: "gemini", category: "instructions", instructionalText: true };
   }
-  if (within[0] === "agents" && within.length === 2 && filename?.endsWith(".md")) {
+  // Gemini CLI reads only top-level agent files and skips names starting with `_`.
+  if (within[0] === "agents" && within.length === 2 && filename?.endsWith(".md") && !filename.startsWith("_")) {
     return { provider: "gemini", category: "agents", instructionalText: true };
   }
   if (within[0] === "commands" && within.length >= 2 && filename?.endsWith(".toml")) {
@@ -117,8 +135,9 @@ function codex(_path: string, parts: string[]): Classification | null {
 }
 
 function shared(_path: string, parts: string[]): Classification | null {
+  // Gemini CLI reads AGENTS.md only when configured to; that depends on the revision, not the file.
   return parts.at(-1) === "AGENTS.md"
-    ? { provider: "shared", category: "instructions", instructionalText: true }
+    ? { provider: "shared", category: "instructions", instructionalText: true, readers: ["claude", "codex"] }
     : null;
 }
 

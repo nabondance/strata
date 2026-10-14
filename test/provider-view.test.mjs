@@ -6,6 +6,7 @@ test("provider views count shared files once and split cross-provider moves", ()
   const shared = {
     path: "AGENTS.md",
     provider: "shared",
+    readers: ["claude", "codex"],
     category: "instructions",
     blob: "s",
     bytes: 40,
@@ -19,7 +20,12 @@ test("provider views count shared files once and split cross-provider moves", ()
     bytes: 80,
     estimatedTokens: 20,
   };
-  const codexFile = { ...claudeFile, path: ".agents/skills/example/SKILL.md", provider: "codex" };
+  const codexFile = {
+    ...claudeFile,
+    path: ".agents/skills/example/SKILL.md",
+    provider: "shared",
+    readers: ["codex", "gemini"],
+  };
   const first = {
     id: "first",
     date: "2026-10-01",
@@ -57,6 +63,60 @@ test("provider views count shared files once and split cross-provider moves", ()
     codex.changes.map((change) => [change.kind, change.path, change.deltaTokens]),
     [["added", codexFile.path, 20]],
   );
-  assert.equal(viewRevision(second, "shared", first).estimatedTokens, 10);
+  assert.equal(viewRevision(second, "gemini", first).estimatedTokens, 20);
+  assert.equal(viewRevision(second, "shared", first).estimatedTokens, 30);
   assert.deepEqual(viewRevision(second, "all", first), second);
+});
+
+test("the Gemini view includes AGENTS.md only in revisions whose settings name it", () => {
+  const shared = {
+    path: "packages/app/AGENTS.md",
+    provider: "shared",
+    readers: ["claude", "codex"],
+    category: "instructions",
+    blob: "s",
+    bytes: 40,
+    estimatedTokens: 10,
+  };
+  const settings = {
+    path: ".gemini/settings.json",
+    provider: "gemini",
+    category: "settings",
+    blob: "g1",
+    bytes: 2,
+    estimatedTokens: null,
+  };
+  const without = {
+    id: "without",
+    date: "2026-10-01",
+    firstParent: null,
+    components: [settings, shared],
+    skillGroups: [],
+    categoryTotals: {},
+    estimatedTokens: 10,
+    changes: [],
+  };
+  const configured = {
+    ...without,
+    id: "with",
+    components: [{ ...settings, blob: "g2" }, shared],
+    geminiReadsAgentsMd: true,
+    changes: [
+      {
+        kind: "modified",
+        path: settings.path,
+        previousTokens: null,
+        estimatedTokens: null,
+        deltaTokens: 0,
+        component: 0,
+      },
+    ],
+  };
+  assert.equal(viewRevision(without, "gemini").estimatedTokens, 0);
+  assert.equal(viewRevision(configured, "gemini", without).estimatedTokens, 10);
+  assert.equal(viewRevision(configured, "claude", without).estimatedTokens, 10);
+  assert.deepEqual(
+    viewRevision(configured, "gemini", without).changes.map((change) => [change.kind, change.path]),
+    [["modified", settings.path]],
+  );
 });
