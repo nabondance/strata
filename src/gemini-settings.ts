@@ -1,3 +1,10 @@
+import type { ContextFile } from "./adapters.js";
+
+const contextFiles = new Map<string, ContextFile>([
+  ["AGENTS.md", "agents-md"],
+  ["GEMINI.md", "gemini-md"],
+]);
+
 /** The workspace settings file whose `context.fileName` Strata resolves. Nested copies are not consulted. */
 export const geminiSettingsPath = ".gemini/settings.json";
 
@@ -25,19 +32,23 @@ function stripComments(text: string): string {
 }
 
 /**
- * Whether Gemini CLI settings name `AGENTS.md` as a context file. `context.fileName` replaces the
- * default `GEMINI.md`; `contextFileName` is its name before the settings format changed. Settings
- * that do not parse leave the default in place.
+ * The recognized context files Gemini CLI settings configure, or null when they leave the
+ * default (`GEMINI.md`) in place. `context.fileName` replaces that default; `contextFileName` is its
+ * name before the settings format changed. Settings that do not parse leave the default. Other
+ * configured names are dropped: Strata does not recognize those files, and the report would
+ * otherwise carry repository-chosen names that `--shareable` does not alias.
  */
-export function geminiReadsAgentsMd(text: string): boolean {
+export function geminiContextFiles(text: string): ContextFile[] | null {
   let settings: unknown;
   try {
-    settings = JSON.parse(stripComments(text.replace(/^﻿/, "")));
+    settings = JSON.parse(stripComments(text.replace(/^\uFEFF/, "")));
   } catch {
-    return false;
+    return null;
   }
-  if (!settings || typeof settings !== "object") return false;
+  if (!settings || typeof settings !== "object") return null;
   const { context, contextFileName } = settings as { context?: { fileName?: unknown }; contextFileName?: unknown };
   const names = context && typeof context === "object" && "fileName" in context ? context.fileName : contextFileName;
-  return names === "AGENTS.md" || (Array.isArray(names) && names.includes("AGENTS.md"));
+  const list = typeof names === "string" ? [names] : Array.isArray(names) ? names : null;
+  if (!list) return null;
+  return [...contextFiles].flatMap(([name, label]) => (list.includes(name) ? [label] : []));
 }

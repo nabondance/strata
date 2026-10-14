@@ -12,13 +12,23 @@ export const categories = [
 
 export type Category = (typeof categories)[number];
 export type Provider = "claude" | "codex" | "gemini" | "shared" | "unknown";
+/**
+ * Context files whose Gemini CLI loading depends on `context.fileName`: `AGENTS.md` and `GEMINI.md`.
+ * The labels are not the file names, so they cannot match a path a shareable report aliases.
+ */
+export type ContextFile = "agents-md" | "gemini-md";
 
 export interface Classification {
   provider: Provider;
   category: Category;
   instructionalText: boolean;
-  /** For a shared file, the providers whose documented discovery always includes its path. */
+  /**
+   * For a shared file, the providers documented as reading its path. A reader may still depend on
+   * a runtime condition Strata does not resolve, such as Claude Code reading `AGENTS.md`.
+   */
   readers?: Provider[];
+  /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
+  contextFile?: ContextFile;
   skillRoot?: string;
   skillRole?: "manifest" | "resource";
 }
@@ -39,10 +49,11 @@ function skill(_path: string, parts: string[]): Classification | null {
     const within = parts.slice(index + 1);
     if (within[0] !== "skills") continue;
     const labels = { provider, ...(readers ? { readers: [...readers] } : {}) };
-    // Gemini CLI also accepts a single skill whose manifest sits directly in `.gemini/skills`.
-    if (directory === ".gemini" && within.length === 2 && within[1] === "SKILL.md") {
+    // Gemini CLI also accepts a single skill whose manifest sits directly in its skill directory;
+    // Codex and Claude Code document only `<name>/SKILL.md`.
+    if (directory !== ".claude" && within.length === 2 && within[1] === "SKILL.md") {
       return {
-        ...labels,
+        provider: "gemini",
         category: "skills",
         instructionalText: true,
         skillRoot: parts.slice(0, index + 2).join("/"),
@@ -65,7 +76,7 @@ function skill(_path: string, parts: string[]): Classification | null {
 function gemini(_path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
   if (filename === "GEMINI.md") {
-    return { provider: "gemini", category: "instructions", instructionalText: true };
+    return { provider: "gemini", category: "instructions", instructionalText: true, contextFile: "gemini-md" };
   }
   const index = parts.indexOf(".gemini");
   if (index < 0) return null;
@@ -137,7 +148,13 @@ function codex(_path: string, parts: string[]): Classification | null {
 function shared(_path: string, parts: string[]): Classification | null {
   // Gemini CLI reads AGENTS.md only when configured to; that depends on the revision, not the file.
   return parts.at(-1) === "AGENTS.md"
-    ? { provider: "shared", category: "instructions", instructionalText: true, readers: ["claude", "codex"] }
+    ? {
+        provider: "shared",
+        category: "instructions",
+        instructionalText: true,
+        readers: ["claude", "codex"],
+        contextFile: "agents-md",
+      }
     : null;
 }
 

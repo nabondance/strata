@@ -1,4 +1,4 @@
-import type { Category, Provider } from "./adapters.js";
+import type { Category, ContextFile, Provider } from "./adapters.js";
 import type { Measurement } from "./measurement.js";
 import type { ProviderMeasurementMetadata, ProviderTextCount } from "./provider-count.js";
 
@@ -8,8 +8,10 @@ export type CountedProvider = ProviderTextCount["provider"];
 export interface Component {
   path: string;
   provider: Provider;
-  /** On a shared component, the providers whose documented discovery always includes its path. */
+  /** On a shared component, the providers documented as reading its path. */
   readers?: Provider[];
+  /** On `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`): Gemini CLI reads it only while `context.fileName` names it. */
+  contextFile?: ContextFile;
   category: Category;
   blob: string;
   bytes: number;
@@ -57,8 +59,11 @@ export interface Revision {
   estimatedTokens: number;
   changes: Change[];
   providerTokenTotals?: Partial<Record<CountedProvider, number>>;
-  /** Present when the root `.gemini/settings.json` names `AGENTS.md` in `context.fileName`. */
-  geminiReadsAgentsMd?: true;
+  /**
+   * Present when the root `.gemini/settings.json` sets `context.fileName`: labels of the recognized
+   * files it names. Absent means Gemini CLI's default, `GEMINI.md` only.
+   */
+  geminiContextFiles?: ContextFile[];
 }
 
 /** A revision together with its rebuilt inventory. Unchanged revisions share one inventory. */

@@ -6,11 +6,11 @@ Strata shows how Git-tracked AI-agent configuration changes through time. It ana
 
 - `src/adapters.ts` recognizes provider paths and assigns provider/category labels.
 - `src/git.ts` runs read-only Git commands: the streamed history log, tree listings, and batched blob reads.
-- `src/analyze.ts` replays first-parent history into revisions; `src/inventory.ts` measures blobs and derives totals; `src/model.ts` holds the report types. `src/gemini-settings.ts` reads the tracked `.gemini/settings.json` to decide, per revision, whether Gemini CLI reads `AGENTS.md`.
+- `src/analyze.ts` replays first-parent history into revisions; `src/inventory.ts` measures blobs and derives totals; `src/model.ts` holds the report types. `src/gemini-settings.ts` reads the tracked `.gemini/settings.json` to decide, per revision, which context files Gemini CLI reads; `providerReads` in `src/provider-view.ts` is the single rule for whether a provider reads a component.
 - `src/expand.ts` rebuilds each revision's inventory from the report's component table and per-revision changes; reports never store a per-revision file list.
 - `src/pr-delta.ts` compares two commits for `strata diff`, sharing the same inventory code.
 - `src/report.ts` renders the self-contained HTML report and `src/svg.ts` the static SVG image; both take category colors from `src/palette.ts` and the logo mark from `src/brand.ts`. `src/brand-font.ts` is the embedded display font; [docs/brand](docs/brand/README.md) explains how it is built. `src/cli.ts` handles command-line input and output.
-- `src/expand.ts`, `src/compare.ts`, `src/provider-view.ts`, `src/treemap.ts`, and `src/timeline.ts` are embedded into the HTML report as source text, so each exported function must stay self-contained.
+- `src/expand.ts`, `src/compare.ts`, `src/provider-view.ts`, `src/treemap.ts`, and `src/timeline.ts` are embedded into the HTML report as source text, so each exported function must stay self-contained; the one exception is `viewRevision`, which may call `providerReads`, embedded beside it.
 - `test/analyze.test.mjs` and `test/cli.test.mjs` build synthetic Git histories to verify analysis and CLI behavior.
 
 ## Changes that affect analysis
