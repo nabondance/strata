@@ -40,7 +40,7 @@ Latest: 4 tracked components, 1151 stored-text tokens (utf8-bytes-divided-by-fou
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
-![The Strata report: scrubbing the timeline, the treemap of one revision, and the comparison between two revisions](docs/images/report-demo.gif)
+![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
 
 The images on this page are Strata's report on its own repository.
 
@@ -51,9 +51,6 @@ Strata walks the first-parent history of your branch, oldest to newest, and read
 ## What you get
 
 - **A timeline** of stored instruction tokens across your branch's history, split by category.
-
-  ![The timeline: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
-
 - **A treemap** of any revision, so the file eating most of the budget is the biggest rectangle.
 - **A comparison** between any two revisions, with signed token and file-count changes per provider, category, and file.
 - **Per-provider views** for Claude Code, Codex, and Gemini CLI, with shared files such as `AGENTS.md` counted once in the overall total.
