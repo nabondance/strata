@@ -49,3 +49,7 @@ fonttools varLib.instancer 'Archivo[wdth,wght].ttf' wdth=70 wght=800 -o instance
 python -c 'from fontTools.ttLib import TTFont; f = TTFont("instance.ttf"); f.flavor = "woff2"; f.save("instance.woff2")'
 base64 < instance.woff2
 ```
+
+## Provider marks
+
+`providers/` holds the Claude, OpenAI, and Google Gemini marks the README uses to say which tools Strata recognizes, in a light (`#1d2622`) and a dark (`#efeadb`) variant. The paths come from [Simple Icons](https://simpleicons.org) (CC0). The marks remain trademarks of their owners and are used only to identify the products; they are not part of Strata's identity and must not be recolored into the Strata palette or combined with the Strata logo.

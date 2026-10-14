@@ -23,7 +23,7 @@ jobs:
           tokenizer: estimate
 ```
 
-Pin the Action to a reviewed commit or published release tag when one exists. Both commits must be present locally; a shallow checkout may omit the base. The summary contains commit IDs, file paths, category deltas, and up to 25 changed components, but no source text. Review the summary's metadata visibility before enabling it for sensitive repositories. The Action needs `contents: read`; it does not need `pull-requests: write` or a token in Strata's process.
+Pin the Action to a reviewed commit or published release tag when one exists. Strata's own [pull-request workflow](../.github/workflows/strata-pr-delta.yml) uses `uses: ./` so it runs the code under review. Both commits must be present locally; a shallow checkout may omit the base. The summary contains commit IDs, file paths, category deltas, and up to 25 changed components, but no source text. Review the summary's metadata visibility before enabling it for sensitive repositories. The Action needs `contents: read`; it does not need `pull-requests: write` or a token in Strata's process.
 
 Set `model: gpt-4o` instead of `tokenizer: estimate` to use a documented local OpenAI model-to-encoding mapping. The Action uses `model` when provided; the default tokenizer is used otherwise. Claude and Gemini counts remain estimates.
 
