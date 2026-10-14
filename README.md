@@ -18,6 +18,12 @@
 
 **See how your agent context evolved across Git history.**
 
+<p align="center">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/claude-dark.svg"><img src="docs/brand/providers/claude.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Claude Code&nbsp;&nbsp;&nbsp;
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/codex-dark.svg"><img src="docs/brand/providers/codex.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Codex&nbsp;&nbsp;&nbsp;
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/gemini-cli-dark.svg"><img src="docs/brand/providers/gemini-cli.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Gemini CLI
+</p>
+
 Your `CLAUDE.md`, `AGENTS.md`, skills, rules, and agent definitions started small. Then every incident, convention, and "always remember to…" got appended. Strata replays your Git history and shows what that configuration weighs today, when it grew, and which files drove it.
 
 Requires Node.js 22.13 or newer and Git 2.31 or newer.
@@ -34,7 +40,7 @@ Latest: 4 tracked components, 1151 stored-text tokens (utf8-bytes-divided-by-fou
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
-![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
+![The Strata report: scrubbing the timeline, the treemap of one revision, and the comparison between two revisions](docs/images/report-demo.gif)
 
 The images on this page are Strata's report on its own repository.
 
@@ -45,6 +51,9 @@ Strata walks the first-parent history of your branch, oldest to newest, and read
 ## What you get
 
 - **A timeline** of stored instruction tokens across your branch's history, split by category.
+
+  ![The timeline: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
+
 - **A treemap** of any revision, so the file eating most of the budget is the biggest rectangle.
 - **A comparison** between any two revisions, with signed token and file-count changes per provider, category, and file.
 - **Per-provider views** for Claude Code, Codex, and Gemini CLI, with shared files such as `AGENTS.md` counted once in the overall total.
