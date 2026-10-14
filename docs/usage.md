@@ -38,6 +38,18 @@ Both images are Strata's own repository.
 
 Then reference it from the README as `![Agent context through time](docs/strata.svg)`. To keep it current without committing it by hand, see [Running Strata in CI](ci.md#readme-image).
 
+For a badge instead of a chart, `--format badge` writes the latest total as [shields.io endpoint JSON](https://shields.io/badges/endpoint-badge): `agent context | ≈1,151 tokens`, where `≈` marks an estimate and disappears under an encoding-exact tokenizer. It names nothing from the repository. Publish the file somewhere public and point shields at it:
+
+```sh
+strata analyze /path/to/repository --format badge --output strata-badge.json
+```
+
+```markdown
+![Agent context](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repository>/<branch>/strata-badge.json)
+```
+
+Shields' `label`, `color`, and `style` query parameters restyle it. [Running Strata in CI](ci.md#readme-image) publishes the badge next to the image.
+
 Strata exits with status 0 on success, 2 when the command line is invalid, and 1 for any other failure, such as a path that is not a Git repository.
 
 ## Compare two commits

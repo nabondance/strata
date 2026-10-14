@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
+import { renderBadge } from "./badge.js";
 import { type MeasurementMode, modeForModel, modelEncodings } from "./measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
 import { redactReport } from "./privacy.js";
@@ -55,7 +56,7 @@ current directory. Without --output, the report goes to a private temporary dire
 
 Output:
   -o, --output <file>        Write the report to a file, or - for standard output
-  -f, --format <format>      html, json, or svg (default: html)
+  -f, --format <format>      html, json, svg, or badge (default: html)
       --minimal              With --format svg, draw only the layers: no text, axes, or legend
       --open                 Open the HTML report or SVG image with the default application
       --shareable            Replace repository names, paths, commit IDs, and blob IDs with aliases
@@ -78,6 +79,7 @@ Examples:
   strata analyze ~/src/project --format json --output report.json
   strata analyze --format svg --output docs/strata.svg
   strata analyze --format svg --minimal --output docs/strata-minimal.svg
+  strata analyze --format badge --output strata-badge.json
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
 `,
   diff: `Usage:
@@ -216,10 +218,11 @@ async function analyze(args: string[]): Promise<void> {
     "codex-model": { type: "string" },
   });
   const repository = repositoryArgument(positionals);
-  const format = choice("--format", values.format, ["html", "json", "svg"], "html");
+  const format = choice("--format", values.format, ["html", "json", "svg", "badge"], "html");
   const toStdout = values.output === "-";
   if (values.minimal && format !== "svg") throw new UsageError("--minimal requires --format svg");
-  if (values.open && format === "json") throw new UsageError("--open requires HTML or SVG output");
+  if (values.open && (format === "json" || format === "badge"))
+    throw new UsageError("--open requires HTML or SVG output");
   if (values.open && toStdout) throw new UsageError("--open requires a report file, not standard output");
   const measurement = measurementArguments(values);
 
@@ -253,7 +256,9 @@ async function analyze(args: string[]): Promise<void> {
       ? `${JSON.stringify(report, null, 2)}\n`
       : format === "svg"
         ? renderSvg(report, { minimal: values.minimal ?? false })
-        : renderHtml(report);
+        : format === "badge"
+          ? renderBadge(report)
+          : renderHtml(report);
   // With the report on stdout, everything meant for a person moves to stderr.
   const say = (line: string) => {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
@@ -268,8 +273,12 @@ async function analyze(args: string[]): Promise<void> {
   } else {
     const destination = values.output
       ? resolve(values.output)
-      : join(mkdtempSync(join(tmpdir(), "strata-report-")), `report.${format}`);
-    if (format === "svg") writePublic(destination, content);
+      : join(
+          mkdtempSync(join(tmpdir(), "strata-report-")),
+          format === "badge" ? "strata-badge.json" : `report.${format}`,
+        );
+    // The image and the badge are meant to be published.
+    if (format === "svg" || format === "badge") writePublic(destination, content);
     else writePrivate(destination, content);
     process.stdout.write(values.quiet ? `${destination}\n` : `Report: ${destination}\n`);
     if (values.open) openReport(destination);

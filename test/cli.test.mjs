@@ -177,7 +177,8 @@ test("command line follows common conventions", () => {
       [["help", "frobnicate"], /Unknown command/],
       [["analyze", repo, "--frobnicate"], /Unknown option '--frobnicate'/],
       [["analyze", repo, "extra"], /Unexpected argument: extra/],
-      [["analyze", repo, "--format", "pdf"], /--format must be html, json, or svg/],
+      [["analyze", repo, "--format", "pdf"], /--format must be html, json, svg, or badge/],
+      [["analyze", repo, "--format", "badge", "--open"], /--open requires HTML or SVG output/],
       [["analyze", repo, "--minimal"], /--minimal requires --format svg/],
       [["analyze", repo, "--output"], /--output/],
       [["analyze", repo, "--open", "--output", "-"], /--open requires a report file/],
@@ -223,6 +224,18 @@ test("command line follows common conventions", () => {
     assert.equal(minimal.status, 0, minimal.stderr);
     assert.match(minimal.stdout, /<polygon/);
     assert.doesNotMatch(minimal.stdout, /<text/);
+    // The badge is shields.io endpoint JSON holding the latest total and nothing that names the repository.
+    const badge = strata(["analyze", repo, "-f", "badge", "-o", "-"]);
+    assert.equal(badge.status, 0, badge.stderr);
+    const badgeJson = JSON.parse(badge.stdout);
+    assert.equal(badgeJson.schemaVersion, 1);
+    assert.equal(badgeJson.label, "agent context");
+    assert.equal(badgeJson.message, `≈${report.revisions[1].estimatedTokens.toLocaleString("en-US")} tokens`);
+    assert.doesNotMatch(badge.stdout, new RegExp(head.slice(0, 7)));
+    assert.doesNotMatch(badge.stdout, /AGENTS\.md/);
+    const exactBadge = strata(["analyze", repo, "-f", "badge", "--tokenizer", "openai-o200k_base", "-o", "-"]);
+    assert.equal(exactBadge.status, 0, exactBadge.stderr);
+    assert.match(JSON.parse(exactBadge.stdout).message, /^[\d,]+ tokens$/);
 
     const quiet = strata(["analyze", repo, "--quiet"]);
     assert.equal(quiet.status, 0, quiet.stderr);
@@ -243,6 +256,9 @@ test("command line follows common conventions", () => {
     writeFileSync(ordinary, "");
     assert.equal(strata(["analyze", repo, "-f", "svg", "-o", image]).status, 0);
     assert.equal(statSync(image).mode & 0o777, statSync(ordinary).mode & 0o777);
+    const badgeFile = join(outside, "strata-badge.json");
+    assert.equal(strata(["analyze", repo, "-f", "badge", "-o", badgeFile]).status, 0);
+    assert.equal(statSync(badgeFile).mode & 0o777, statSync(ordinary).mode & 0o777);
 
     const delta = strata(["diff", "--base", base, "--head", head, "--format", "json"], { cwd: repo });
     assert.equal(delta.status, 0, delta.stderr);

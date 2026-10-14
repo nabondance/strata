@@ -29,12 +29,14 @@ jobs:
       - run: npm install --global pnpm@10.29.3
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - name: Render image
-        run: node dist/cli.js analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+      - name: Render image and badge
+        run: |
+          node dist/cli.js analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+          node dist/cli.js analyze "$GITHUB_WORKSPACE" --format badge --output "$RUNNER_TEMP/strata-image/strata-badge.json" --quiet
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-image
-          path: ${{ runner.temp }}/strata-image/strata.svg
+          path: ${{ runner.temp }}/strata-image/
   publish:
     needs: render
     runs-on: ubuntu-latest
@@ -51,6 +53,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           git init -q -b strata-image
-          git add strata.svg
+          git add strata.svg strata-badge.json
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Update Strata image for $GITHUB_SHA"
           git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:strata-image
