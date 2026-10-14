@@ -1,0 +1,26 @@
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+# The pull request title becomes the squash commit subject, which release-please
+# reads to bump the version and write the changelog, so it must be a
+# Conventional Commit. A plain shell check keeps this to GitHub-owned actions.
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|chore|ci|refactor|test|perf|build|style|revert)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+          if printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "ok: $TITLE"
+          else
+            echo "::error::Pull request title must be a Conventional Commit, for example 'feat: add a --since option' or 'fix(cli): handle empty repositories'. Got: $TITLE"
+            exit 1
+          fi
