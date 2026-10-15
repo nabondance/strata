@@ -375,7 +375,7 @@ async function analyze(args: string[]): Promise<void> {
     const how =
       measured.accuracy === "estimate"
         ? "byte estimate"
-        : `${measured.accuracy} with ${measured.model}${measured.credential ? ` via ${measured.credential}` : ""}${measured.wrapperTokens ? `, minus the message wrapper (${measured.wrapperTokens} tokens) per file` : ""}`;
+        : `${measured.accuracy} with ${measured.model}${measured.credential ? ` via ${measured.credential}` : ""}${measured.wrapperTokens ? `, minus the ${measured.wrapperTokens}-token message wrapper per file` : ""}`;
     say(`${providerLabel[measured.provider]}: ${total} tokens latest, ${how}.`);
     for (const reason of measured.fallbacks ?? []) say(`  Skipped: ${reason}.`);
     for (const host of measured.alsoSentTo ?? [])
