@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
-import { type MeasurementMode, modeForModel, modelEncodings } from "./measurement.js";
+import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
 import { defaultModels, resolvePrecisePlan } from "./precise.js";
 import { redactReport } from "./privacy.js";
@@ -30,7 +30,8 @@ const models = Object.keys(modelEncodings).join(", ");
 
 const measurementHelp = `Measurement (offline; choose at most one):
       --tokenizer <mode>     ${tokenizers.join(", ")} (default: estimate)
-      --model <name>         Count with a documented OpenAI model encoding: ${models}`;
+      --model <name>         Count with a documented OpenAI model encoding: ${models},
+                             or a name starting with ${Object.keys(modelPrefixEncodings).join(", ")}`;
 
 const help = {
   main: `Strata — see how your agent context evolved across Git history.

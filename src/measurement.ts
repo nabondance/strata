@@ -13,13 +13,27 @@ export const modelEncodings = {
   "o4-mini": "openai-o200k_base",
 } as const satisfies Record<string, MeasurementMode>;
 
+/**
+ * Model-name prefixes that share an encoding, following tiktoken's `MODEL_PREFIX_TO_ENCODING`, so
+ * dated or variant names such as `gpt-5-codex` or `gpt-4o-mini` resolve. Only families whose
+ * encoding Strata ships are listed; `gpt-oss-` uses `o200k_harmony` and stays unsupported.
+ */
+export const modelPrefixEncodings = {
+  "gpt-5": "openai-o200k_base",
+  "gpt-4.1-": "openai-o200k_base",
+  "gpt-4o-": "openai-o200k_base",
+  "o3-": "openai-o200k_base",
+  "o4-mini-": "openai-o200k_base",
+  "gpt-4-": "openai-cl100k_base",
+} as const satisfies Record<string, MeasurementMode>;
+
 export function modeForModel(model: string): MeasurementMode {
-  if (!Object.hasOwn(modelEncodings, model)) {
-    throw new Error(
-      `Unsupported model: ${model}. Choose ${Object.keys(modelEncodings).join(", ")} or an explicit --tokenizer encoding.`,
-    );
-  }
-  return modelEncodings[model as keyof typeof modelEncodings];
+  if (Object.hasOwn(modelEncodings, model)) return modelEncodings[model as keyof typeof modelEncodings];
+  const prefix = Object.keys(modelPrefixEncodings).find((candidate) => model.startsWith(candidate));
+  if (prefix) return modelPrefixEncodings[prefix as keyof typeof modelPrefixEncodings];
+  throw new Error(
+    `Unsupported model: ${model}. Choose ${Object.keys(modelEncodings).join(", ")}, a name starting with ${Object.keys(modelPrefixEncodings).join(", ")}, or an explicit --tokenizer encoding.`,
+  );
 }
 
 export interface Measurement {

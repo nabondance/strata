@@ -6,7 +6,7 @@ Strata counts stored instructional text from Git blobs. No method establishes wh
 
 The default is `utf8-bytes-divided-by-four-v1`: `ceil(UTF-8 bytes / 4)` per instructional file, summed across files and revisions. It is a comparison estimate, not a provider tokenizer.
 
-OpenAI/Codex local counts use `js-tiktoken@1.0.21`. `--tokenizer openai-cl100k_base` and `openai-o200k_base` select an encoding. `--model` maps the supported model names (`gpt-4`, `gpt-4o`, `gpt-4.1`, `gpt-5`, `o3`, `o4-mini`) to the encoding documented by [OpenAI's tiktoken model map](https://github.com/openai/tiktoken/blob/main/tiktoken/model.py). These counts are encoding-exact for valid UTF-8 stored text, but exclude message framing and special-token handling. They are not complete request, loaded-context, or billing counts.
+OpenAI/Codex local counts use `js-tiktoken@1.0.21`. `--tokenizer openai-cl100k_base` and `openai-o200k_base` select an encoding. `--model` maps the supported model names (`gpt-4`, `gpt-4o`, `gpt-4.1`, `gpt-5`, `o3`, `o4-mini`) to the encoding documented by [OpenAI's tiktoken model map](https://github.com/openai/tiktoken/blob/main/tiktoken/model.py), and follows its prefix table for variants: names starting with `gpt-5` (such as `gpt-5-codex`), `gpt-4.1-`, `gpt-4o-`, `o3-`, or `o4-mini-` use `o200k_base`, and `gpt-4-` names use `cl100k_base`. These counts are encoding-exact for valid UTF-8 stored text, but exclude message framing and special-token handling. They are not complete request, loaded-context, or billing counts.
 
 All default and local methods run offline. They do not send Git content to a service.
 
