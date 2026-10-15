@@ -75,6 +75,9 @@ Precise counts (opt-in content transfer):
                              Gemini instruction text is sent to that provider's token-count API
                              when an account or key is found; the run says what went where.
                              Codex instructions are counted locally and never sent.
+                             Neither CLI is installed by Strata: get ant with
+                             brew install anthropics/tap/ant, and gcloud from
+                             https://cloud.google.com/sdk/docs/install.
       --claude-model <name>  Claude model to count with (default: ${defaultModels.claude})
       --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})
       --codex-model <name>   OpenAI model whose encoding counts Codex (default: ${defaultModels.codex})

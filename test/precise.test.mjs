@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { getEncoding } from "js-tiktoken";
 import { analyzeRepository } from "../dist/analyze.js";
 import { expandRevisions } from "../dist/expand.js";
-import { defaultModels, resolvePrecisePlan } from "../dist/precise.js";
+import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise.js";
 import { renderHtml } from "../dist/report.js";
 
 const cliPath = resolve("dist/cli.js");
@@ -33,8 +33,8 @@ function fixture() {
   return repo;
 }
 
-/** A provider CLI stub: `ant` and `gcloud` print what `outputs` maps their arguments to, or fail. */
-const cliStub = (outputs) => (command, args) => outputs[`${command} ${args.join(" ")}`] ?? null;
+/** Installed provider CLIs that print what `outputs` maps their arguments to, or fail. */
+const cliStub = (outputs) => (command, args) => ({ output: outputs[`${command} ${args.join(" ")}`] ?? null });
 
 const signedIn = cliStub({
   "ant auth print-credentials --access-token": "ant-session-token",
@@ -149,7 +149,7 @@ test("--precise uses API keys from the environment when no account is signed in"
       codex: ["encoding-exact", null, null],
     });
     assert.deepEqual(report.providerMeasurements[0].fallbacks, [
-      "no signed-in Anthropic account: `ant auth print-credentials` gave no token",
+      "no signed-in Anthropic account: run `ant auth login`",
     ]);
     assert.deepEqual(report.providerMeasurements[1].fallbacks, [
       "no Google Cloud project: set GOOGLE_CLOUD_PROJECT or `gcloud config set project`",
@@ -185,7 +185,7 @@ test("--precise falls back to the estimate without an account or key, and sends 
     });
     assert.equal(report.providerMeasurements[0].model, null);
     assert.deepEqual(report.providerMeasurements[0].fallbacks, [
-      "no signed-in Anthropic account: `ant auth print-credentials` gave no token",
+      "no signed-in Anthropic account: run `ant auth login`",
       "ANTHROPIC_API_KEY is not set",
       "no local exact Claude tokenizer exists",
     ]);
@@ -250,6 +250,35 @@ test("a failing method is discarded whole, so one provider's counts never mix me
   }
 });
 
+test("--precise explains how to install a provider CLI that is missing", () => {
+  const plan = resolvePrecisePlan({ env: noKeys, run: () => "missing" });
+  assert.deepEqual(plan.methods.claude[0], { kind: "unavailable", reason: installHints.ant });
+  assert.deepEqual(plan.methods.gemini[0], { kind: "unavailable", reason: installHints.gcloud });
+  assert.match(installHints.ant, /not installed.*brew install anthropics\/tap\/ant.*ant auth login/);
+  assert.match(installHints.gcloud, /not installed.*gcloud auth login/);
+
+  // The real runner, on a PATH that has Git but neither provider CLI.
+  const repo = fixture();
+  const bin = mkdtempSync(join(tmpdir(), "strata-bin-"));
+  try {
+    const gitPath = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim();
+    symlinkSync(join(gitPath, "git"), join(bin, "git"));
+    const result = spawnSync(process.execPath, [cliPath, "analyze", repo, "--precise", "--format", "json", "-o", "-"], {
+      encoding: "utf8",
+      env: { ...process.env, ...noKeys, PATH: bin },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stderr,
+      /Skipped: the Anthropic CLI \(`ant`\) is not installed; .*brew install anthropics\/tap\/ant/,
+    );
+    assert.match(result.stderr, /Skipped: the Google Cloud CLI \(`gcloud`\) is not installed/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
 test("strata analyze --precise reports each provider's method and what it skipped", () => {
   const repo = fixture();
   const bin = mkdtempSync(join(tmpdir(), "strata-bin-"));
@@ -270,6 +299,7 @@ test("strata analyze --precise reports each provider's method and what it skippe
     );
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Claude: \d+ tokens latest, byte estimate\./);
+    assert.match(result.stdout, /Skipped: no signed-in Anthropic account: run `ant auth login`\./);
     assert.match(result.stdout, /Skipped: ANTHROPIC_API_KEY is not set\./);
     assert.match(result.stdout, new RegExp(`Codex: \\d+ tokens latest, encoding-exact with ${defaultModels.codex}\\.`));
     assert.doesNotMatch(result.stderr, /Sending/);

@@ -9,26 +9,40 @@ export interface PreciseOptions {
   geminiModel?: string;
   codexModel?: string;
   env?: NodeJS.ProcessEnv;
-  /** Run a provider CLI and return its trimmed standard output, or null when it is missing or fails. */
-  run?: (command: string, args: string[]) => string | null;
+  /** Run a provider CLI. Tests replace it with a stub. */
+  run?: (command: string, args: string[]) => CommandResult;
   fetchImpl?: typeof fetch;
 }
 
+/** `missing` when the CLI is not installed; otherwise its trimmed standard output, or null when it failed. */
+export type CommandResult = "missing" | { output: string | null };
+
+/** How to install each provider CLI, shown when `--precise` cannot find it. */
+export const installHints = {
+  ant: "the Anthropic CLI (`ant`) is not installed; to count with your Anthropic account, install it with `brew install anthropics/tap/ant` (or see https://github.com/anthropics/anthropic-cli) and run `ant auth login`",
+  gcloud:
+    "the Google Cloud CLI (`gcloud`) is not installed; to count with your Google Cloud account through Vertex AI, install it (see https://cloud.google.com/sdk/docs/install), run `gcloud auth login`, and set a project",
+} as const;
+
 const unavailable = (reason: string): CountMethod => ({ kind: "unavailable", reason });
 
-function runCommand(command: string, args: string[]): string | null {
+function runCommand(command: string, args: string[]): CommandResult {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     timeout: 20_000,
     stdio: ["ignore", "pipe", "ignore"],
     shell: process.platform === "win32",
   });
-  if (result.error || result.status !== 0) return null;
-  return result.stdout.trim() || null;
+  // Without a shell, a missing program is ENOENT; through cmd.exe it is exit status 9009.
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return "missing";
+  if (process.platform === "win32" && result.status === 9009) return "missing";
+  if (result.error || result.status !== 0) return { output: null };
+  return { output: result.stdout.trim() || null };
 }
 
 /** A printed access token is one line without spaces or JSON; anything else is not trusted as one. */
-function token(output: string | null): string | null {
+function token(result: CommandResult): string | null {
+  const output = result === "missing" ? null : result.output;
   return output && /^[\x21-\x7e]+$/.test(output) && !output.startsWith("{") ? output : null;
 }
 
@@ -47,8 +61,11 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
   const codexModel = options.codexModel ?? defaultModels.codex;
 
   const claude: CountMethod[] = [];
-  const antToken = token(run("ant", ["auth", "print-credentials", "--access-token"]));
-  if (antToken) {
+  const ant = run("ant", ["auth", "print-credentials", "--access-token"]);
+  const antToken = token(ant);
+  if (ant === "missing") {
+    claude.push(unavailable(installHints.ant));
+  } else if (antToken) {
     claude.push({
       kind: "anthropic",
       model: claudeModel,
@@ -57,7 +74,7 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
       credential: "signed-in Anthropic account (ant auth login)",
     });
   } else {
-    claude.push(unavailable("no signed-in Anthropic account: `ant auth print-credentials` gave no token"));
+    claude.push(unavailable("no signed-in Anthropic account: run `ant auth login`"));
   }
   if (env.ANTHROPIC_API_KEY) {
     claude.push({
@@ -75,14 +92,17 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
 
   const gemini: CountMethod[] = [];
   const location = env.GOOGLE_CLOUD_LOCATION || "global";
-  const project = env.GOOGLE_CLOUD_PROJECT || run("gcloud", ["config", "get-value", "project"]);
-  const gcloudToken = project ? token(run("gcloud", ["auth", "print-access-token"])) : null;
-  if (!/^[a-z0-9-]+$/.test(location)) {
+  const configured = run("gcloud", ["config", "get-value", "project"]);
+  const project = env.GOOGLE_CLOUD_PROJECT || (configured === "missing" ? null : configured.output);
+  const gcloudToken = configured !== "missing" && project ? token(run("gcloud", ["auth", "print-access-token"])) : null;
+  if (configured === "missing") {
+    gemini.push(unavailable(installHints.gcloud));
+  } else if (!/^[a-z0-9-]+$/.test(location)) {
     gemini.push(unavailable("GOOGLE_CLOUD_LOCATION is not a Google Cloud location name"));
   } else if (!project || !/^[a-z][a-z0-9.:-]*$/.test(project)) {
     gemini.push(unavailable("no Google Cloud project: set GOOGLE_CLOUD_PROJECT or `gcloud config set project`"));
   } else if (!gcloudToken) {
-    gemini.push(unavailable("no signed-in Google Cloud account: `gcloud auth print-access-token` gave no token"));
+    gemini.push(unavailable("no signed-in Google Cloud account: run `gcloud auth login`"));
   } else {
     gemini.push({
       kind: "vertex",

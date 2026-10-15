@@ -71,12 +71,33 @@ The default `--tokenizer estimate` divides instructional text's UTF-8 byte lengt
 
 `strata analyze --precise` counts each provider's instructions with the most precise method it can find, with no other flag:
 
-1. **A signed-in account.** For Claude, an `ant auth login` profile from the [Anthropic CLI](https://github.com/anthropics/anthropic-cli). For Gemini, a `gcloud` account with a project set (`gcloud config set project`, or `GOOGLE_CLOUD_PROJECT`), counted through Vertex AI in `GOOGLE_CLOUD_LOCATION` (default `global`).
+1. **A signed-in account.** For Claude, an `ant auth login` profile from the Anthropic CLI. For Gemini, a `gcloud` account with a project set (`gcloud config set project`, or `GOOGLE_CLOUD_PROJECT`), counted through Vertex AI in `GOOGLE_CLOUD_LOCATION` (default `global`). See [signing in](#signing-in-for-precise-counts) below.
 2. **An API key** in the environment: `ANTHROPIC_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
 3. **A local exact tokenizer.** Codex instructions always use the OpenAI encoding of `--codex-model` (default `gpt-5`) and are never sent. Claude and Gemini have none.
 4. **The byte estimate.**
 
 The defaults are `claude-opus-5-5` and `gemini-3.8-flash`; override them with `--claude-model` and `--gemini-model`. **What leaves the machine:** when step 1 or 2 applies, Strata sends the text of each recognized Claude or Gemini instruction file version to that provider's token-count endpoint. Before it does, it prints the host and the number of file versions; the run ends with each provider's method and anything it skipped. Settings, skill resources, and Codex files are never sent. Without `--precise`, nothing is sent. Reports record the method, its accuracy, the credential source, and the receiving host, never a key or token. The older `--provider-api` flag still works but is deprecated.
+
+#### Signing in for precise counts
+
+Strata does not install or sign in to provider CLIs. It asks an installed CLI for a short-lived access token and never reads credential files. If a CLI is missing, `--precise` falls back to the next method and the run says so, with the install command:
+
+```text
+Claude: 1231 tokens latest, byte estimate.
+  Skipped: the Anthropic CLI (`ant`) is not installed; to count with your Anthropic account, install it with `brew install anthropics/tap/ant` (or see https://github.com/anthropics/anthropic-cli) and run `ant auth login`.
+```
+
+**Claude.** [`ant`](https://github.com/anthropics/anthropic-cli) is Anthropic's command-line tool for the Claude API, separate from Claude Code. Install and sign in once:
+
+```sh
+brew install anthropics/tap/ant      # macOS; Linux builds are on the releases page
+ant auth login                       # opens a browser
+ant auth status                      # shows the active profile
+```
+
+`ant auth login` signs in to a Claude Platform (API Console) organization and workspace, not to a Claude.ai Pro or Max subscription, so an account there is needed. A Claude Code login is not used: Anthropic does not permit other tools to use it.
+
+**Gemini.** Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), then run `gcloud auth login` and `gcloud config set project <project>` for a project with the Vertex AI API enabled. A Gemini CLI login is not used: its terms forbid third-party tools from using it.
 
 ## Shareable reports
 
