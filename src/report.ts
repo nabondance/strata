@@ -7,7 +7,7 @@ import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
 import { categoryColors, categoryInk } from "./palette.js";
-import { viewRevision } from "./provider-view.js";
+import { providerReads, viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
 import { layoutTreemap } from "./treemap.js";
 
@@ -35,6 +35,7 @@ export function renderHtml(report: Report): string {
   const expandSource = expandRevisions.toString();
   const treemapSource = layoutTreemap.toString();
   const viewSource = viewRevision.toString();
+  const readsSource = providerReads.toString();
   const timelineSource = timelineBuckets.toString();
   const providerColumns = report.providerMeasurements
     ? '<th class="num">Claude API</th><th class="num">Gemini API</th><th class="num">Codex / OpenAI local</th>'
@@ -243,6 +244,7 @@ export function renderHtml(report: Report): string {
     const categories = ${categoryNames};
     const expandRevisions = ${expandSource};
     const compareRevisions = ${compareSource};
+    const providerReads = ${readsSource};
     const viewRevision = ${viewSource};
     const timelineBuckets = ${timelineSource};
     const hierarchy = d3.hierarchy;
@@ -382,7 +384,8 @@ export function renderHtml(report: Report): string {
     $('baseline').addEventListener('change', () => { baseline = $('baseline').value === 'previous' ? 'previous' : Number($('baseline').value); renderComparison(); });
     $('target').addEventListener('change', () => render(Number($('target').value)));
     const allComponents = data.components;
-    const providers = [...new Set(allComponents.map((component) => component.provider))].sort();
+    // A provider that only reads shared files, such as Codex with only .agents/skills, still gets a view.
+    const providers = [...new Set(allComponents.flatMap((component) => [component.provider, ...(component.readers ?? [])]))].sort();
     const viewTabs = [{ key: 'all', label: 'All files' },
       ...providers.filter((provider) => provider !== 'shared').map((provider) => ({
         key: provider, label: provider === 'unknown' ? 'Unknown' : provider[0].toUpperCase() + provider.slice(1) + ' + shared',
@@ -396,7 +399,7 @@ export function renderHtml(report: Report): string {
         activeView = view.key;
         viewRevisions = [];
         for (const [index, revision] of revisions.entries()) {
-          const view = viewRevision(revision, activeView, revisions[index - 1]);
+          const view = viewRevision(revision, activeView, revisions[index - 1], data.components);
           // Revisions that changed nothing keep sharing arrays in a provider view too.
           if (view !== revision && index && revision.components === revisions[index - 1].components) {
             view.components = viewRevisions[index - 1].components;
@@ -435,10 +438,10 @@ export function renderHtml(report: Report): string {
       $('view-note').textContent = activeView === 'all'
         ? ''
         : activeView === 'shared'
-          ? 'Shared instruction files only. They also appear in each provider view.'
+          ? 'Files that more than one tool reads. Each also appears in the view of every provider that reads it.'
           : activeView === 'unknown'
             ? 'Files not assigned to a supported provider; source-only unless recognized.'
-            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus shared instructions. Shared files can appear in more than one provider view, so view totals do not add up.';
+            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
       $('view-note').hidden = activeView === 'all';
     }
     for (const category of categories) {
@@ -491,7 +494,8 @@ export function renderHtml(report: Report): string {
         row.tabIndex = -1;
         row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
         for (const provider of providerColumns) {
-          const count = component.providerTokenCounts?.[provider];
+          // A Gemini context file has a Gemini count only for revisions whose settings make Gemini read it.
+          const count = providerReads(component, provider, revision.geminiContextFiles) ? component.providerTokenCounts?.[provider] : undefined;
           const cell = text('td', count ? fmt(count.tokens) : '—', 'num');
           if (count) cell.title = count.accuracy + ' · ' + count.model + ' · ' + count.method + ' · ' + count.version;
           row.append(cell);

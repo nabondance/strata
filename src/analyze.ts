@@ -1,5 +1,7 @@
 import { basename, resolve } from "node:path";
+import type { ContextFile } from "./adapters.js";
 import { classify } from "./adapters.js";
+import { geminiContextFiles, geminiSettingsPath } from "./gemini-settings.js";
 import { git, gitText, gitTokens, readBlobs } from "./git.js";
 import {
   type BlobMeasurement,
@@ -24,6 +26,7 @@ import {
   type ProviderTextCount,
   providerMeasurementMetadata,
 } from "./provider-count.js";
+import { providerReads } from "./provider-view.js";
 
 export { categories } from "./adapters.js";
 export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
@@ -179,12 +182,62 @@ function buildChanges(
   return changes.sort(byPath);
 }
 
-function countedProviders(file: TrackedFile, codex: boolean): CountedProvider[] {
-  const { provider, instructionalText } = file.classification;
+const countedOrder = ["claude", "gemini", "codex"] as const satisfies readonly CountedProvider[];
+
+/**
+ * The providers to count a file under: its own provider, or a shared file's readers. A Gemini
+ * context file is counted for Gemini only when its blob is present in some revision whose settings
+ * make Gemini read it, so versions Gemini never reads are not sent to its API.
+ */
+function countedProviders(file: TrackedFile, codex: boolean, geminiBlobs: Set<string>): CountedProvider[] {
+  const { provider, instructionalText, readers = [], contextFile } = file.classification;
   if (!instructionalText) return [];
-  if (provider === "shared") return codex ? ["claude", "gemini", "codex"] : ["claude", "gemini"];
-  if (provider === "claude" || provider === "gemini") return [provider];
-  return provider === "codex" && codex ? ["codex"] : [];
+  const read = new Set(provider === "shared" ? readers : [provider]);
+  if (contextFile) {
+    if (geminiBlobs.has(file.blob)) read.add("gemini");
+    else read.delete("gemini");
+  }
+  return countedOrder.filter((counted) => read.has(counted) && (counted !== "codex" || codex));
+}
+
+/** Resolve each distinct root Gemini settings blob to the context files it configures. */
+function geminiSettings(root: string, files: TrackedFile[], measured: Map<string, BlobMeasurement>) {
+  const blobs = [...new Set(files.filter((file) => file.path === geminiSettingsPath).map((file) => file.blob))];
+  const decoder = new TextDecoder();
+  const configured = new Map<string, ContextFile[] | null>();
+  for (const [blob, body] of readBlobs(root, blobs, (id) => measured.get(id)?.bytes ?? 0)) {
+    configured.set(blob, geminiContextFiles(decoder.decode(body)));
+  }
+  return configured;
+}
+
+/** Replay only settings and context files to find the context-file blobs Gemini reads somewhere. */
+function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextFile[] | null>): Set<string> {
+  const contextFiles = new Map<string, TrackedFile>();
+  let settings: string | undefined;
+  const read = new Set<string>();
+  for (const delta of deltas) {
+    let touched = false;
+    for (const path of delta.removed) {
+      touched = contextFiles.delete(path) || path === geminiSettingsPath || touched;
+      if (path === geminiSettingsPath) settings = undefined;
+    }
+    for (const file of delta.written) {
+      if (file.path === geminiSettingsPath) {
+        settings = file.blob;
+        touched = true;
+      } else if (file.classification.contextFile && file.classification.instructionalText) {
+        contextFiles.set(file.path, file);
+        touched = true;
+      }
+    }
+    if (!touched) continue;
+    const names = settings === undefined ? null : configured.get(settings);
+    for (const file of contextFiles.values()) {
+      if (providerReads(file.classification, "gemini", names)) read.add(file.blob);
+    }
+  }
+  return read;
 }
 
 /** Count each distinct provider/blob pair once across the history, with bounded request concurrency. */
@@ -194,10 +247,11 @@ async function countProviderBlobs(
   measured: Map<string, BlobMeasurement>,
   options: ProviderCountOptions,
   codexMeasurer: Measurer | null,
+  geminiBlobs: Set<string>,
 ): Promise<Map<string, ProviderTextCount>> {
   const wanted = new Map<string, { path: string; providers: Set<CountedProvider> }>();
   for (const file of files) {
-    const providers = countedProviders(file, codexMeasurer !== null);
+    const providers = countedProviders(file, codexMeasurer !== null, geminiBlobs);
     if (!providers.length) continue;
     let entry = wanted.get(file.blob);
     if (!entry) {
@@ -277,8 +331,10 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const written = deltas.flatMap((delta) => delta.written);
   const measured = measureBlobs(root, written, measurer);
+  const configured = geminiSettings(root, written, measured);
+  const geminiBlobs = providerCounts ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const providerBlobCounts = providerCounts
-    ? await countProviderBlobs(root, written, measured, providerCounts, codexMeasurer)
+    ? await countProviderBlobs(root, written, measured, providerCounts, codexMeasurer, geminiBlobs)
     : null;
 
   // Each distinct file version is stored once; revisions refer to it by index.
@@ -290,7 +346,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     if (index === undefined) {
       const providerTokenCounts: NonNullable<Component["providerTokenCounts"]> = {};
       if (providerBlobCounts) {
-        for (const provider of countedProviders(file, codexMeasurer !== null)) {
+        for (const provider of countedProviders(file, codexMeasurer !== null, geminiBlobs)) {
           providerTokenCounts[provider] = providerBlobCounts.get(`${provider}\0${file.blob}`)!;
         }
       }
@@ -317,11 +373,17 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       continue;
     }
     const components = [...inventory.values()].map((index) => table[index]!);
+    const settings = inventory.get(geminiSettingsPath);
+    const names = settings === undefined ? null : (configured.get(table[settings]!.blob) ?? null);
+    // Unchanged settings keep the previous revision's array, so views can compare by identity.
+    const geminiContext =
+      names && previous?.geminiContextFiles?.join() === names.join() ? previous.geminiContextFiles : names;
     const providerTokenTotals: NonNullable<Revision["providerTokenTotals"]> = {};
     for (const component of components) {
       for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {}) as Array<
         [CountedProvider, ProviderTextCount]
       >) {
+        if (!providerReads(component, provider, geminiContext)) continue;
         providerTokenTotals[provider] = (providerTokenTotals[provider] ?? 0) + count.tokens;
       }
     }
@@ -332,6 +394,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       ...summarize(components),
       changes,
       ...(providerCounts ? { providerTokenTotals } : {}),
+      ...(geminiContext ? { geminiContextFiles: geminiContext } : {}),
     });
   }
 
@@ -346,7 +409,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     repository: basename(root),
     branch,
     shallow,

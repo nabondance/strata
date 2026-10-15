@@ -2,18 +2,20 @@
 name: strata-interpret
 description: Interpret a Strata JSON report about Git-tracked AI-agent configuration history. Use when a user asks what changed in a Strata report or what its token estimates mean.
 metadata:
-  version: 4
+  version: 5
 ---
 
 # Interpret a Strata report
 
-Read the user's Strata JSON report and check `schemaVersion` before interpreting fields. This skill describes schema version 9; if the report has another version, inspect its fields and avoid assuming this schema still applies. Versions 8 and earlier repeated a full `components` list inside every revision.
+Read the user's Strata JSON report and check `schemaVersion` before interpreting fields. This skill describes schema version 10; if the report has another version, inspect its fields and avoid assuming this schema still applies. Versions 8 and earlier repeated a full `components` list inside every revision; version 9 labeled `.agents/skills` files `codex` instead of `shared`.
 
 Use `revisions` in array order as the first-parent history sampled by the report. Each revision has a commit `id`, `date`, `firstParent`, `componentCount`, `categoryTotals`, `estimatedTokens`, and `changes` from its predecessor. The first revision's changes are relative to an empty baseline. These totals are enough to describe growth over time without rebuilding any file list. If `shallow` is true, earlier history is unavailable. A merge appears as one revision measured against its first parent, not as a full branch history.
 
 A revision does not list its files. The top-level `components` array holds every distinct file version in the history once (a path together with the blob stored there), ordered by path, so one path can appear several times with different blobs. Each change has a `component` field: the index in `components` of the version now at `path`, or `null` when the file was removed. To get the files present at a revision, start with an empty map from path to component and apply the changes of every revision from the first up to that one, in order: delete `previousPath` if the change has one, then delete `path` if `component` is `null`, otherwise set `path` to `components[component]`. The result must have `componentCount` entries; if it does not, the replay is wrong. Never read `components` as the inventory of any single revision.
 
 A skill component has a `skill` root and a `manifest` or `resource` role. Group a revision's rebuilt files by `skill.root` to describe a skill directory: its manifest's estimated tokens, and its resources' count and bytes. This is another view of files already counted: do not add it to `categoryTotals` or count resource bytes as tokens. A directory without a manifest is a set of tracked resources, not evidence that a runnable skill exists.
+
+A component with provider `shared` is read by more than one tool; its `readers` lists which (`AGENTS.md`: Claude and Codex; `.agents/skills`: Codex and Gemini CLI). Components with `contextFile` (`agents-md` for `AGENTS.md`, `gemini-md` for `GEMINI.md`) are read by Gemini CLI only as the revision's `geminiContextFiles` lists them; a revision without that field means `GEMINI.md` only. Do not attribute an unlisted context file to Gemini at that revision. Claude Code's reading of `AGENTS.md` may also depend on an import Strata does not check. Shared files are counted once in `estimatedTokens`.
 
 Explain growth or reduction using the relevant revisions, paths, categories, and providers. `estimatedTokens` sums instructional-file counts. Check `measurement.family`, `accuracy`, `model`, `encoding`, and `implementation` before describing them. The default `utf8-bytes-divided-by-four-v1` is a comparison estimate. An OpenAI encoding mode is exact for stored text under the named encoding, but does not measure full requests, session load, context-window use, or billing; it does not establish Claude or Gemini counts. `bytes` measures source size. A component with `estimatedTokens: null` is source-only and contributes no tokens; `sourceOnlyCount` counts these files. Do not turn settings, hooks, MCP files, or skill resources into prompt-token estimates.
 

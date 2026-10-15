@@ -29,6 +29,7 @@ export function expandRevisions(report: Report): RevisionSnapshot[] {
           group = {
             root: component.skill.root,
             provider: component.provider,
+            ...(component.readers ? { readers: component.readers } : {}),
             manifestPath: null,
             manifestEstimatedTokens: 0,
             resourceCount: 0,

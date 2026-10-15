@@ -1,21 +1,46 @@
-import { categories, type Provider } from "./adapters.js";
-import type { RevisionSnapshot } from "./model.js";
+import { type ContextFile, categories, type Provider } from "./adapters.js";
+import type { Component, RevisionSnapshot } from "./model.js";
 
 export type ProviderView = "all" | Provider;
 
+type Readable = Pick<Component, "provider" | "readers" | "contextFile">;
+
 /**
- * Project a revision for display. Shared files overlap provider views but occur once in All.
- * The HTML report embeds this function's source, so it may use only its arguments and `categories`.
+ * Whether a provider reads a file at a revision: its own files and shared files that list it as a
+ * reader, except that Gemini CLI reads `AGENTS.md` and `GEMINI.md` only while a revision's
+ * `geminiContextFiles` names them (`GEMINI.md` alone by default). Labels decide this, not paths, so
+ * a shareable report gives the same answer. The HTML report embeds this function's source, so it
+ * must stay self-contained.
+ */
+export function providerReads(
+  entry: Readable,
+  provider: Provider,
+  geminiContextFiles?: readonly ContextFile[] | null,
+): boolean {
+  if (provider === "gemini" && entry.contextFile)
+    return (geminiContextFiles ?? ["gemini-md"]).includes(entry.contextFile);
+  return entry.provider === provider || !!entry.readers?.includes(provider);
+}
+
+/**
+ * Project a revision for display. A file appears in the view of each provider that reads it, by
+ * `providerReads`, and once in All. A settings change can bring a Gemini context file into or out
+ * of the Gemini view without changing the file; given the report's `table`, such a file is listed
+ * as added or removed. The HTML report embeds this function's source, so it may use only its
+ * arguments, `categories`, and `providerReads`.
  */
 export function viewRevision(
   revision: RevisionSnapshot,
   view: ProviderView,
   previous?: RevisionSnapshot,
+  table?: readonly Component[],
 ): RevisionSnapshot {
   if (view === "all") return revision;
-  const includes = (provider: Provider) =>
-    provider === view || (provider === "shared" && view !== "shared" && view !== "unknown");
-  const components = revision.components.filter((component) => includes(component.provider));
+  const includes = (entry: Readable, at: RevisionSnapshot | undefined) =>
+    view === "shared" || view === "unknown"
+      ? entry.provider === view
+      : providerReads(entry, view, at?.geminiContextFiles);
+  const components = revision.components.filter((component) => includes(component, revision));
   const before = new Map(previous?.components.map((component) => [component.path, component]));
   const after = new Map(revision.components.map((component) => [component.path, component]));
   const categoryTotals = Object.fromEntries(
@@ -40,14 +65,14 @@ export function viewRevision(
     ...revision,
     components,
     componentCount: components.length,
-    skillGroups: revision.skillGroups.filter((group) => includes(group.provider)),
+    skillGroups: revision.skillGroups.filter((group) => includes(group, revision)),
     categoryTotals,
     estimatedTokens: components.reduce((sum, component) => sum + (component.estimatedTokens ?? 0), 0),
-    changes: revision.changes.flatMap((change) => {
+    changes: [...revision.changes, ...flips()].flatMap((change) => {
       const oldComponent = before.get(change.previousPath ?? change.path);
       const newComponent = after.get(change.path);
-      const oldVisible = oldComponent && includes(oldComponent.provider);
-      const newVisible = newComponent && includes(newComponent.provider);
+      const oldVisible = oldComponent && includes(oldComponent, previous);
+      const newVisible = newComponent && includes(newComponent, revision);
       if (oldVisible && newVisible) return [change];
       if (oldVisible)
         return [
@@ -74,4 +99,26 @@ export function viewRevision(
       return [];
     }),
   };
+
+  /** Unchanged files whose visibility a settings change flipped, as edits for the mapping above. */
+  function flips(): RevisionSnapshot["changes"] {
+    if (!previous || !table || previous.geminiContextFiles === revision.geminiContextFiles) return [];
+    const touched = new Set(revision.changes.flatMap((change) => [change.path, change.previousPath]));
+    return revision.components.flatMap((component) =>
+      before.get(component.path) === component &&
+      !touched.has(component.path) &&
+      includes(component, previous) !== includes(component, revision)
+        ? [
+            {
+              kind: "modified" as const,
+              path: component.path,
+              previousTokens: component.estimatedTokens,
+              estimatedTokens: component.estimatedTokens,
+              deltaTokens: 0,
+              component: table.indexOf(component),
+            },
+          ]
+        : [],
+    );
+  }
 }

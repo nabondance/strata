@@ -75,6 +75,8 @@ export function toComponent(
     path: file.path,
     blob: file.blob,
     provider: classification.provider,
+    ...(classification.readers ? { readers: classification.readers } : {}),
+    ...(classification.contextFile ? { contextFile: classification.contextFile } : {}),
     category: classification.category,
     bytes: measured.bytes,
     estimatedTokens: classification.instructionalText ? measured.tokens : null,

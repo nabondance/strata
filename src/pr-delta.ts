@@ -19,7 +19,7 @@ function trackedFiles(repo: string, id: string): TrackedFile[] {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 3;
+  schemaVersion: 4;
   base: string;
   head: string;
   measurement: Measurement;
@@ -48,7 +48,7 @@ export function compareGitCommits(
     return { components, estimatedTokens: summarize(components).estimatedTokens };
   });
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
