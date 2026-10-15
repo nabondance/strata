@@ -10,8 +10,8 @@ import { analyzeRepository } from "../dist/analyze.js";
 import { fileCountCache } from "../dist/count-cache.js";
 import { expandRevisions } from "../dist/expand.js";
 import { compareGitCommitsPrecise, renderPullRequestDelta } from "../dist/pr-delta.js";
-import { countRemoteText } from "../dist/provider-count.js";
 import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise.js";
+import { countRemoteText } from "../dist/provider-count.js";
 import { renderHtml } from "../dist/report.js";
 
 const cliPath = resolve("dist/cli.js");
@@ -370,7 +370,11 @@ test("a failing method is discarded whole, so one provider's counts never mix me
       if (claude) assert.equal(claude.tokens, 5, `${component.path} is counted with the key, not a mix`);
     }
     assert.ok(requests.some(({ headers }) => headers["x-api-key"] === "anthropic-test-key"));
-    assert.ok(notices.some((line) => /HTTP 401 \(authentication_error: the credential was rejected\); trying the next method/.test(line)));
+    assert.ok(
+      notices.some((line) =>
+        /HTTP 401 \(authentication_error: the credential was rejected\); trying the next method/.test(line),
+      ),
+    );
     // Paths stay out of the recorded reasons, which shareable reports keep.
     assert.ok(!JSON.stringify(report.providerMeasurements).includes(".md"));
   } finally {
