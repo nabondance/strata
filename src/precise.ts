@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { CountMethod, ProviderCountPlan } from "./provider-count.js";
+import type { CountCache, CountMethod, ProviderCountPlan } from "./provider-count.js";
 
 /** Models counted with when `--precise` is given no model flag. */
 export const defaultModels = { claude: "claude-opus-5-5", gemini: "gemini-3.8-flash", codex: "gpt-5" } as const;
@@ -9,6 +9,8 @@ export interface PreciseOptions {
   geminiModel?: string;
   codexModel?: string;
   env?: NodeJS.ProcessEnv;
+  cache?: CountCache;
+  dryRun?: boolean;
   /** Run a provider CLI. Tests replace it with a stub. */
   run?: (command: string, args: string[]) => CommandResult;
   fetchImpl?: typeof fetch;
@@ -48,7 +50,8 @@ function token(result: CommandResult): string | null {
 
 /**
  * Choose, per provider, the methods `--precise` will try in order: a signed-in account, then an
- * API key from the environment, then a local exact tokenizer, then the byte estimate. A signed-in
+ * API key from the environment, then a local exact tokenizer, then the byte estimate. Claude tries
+ * an Anthropic account (`ant`) and, without one, a Google Cloud account on Vertex AI. A signed-in
  * account is used only through the provider's own CLI, which prints a short-lived access token;
  * Strata never reads credential files. Codex is always counted locally, because OpenAI's encodings
  * are available offline and exact for stored text. Each provider's methods are resolved only if the
@@ -61,13 +64,46 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
   const geminiModel = options.geminiModel ?? defaultModels.gemini;
   const codexModel = options.codexModel ?? defaultModels.codex;
 
+  // One gcloud lookup serves Claude and Gemini on Vertex AI, and runs only when one of them needs it.
+  let google: { project: string; location: string; token: string } | string | undefined;
+  const googleAccount = (): { project: string; location: string; token: string } | string => {
+    if (google !== undefined) return google;
+    const location = env.GOOGLE_CLOUD_LOCATION || "global";
+    const configured = run("gcloud", ["config", "get-value", "project"]);
+    const project = env.GOOGLE_CLOUD_PROJECT || (configured === "missing" ? null : configured.output);
+    if (configured === "missing") google = "missing";
+    else if (!/^[a-z0-9-]+$/.test(location)) google = "GOOGLE_CLOUD_LOCATION is not a Google Cloud location name";
+    else if (!project || !/^[a-z][a-z0-9.:-]*$/.test(project))
+      google = "no Google Cloud project: set GOOGLE_CLOUD_PROJECT or `gcloud config set project`";
+    else {
+      const gcloudToken = token(run("gcloud", ["auth", "print-access-token"]));
+      google = gcloudToken
+        ? { project, location, token: gcloudToken }
+        : "no signed-in Google Cloud account: run `gcloud auth login`";
+    }
+    return google;
+  };
+  /** A Vertex AI method, or null when `gcloud` is missing and that is not worth mentioning. */
+  const vertex = (kind: "vertex" | "vertex-claude", model: string, missingHint: string | null): CountMethod | null => {
+    const account = googleAccount();
+    if (account === "missing") return missingHint ? unavailable(missingHint) : null;
+    if (typeof account === "string") return unavailable(account);
+    return {
+      kind,
+      model,
+      secret: account.token,
+      project: account.project,
+      location: account.location,
+      credential: "signed-in Google Cloud account (gcloud, Vertex AI)",
+    };
+  };
+
   const claudeMethods = (): CountMethod[] => {
     const claude: CountMethod[] = [];
     const ant = run("ant", ["auth", "print-credentials", "--access-token"]);
     const antToken = token(ant);
-    if (ant === "missing") {
-      claude.push(unavailable(installHints.ant));
-    } else if (antToken) {
+    if (ant === "missing") claude.push(unavailable(installHints.ant));
+    else if (antToken)
       claude.push({
         kind: "anthropic",
         model: claudeModel,
@@ -75,10 +111,12 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
         secret: antToken,
         credential: "signed-in Anthropic account (ant auth login)",
       });
-    } else {
-      claude.push(unavailable("no signed-in Anthropic account: run `ant auth login`"));
-    }
-    if (env.ANTHROPIC_API_KEY) {
+    else claude.push(unavailable("no signed-in Anthropic account: run `ant auth login`"));
+    // Claude on Vertex AI is for people who already use gcloud: it is tried only without an Anthropic
+    // account and only when gcloud is ready, so someone who only uses Claude is never asked about it.
+    const vertexClaude = antToken ? null : vertex("vertex-claude", claudeModel, null);
+    if (vertexClaude && vertexClaude.kind !== "unavailable") claude.push(vertexClaude);
+    if (env.ANTHROPIC_API_KEY)
       claude.push({
         kind: "anthropic",
         model: claudeModel,
@@ -86,50 +124,23 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
         secret: env.ANTHROPIC_API_KEY,
         credential: "ANTHROPIC_API_KEY",
       });
-    } else {
-      claude.push(unavailable("ANTHROPIC_API_KEY is not set"));
-    }
+    else claude.push(unavailable("ANTHROPIC_API_KEY is not set"));
     claude.push(unavailable("no local exact Claude tokenizer exists"));
     claude.push({ kind: "estimate" });
     return claude;
   };
 
   const geminiMethods = (): CountMethod[] => {
-    const gemini: CountMethod[] = [];
-    const location = env.GOOGLE_CLOUD_LOCATION || "global";
-    const configured = run("gcloud", ["config", "get-value", "project"]);
-    const project = env.GOOGLE_CLOUD_PROJECT || (configured === "missing" ? null : configured.output);
-    const gcloudToken =
-      configured !== "missing" && project ? token(run("gcloud", ["auth", "print-access-token"])) : null;
-    if (configured === "missing") {
-      gemini.push(unavailable(installHints.gcloud));
-    } else if (!/^[a-z0-9-]+$/.test(location)) {
-      gemini.push(unavailable("GOOGLE_CLOUD_LOCATION is not a Google Cloud location name"));
-    } else if (!project || !/^[a-z][a-z0-9.:-]*$/.test(project)) {
-      gemini.push(unavailable("no Google Cloud project: set GOOGLE_CLOUD_PROJECT or `gcloud config set project`"));
-    } else if (!gcloudToken) {
-      gemini.push(unavailable("no signed-in Google Cloud account: run `gcloud auth login`"));
-    } else {
-      gemini.push({
-        kind: "vertex",
-        model: geminiModel,
-        secret: gcloudToken,
-        project,
-        location,
-        credential: "signed-in Google Cloud account (gcloud, Vertex AI)",
-      });
-    }
+    const gemini: CountMethod[] = [vertex("vertex", geminiModel, installHints.gcloud)!];
     const geminiKeyVariable = env.GEMINI_API_KEY ? "GEMINI_API_KEY" : env.GOOGLE_API_KEY ? "GOOGLE_API_KEY" : null;
-    if (geminiKeyVariable) {
+    if (geminiKeyVariable)
       gemini.push({
         kind: "gemini-api",
         model: geminiModel,
         secret: env[geminiKeyVariable]!,
         credential: geminiKeyVariable,
       });
-    } else {
-      gemini.push(unavailable("GEMINI_API_KEY and GOOGLE_API_KEY are not set"));
-    }
+    else gemini.push(unavailable("GEMINI_API_KEY and GOOGLE_API_KEY are not set"));
     gemini.push(unavailable("no local exact Gemini tokenizer exists"));
     gemini.push({ kind: "estimate" });
     return gemini;
@@ -141,6 +152,9 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
       gemini: geminiMethods,
       codex: [{ kind: "local", model: codexModel }, { kind: "estimate" }],
     },
+    subtractWrapper: true,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.cache ? { cache: options.cache } : {}),
+    ...(options.dryRun ? { dryRun: true } : {}),
   };
 }

@@ -52,7 +52,15 @@ export function renderHtml(report: Report): string {
         sentTo.length
           ? `${sentTo.map((measured) => `${providerNames[measured.provider]} text was sent to ${escapeHtml(measured.recipient!)}`).join("; ")}.`
           : "No instruction text was sent to a provider."
-      }${fellBack.map((measured) => ` ${providerNames[measured.provider]} fell back to ${accuracyLabels[measured.accuracy]}: ${escapeHtml(measured.fallbacks!.join("; "))}.`).join("")}`
+      }${(report.providerMeasurements ?? [])
+        .filter((measured) => measured.wrapperTokens)
+        .map(
+          (measured) =>
+            ` ${providerNames[measured.provider]} counts exclude the ${measured.wrapperTokens}-token message wrapper its endpoint adds to each file.`,
+        )
+        .join(
+          "",
+        )}${fellBack.map((measured) => ` ${providerNames[measured.provider]} fell back to ${accuracyLabels[measured.accuracy]}: ${escapeHtml(measured.fallbacks!.join("; "))}.`).join("")}`
     : "";
 
   return `<!doctype html>
@@ -154,6 +162,10 @@ export function renderHtml(report: Report): string {
     .inventory-controls button { border: 1px solid var(--edge); border-radius: 0; padding: 10px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
     .inventory-controls button:hover { background: var(--hover); }
     .provider-note { font-size: 13px; margin: 0 0 12px; }
+    .measure-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: -4px 0 14px; font-size: 13px; color: var(--muted); }
+    .measure-switch button { padding: 6px 11px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+    .measure-switch button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+    .measure-switch button:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .inventory-count { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
     .compare-summary { display: flex; flex-wrap: wrap; gap: 12px 30px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 0 6px; }
     .compare-summary span { color: var(--muted); font-size: 12px; }
@@ -192,7 +204,7 @@ export function renderHtml(report: Report): string {
       <p class="repo-meta" id="repo-meta"></p>
       <div class="stats">
         <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
-        <div class="stat"><span>${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
+        <div class="stat"><span id="tokens-label">${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
         <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
         <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
       </div>
@@ -204,6 +216,7 @@ export function renderHtml(report: Report): string {
     <details class="notice"><summary>Stored in Git, not loaded session context · how this is measured</summary><p id="method"></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
+    <div class="measure-switch" id="measure-switch" role="group" aria-label="Count with" hidden></div>
     <section class="panel">
       <div class="panel-head"><h2>Stored instruction history</h2><div class="revision" id="revision"></div></div>
       <div class="legend" id="legend"></div>
@@ -230,7 +243,7 @@ export function renderHtml(report: Report): string {
         <label>Target revision<select id="target"></select></label>
       </div>
       <div class="compare-summary">
-        <span>${tokenAdjective} stored-text tokens<strong id="compare-tokens"></strong></span>
+        <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
       </div>
       <div class="grid">
@@ -280,7 +293,69 @@ export function renderHtml(report: Report): string {
     const beforeHistory = { components: [], estimatedTokens: 0 };
     const baselineRevision = () => baseline === 'previous' ? viewRevisions[selected - 1] ?? beforeHistory : viewRevisions[baseline];
     let activeView = 'all';
+    // 'estimate', or a provider whose own counts the provider view is drawn with.
+    let activeMeasure = 'estimate';
     let viewRevisions = revisions;
+    const tokenAdjective = ${JSON.stringify(tokenAdjective)};
+    const providerNames = { claude: 'Claude', gemini: 'Gemini', codex: 'Codex' };
+    const accuracyNames = { 'api-counted': 'API-counted', 'encoding-exact': 'exact (local encoding)', estimate: 'byte estimate' };
+    // Providers counted with something better than the estimate can chart their own counts.
+    const measures = new Map((data.providerMeasurements ?? []).filter((measured) => measured.accuracy !== 'estimate').map((measured) => [measured.provider, measured]));
+    const measuredHistory = new Map();
+    /** The history with each file's tokens taken from one provider's counts, rebuilt once per provider. */
+    function measuredRevisions(provider) {
+      if (!measuredHistory.has(provider)) {
+        const components = data.components.map((component) => {
+          const count = component.providerTokenCounts?.[provider];
+          return count ? { ...component, estimatedTokens: count.tokens } : component;
+        });
+        measuredHistory.set(provider, { components, revisions: expandRevisions({ ...data, components }) });
+      }
+      return measuredHistory.get(provider);
+    }
+    function describeMeasurement(measured) {
+      if (measured.accuracy === 'estimate') return providerNames[measured.provider] + ': byte estimate' + (measured.fallbacks?.length ? ' (more precise methods unavailable: ' + measured.fallbacks.join('; ') + ')' : '') + '.';
+      return providerNames[measured.provider] + ': ' + accuracyNames[measured.accuracy] + ' with ' + measured.model + ' — ' + measured.method + ' (' + measured.version + ')' +
+        (measured.recipient ? ', counted by ' + measured.recipient : ', counted on this machine') +
+        (measured.credential ? ' using ' + measured.credential : '') +
+        (measured.wrapperTokens ? ', less the ' + measured.wrapperTokens + '-token message wrapper the endpoint adds to each file' : '') +
+        (measured.fallbacks?.length ? '; more precise methods unavailable: ' + measured.fallbacks.join('; ') : '') + '.';
+    }
+    function measureLabel() {
+      if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.label };
+      const measured = measures.get(activeMeasure);
+      const kind = measured.accuracy === 'api-counted' ? 'API-counted' : 'exact';
+      const name = providerNames[activeMeasure];
+      return { stat: name + ' ' + kind + ' tokens', compare: name + ' ' + kind + ' tokens', meta: name + ' ' + kind + ' tokens under ' + measured.model };
+    }
+    function renderMethod() {
+      const shareable = data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '';
+      const providers = (data.providerMeasurements ?? []).map(describeMeasurement).join(' ');
+      if (activeMeasure === 'estimate') {
+        $('method').textContent = shareable + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (providers ? ' Separate provider counts, shown in provider views and the file table: ' + providers : '');
+      } else {
+        $('method').textContent = shareable + describeMeasurement(measures.get(activeMeasure)) + ' Totals add up the files ' + providerNames[activeMeasure] + ' reads at each revision. They describe stored text under this model, not loaded session context or billing, and are never added to the counts of another provider. Structured configuration and supporting files remain source-only.';
+      }
+      const label = measureLabel();
+      $('tokens-label').textContent = label.stat;
+      $('compare-tokens-label').textContent = label.compare;
+      $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + label.meta;
+    }
+    function renderMeasureSwitch() {
+      const container = $('measure-switch');
+      container.replaceChildren();
+      const measured = measures.get(activeView);
+      container.hidden = !measured;
+      if (!measured) return;
+      container.append(text('span', 'Count with'));
+      for (const [key, label] of [[activeView, providerNames[activeView] + ' ' + (measured.accuracy === 'api-counted' ? 'API' : 'exact') + ' · ' + measured.model], ['estimate', 'Byte estimate']]) {
+        const button = text('button', label);
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(activeMeasure === key));
+        button.addEventListener('click', () => { if (activeMeasure !== key) setView(activeView, key); });
+        container.append(button);
+      }
+    }
     let showAllSkills = false;
     let providerFilter = '';
     let categoryFilter = '';
@@ -298,8 +373,7 @@ export function renderHtml(report: Report): string {
     let settleTimer;
 
     $('repo').textContent = data.repository;
-    $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + data.measurement.label;
-    $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations;
+    renderMethod();
     $('shallow').hidden = !data.shallow;
     function capped(id, items, limit, redraw) {
       const button = $(id + '-more');
@@ -340,7 +414,7 @@ export function renderHtml(report: Report): string {
         const button = text('button', '', 'bar');
         button.type = 'button';
         const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
-        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' stored-text tokens at end';
+        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + measureLabel().stat.toLowerCase() + ' at end';
         button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revision.date.slice(0, 10));
         const stack = text('span', '', 'stack');
         stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
@@ -409,32 +483,38 @@ export function renderHtml(report: Report): string {
       const button = text('button', view.label, 'provider-tab');
       button.type = 'button';
       button.setAttribute('aria-pressed', String(view.key === activeView));
-      button.addEventListener('click', () => {
-        activeView = view.key;
-        viewRevisions = [];
-        for (const [index, revision] of revisions.entries()) {
-          const view = viewRevision(revision, activeView, revisions[index - 1], data.components);
-          // Revisions that changed nothing keep sharing arrays in a provider view too.
-          if (view !== revision && index && revision.components === revisions[index - 1].components) {
-            view.components = viewRevisions[index - 1].components;
-            view.skillGroups = viewRevisions[index - 1].skillGroups;
-          }
-          viewRevisions.push(view);
-        }
-        drawn = {};
-        showAllSkills = false;
-        providerFilter = '';
-        categoryFilter = '';
-        pathSearch = '';
-        $('category-filter').value = '';
-        $('path-search').value = '';
-        Array.from($('provider-tabs').children).forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
-        renderProviderOptions();
-        renderViewNote();
-        renderChart();
-        render(selected);
-      });
+      // A provider view opens on that provider's own counts when the report has them.
+      button.addEventListener('click', () => setView(view.key, measures.has(view.key) ? view.key : 'estimate'));
       $('provider-tabs').append(button);
+    }
+    function setView(view, measure) {
+      activeView = view;
+      activeMeasure = measure;
+      const base = measure === 'estimate' ? { components: data.components, revisions } : measuredRevisions(measure);
+      viewRevisions = [];
+      for (const [index, revision] of base.revisions.entries()) {
+        const projected = viewRevision(revision, activeView, base.revisions[index - 1], base.components);
+        // Revisions that changed nothing keep sharing arrays in a provider view too.
+        if (projected !== revision && index && revision.components === base.revisions[index - 1].components) {
+          projected.components = viewRevisions[index - 1].components;
+          projected.skillGroups = viewRevisions[index - 1].skillGroups;
+        }
+        viewRevisions.push(projected);
+      }
+      drawn = {};
+      showAllSkills = false;
+      providerFilter = '';
+      categoryFilter = '';
+      pathSearch = '';
+      $('category-filter').value = '';
+      $('path-search').value = '';
+      Array.from($('provider-tabs').children).forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
+      renderProviderOptions();
+      renderViewNote();
+      renderMeasureSwitch();
+      renderMethod();
+      renderChart();
+      render(selected);
     }
     function renderProviderOptions() {
       const select = $('provider-filter');
@@ -480,6 +560,7 @@ export function renderHtml(report: Report): string {
     $('skill-toggle').addEventListener('click', () => { showAllSkills = !showAllSkills; renderSkills(); });
     renderProviderOptions();
     renderViewNote();
+    renderMeasureSwitch();
     renderChart();
 
     function renderInventory() {

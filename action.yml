@@ -15,6 +15,13 @@ inputs:
     description: Named OpenAI model; when set, this takes precedence over the default tokenizer input.
     required: false
     default: ''
+  precise:
+    description: >-
+      Set to 'true' to add precise per-provider totals. Claude and Gemini instruction text is sent to
+      their token-count APIs when ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY is in the step's
+      environment; a provider without a key falls back to the estimate. Codex is counted locally.
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -37,10 +44,16 @@ runs:
         STRATA_HEAD: ${{ inputs.head }}
         STRATA_TOKENIZER: ${{ inputs.tokenizer }}
         STRATA_MODEL: ${{ inputs.model }}
+        STRATA_PRECISE: ${{ inputs.precise }}
       run: |
-        if [ -n "$STRATA_MODEL" ]; then
-          node "$GITHUB_ACTION_PATH/dist/cli.js" diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --model "$STRATA_MODEL" --output "$RUNNER_TEMP/strata-pr-delta.md"
+        args=(diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --output "$RUNNER_TEMP/strata-pr-delta.md")
+        if [ "$STRATA_PRECISE" = "true" ]; then
+          # Precise counts accompany the estimate; the runner's cache would not outlive the job.
+          args+=(--precise --no-cache)
+        elif [ -n "$STRATA_MODEL" ]; then
+          args+=(--model "$STRATA_MODEL")
         else
-          node "$GITHUB_ACTION_PATH/dist/cli.js" diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --tokenizer "$STRATA_TOKENIZER" --output "$RUNNER_TEMP/strata-pr-delta.md"
+          args+=(--tokenizer "$STRATA_TOKENIZER")
         fi
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
         cat "$RUNNER_TEMP/strata-pr-delta.md" >> "$GITHUB_STEP_SUMMARY"

@@ -53,7 +53,7 @@ Strata analyzes the first-parent history of the checked-out commit, whether the 
 
 ### Measurement
 
-The default `--tokenizer estimate` needs no network access. `--tokenizer openai-o200k_base` or `--model gpt-4o` also count offline. `--precise` sends recognized instruction text to the Claude and Gemini token-count APIs when it finds `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), or a signed-in `gcloud` account in the job, and falls back to the estimate for a provider without one. Leave it off unless that content transfer is acceptable.
+The default `--tokenizer estimate` needs no network access. `--tokenizer openai-o200k_base` or `--model gpt-4o` also count offline. `--precise` (add `--no-cache` on ephemeral runners) sends recognized instruction text to the Claude and Gemini token-count APIs when it finds `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), or a signed-in `gcloud` account in the job, and falls back to the estimate for a provider without one. Leave it off unless that content transfer is acceptable.
 
 ### Who can see the report
 

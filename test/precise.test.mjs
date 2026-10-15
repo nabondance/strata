@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { getEncoding } from "js-tiktoken";
 import { analyzeRepository } from "../dist/analyze.js";
+import { fileCountCache } from "../dist/count-cache.js";
 import { expandRevisions } from "../dist/expand.js";
+import { compareGitCommitsPrecise, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise.js";
 import { renderHtml } from "../dist/report.js";
 
@@ -46,17 +49,28 @@ const signedIn = cliStub({
   "gcloud auth print-access-token": "gcloud-session-token",
 });
 
-/** Records each request and answers like the count endpoints, or with `status` for chosen hosts. */
+/** The text a count request carries, in either provider's request shape. */
+const requestText = (body) => body.messages?.[0]?.content ?? body.contents?.[0]?.parts?.[0]?.text;
+
+/**
+ * Records each request and answers like the count endpoints, or with `status` for chosen hosts.
+ * Claude endpoints count a file as 7 and the one-letter wrapper probe as 3, so 2 wrapper tokens are
+ * subtracted; Gemini counts a file as 9 and the probe as 1, with no wrapper.
+ */
 function countServer(failing = {}) {
   const requests = [];
   const fetchImpl = async (url, init) => {
     const host = new URL(url).host;
-    requests.push({ url, host, headers: init.headers, body: JSON.parse(init.body) });
+    const body = JSON.parse(init.body);
+    const probe = requestText(body) === "a";
+    requests.push({ url, host, headers: init.headers, body, probe });
     if (failing[host]) return new Response("{}", { status: failing[host] });
-    const tokens = host === "api.anthropic.com" ? { input_tokens: 7 } : { totalTokens: 9 };
+    const claude = host === "api.anthropic.com" || url.includes("/publishers/anthropic/");
+    const tokens = claude ? { input_tokens: probe ? 3 : 7 } : { totalTokens: probe ? 1 : 9 };
     return new Response(JSON.stringify(tokens), { status: 200, headers: { "content-type": "application/json" } });
   };
-  return { requests, fetchImpl };
+  const files = () => requests.filter((request) => !request.probe);
+  return { requests, files, fetchImpl };
 }
 
 const summary = (report) =>
@@ -70,7 +84,7 @@ const summary = (report) =>
 test("--precise uses a signed-in account through the provider CLI, with default models", async () => {
   const repo = fixture();
   try {
-    const { requests, fetchImpl } = countServer();
+    const { requests, files, fetchImpl } = countServer();
     const notices = [];
     const report = await analyzeRepository(repo, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
@@ -88,29 +102,34 @@ test("--precise uses a signed-in account through the provider CLI, with default 
     );
     assert.ok(report.providerMeasurements.every((measured) => !measured.fallbacks));
 
-    const claude = requests.filter(({ host }) => host === "api.anthropic.com");
+    const claude = files().filter(({ host }) => host === "api.anthropic.com");
     assert.equal(claude.length, 2, "CLAUDE.md and AGENTS.md");
     assert.equal(claude[0].headers.authorization, "Bearer ant-session-token");
     assert.equal(claude[0].headers["anthropic-beta"], "oauth-2025-04-20");
     assert.equal(claude[0].headers["x-api-key"], undefined);
-    const vertex = requests.filter(({ host }) => host === "aiplatform.googleapis.com");
+    const vertex = files().filter(({ host }) => host === "aiplatform.googleapis.com");
     assert.equal(vertex.length, 1, "GEMINI.md only; the fixture leaves AGENTS.md out of Gemini's context");
     assert.equal(
       vertex[0].url,
       `https://aiplatform.googleapis.com/v1/projects/strata-test-project/locations/global/publishers/google/models/${defaultModels.gemini}:countTokens`,
     );
     assert.equal(vertex[0].headers.authorization, "Bearer gcloud-session-token");
-    assert.equal(requests.length, 3, "Codex is counted locally");
+    assert.equal(files().length, 3, "Codex is counted locally");
+    assert.equal(requests.filter(({ probe }) => probe).length, 2, "one wrapper probe per remote provider");
+    assert.deepEqual(
+      report.providerMeasurements.map(({ wrapperTokens }) => wrapperTokens),
+      [2, 0, undefined],
+    );
 
     const [revision] = expandRevisions(report);
     const agents = revision.components.find((component) => component.path === "AGENTS.md");
-    assert.equal(agents.providerTokenCounts.claude.tokens, 7);
+    assert.equal(agents.providerTokenCounts.claude.tokens, 5, "7 counted, less the 2-token wrapper");
     assert.equal(
       agents.providerTokenCounts.codex.tokens,
       getEncoding("o200k_base").encode("Shared instructions.\n").length,
     );
     assert.deepEqual(revision.providerTokenTotals, {
-      claude: 14,
+      claude: 10,
       gemini: 9,
       codex: revision.providerTokenTotals.codex,
     });
@@ -129,6 +148,106 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       /Claude text was sent to api\.anthropic\.com; Gemini text was sent to aiplatform\.googleapis\.com/,
     );
     assert.match(html, /<th class="num"[^>]*>Codex local exact<\/th>/);
+    assert.match(html, /Claude counts exclude the 2-token message wrapper/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/** Run a report's script against a minimal DOM and return its elements by id. */
+function runReport(html) {
+  class Element {
+    constructor() {
+      this.children = [];
+      this.style = {};
+      this.listeners = {};
+      this.classList = { add() {}, remove() {}, toggle() {} };
+    }
+    append(...children) {
+      this.children.push(...children);
+    }
+    prepend(...children) {
+      this.children.unshift(...children);
+    }
+    replaceChildren(...children) {
+      this.children = children;
+    }
+    addEventListener(event, listener) {
+      this.listeners[event] = listener;
+    }
+    setAttribute(name, value) {
+      this[name] = value;
+    }
+    getBoundingClientRect() {
+      return { top: 0, bottom: 0, right: 0, left: 0, width: 0, height: 0 };
+    }
+  }
+  const elements = new Map();
+  const document = {
+    createElement: () => new Element(),
+    getElementById: (id) => {
+      if (!elements.has(id)) elements.set(id, new Element());
+      return elements.get(id);
+    },
+  };
+  const [d3Script, script] = [...html.matchAll(/<script>\n?([\s\S]*?)\n? {0,2}<\/script>/g)].map((match) => match[1]);
+  const context = { document, Intl, setTimeout: () => 0, clearTimeout() {} };
+  runInNewContext(d3Script, context);
+  runInNewContext(script, context);
+  return (id) => elements.get(id);
+}
+
+test("the HTML report describes the counting method in use and charts a provider's own counts", async () => {
+  const repo = fixture();
+  try {
+    const { fetchImpl } = countServer();
+    const report = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
+    });
+    const get = runReport(renderHtml(report));
+    // All files: the estimate, with each provider's method summarized.
+    assert.equal(get("measure-switch").hidden, true);
+    assert.equal(get("tokens-label").textContent, "Estimated tokens");
+    assert.match(get("method").textContent, /^Estimated stored-text tokens — utf8-bytes-divided-by-four-v1/);
+    assert.match(
+      get("method").textContent,
+      /Claude: API-counted with claude-opus-5-5 .*counted by api\.anthropic\.com using signed-in Anthropic account \(ant auth login\), less the 2-token message wrapper/,
+    );
+    assert.match(get("method").textContent, /Codex: exact \(local encoding\) with gpt-5 .*counted on this machine/);
+
+    // The Claude tab opens on Claude's API counts and says so.
+    get("provider-tabs")
+      .children.find((tab) => tab.textContent === "Claude + shared")
+      .listeners.click();
+    assert.equal(get("measure-switch").hidden, false);
+    assert.equal(get("tokens").textContent, "10");
+    assert.equal(get("tokens-label").textContent, "Claude API-counted tokens");
+    assert.equal(get("compare-tokens-label").textContent, "Claude API-counted tokens");
+    assert.match(get("repo-meta").textContent, /Claude API-counted tokens under claude-opus-5-5$/);
+    assert.match(get("method").textContent, /^Claude: API-counted with claude-opus-5-5/);
+    assert.match(get("method").textContent, /Totals add up the files Claude reads at each revision/);
+
+    // Switching back to the estimate restores its labels and helper.
+    get("measure-switch")
+      .children.find((button) => button.textContent === "Byte estimate")
+      .listeners.click();
+    assert.equal(get("tokens-label").textContent, "Estimated tokens");
+    assert.match(get("method").textContent, /^Estimated stored-text tokens/);
+    assert.equal(
+      get("tokens").textContent,
+      String(
+        expandRevisions(report)[0]
+          .components.filter((c) => c.path !== "GEMINI.md")
+          .reduce((sum, c) => sum + c.estimatedTokens, 0),
+      ),
+    );
+
+    // Codex is counted locally, and its tab says so.
+    get("provider-tabs")
+      .children.find((tab) => tab.textContent === "Codex + shared")
+      .listeners.click();
+    assert.equal(get("tokens-label").textContent, "Codex exact tokens");
+    assert.match(get("method").textContent, /counted on this machine/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -243,7 +362,7 @@ test("a failing method is discarded whole, so one provider's counts never mix me
     const [revision] = expandRevisions(report);
     for (const component of revision.components) {
       const claude = component.providerTokenCounts?.claude;
-      if (claude) assert.equal(claude.tokens, 7, `${component.path} is counted with the key, not a mix`);
+      if (claude) assert.equal(claude.tokens, 5, `${component.path} is counted with the key, not a mix`);
     }
     assert.ok(requests.some(({ headers }) => headers["x-api-key"] === "anthropic-test-key"));
     assert.ok(notices.some((line) => /HTTP 401; trying the next method/.test(line)));
@@ -281,11 +400,175 @@ test("--precise looks up credentials only for providers the history has instruct
       );
       assert.deepEqual([...new Set(ran)], commands, label);
       assert.equal(notices.length, expected.filter((provider) => provider !== "codex").length, label);
-      assert.equal(requests.length, expected.length, label);
+      assert.equal(requests.length, expected.length * 2, `${label}: a wrapper probe and one file each`);
       assert.deepEqual(Object.keys(report.revisions.at(-1).providerTokenTotals), expected, label);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  }
+});
+
+test("rate limits are retried with the server's wait instead of falling back", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude only.\n" });
+  try {
+    const { files, fetchImpl } = countServer();
+    let limited = 0;
+    const waits = [];
+    const busy = async (url, init) => {
+      if (limited < 2) {
+        limited += 1;
+        return new Response("{}", { status: 429, headers: { "retry-after": "3" } });
+      }
+      return fetchImpl(url, init);
+    };
+    const notices = [];
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: busy }),
+        sleep: async (milliseconds) => {
+          waits.push(milliseconds);
+        },
+      },
+      onNotice: (line) => notices.push(line),
+    });
+    assert.deepEqual(waits, [3000, 3000]);
+    assert.equal(report.providerMeasurements[0].accuracy, "api-counted");
+    assert.equal(report.providerMeasurements[0].fallbacks, undefined);
+    assert.equal(files().length, 1);
+    assert.equal(notices.filter((line) => /HTTP 429; retrying/.test(line)).length, 1, "one notice per provider");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("counts are cached between runs, so unchanged file versions are not sent again", async () => {
+  const repo = fixture();
+  const cacheDirectory = mkdtempSync(join(tmpdir(), "strata-cache-"));
+  try {
+    const cachePath = join(cacheDirectory, "provider-counts.json");
+    const run = async () => {
+      const server = countServer();
+      const cache = fileCountCache(cachePath);
+      const notices = [];
+      const report = await analyzeRepository(repo, {
+        providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: server.fetchImpl, cache }),
+        onNotice: (line) => notices.push(line),
+      });
+      cache.save();
+      return { report, requests: server.requests, notices };
+    };
+    const first = await run();
+    assert.equal(first.requests.length, 5);
+    const second = await run();
+    assert.equal(second.requests.length, 0, "everything, including the wrapper probes, came from the cache");
+    assert.deepEqual(second.report.providerMeasurements, first.report.providerMeasurements);
+    assert.deepEqual(second.report.components, first.report.components);
+    assert.match(second.notices[0], /Using cached Claude counts for all 2 instruction file versions; nothing sent\./);
+    const stored = readFileSync(cachePath, "utf8");
+    assert.ok(!stored.includes("instructions"), "the cache holds counts, not text");
+    assert.ok(!stored.includes("CLAUDE.md"), "the cache holds blob IDs, not paths");
+    assert.equal(statSync(cachePath).mode & 0o777, 0o600);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(cacheDirectory, { recursive: true, force: true });
+  }
+});
+
+test("--precise --dry-run says what would be used and sent, and sends nothing", async () => {
+  const repo = fixture();
+  try {
+    const { requests, fetchImpl } = countServer();
+    const notices = [];
+    await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({
+        env: { ...noKeys, ANTHROPIC_API_KEY: "anthropic-test-key" },
+        run: cliStub({}),
+        fetchImpl,
+        dryRun: true,
+      }),
+      onNotice: (line) => notices.push(line),
+    });
+    assert.equal(requests.length, 0);
+    assert.deepEqual(notices, [
+      `Claude: would send 2 instruction file versions to api.anthropic.com to count with ${defaultModels.claude}, using ANTHROPIC_API_KEY.`,
+      "  Skipped: no signed-in Anthropic account: run `ant auth login`.",
+      "Gemini: would use the byte estimate for 1 instruction file version; nothing sent.",
+      "  Skipped: no Google Cloud project: set GOOGLE_CLOUD_PROJECT or `gcloud config set project`.",
+      "  Skipped: GEMINI_API_KEY and GOOGLE_API_KEY are not set.",
+      "  Skipped: no local exact Gemini tokenizer exists.",
+      `Codex: would count 1 instruction file version locally with ${defaultModels.codex} (o200k_base); nothing sent.`,
+    ]);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("without an Anthropic account, Claude is counted through a signed-in gcloud on Vertex AI", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude only.\n" });
+  try {
+    const { files, fetchImpl } = countServer();
+    const report = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({
+        env: { ...noKeys, ANTHROPIC_API_KEY: "anthropic-test-key" },
+        run: cliStub({
+          "gcloud config get-value project": "strata-test-project",
+          "gcloud auth print-access-token": "gcloud-session-token",
+        }),
+        fetchImpl,
+      }),
+    });
+    assert.deepEqual(summary(report), {
+      claude: ["api-counted", "signed-in Google Cloud account (gcloud, Vertex AI)", "aiplatform.googleapis.com"],
+    });
+    const [request] = files();
+    assert.equal(
+      request.url,
+      "https://aiplatform.googleapis.com/v1/projects/strata-test-project/locations/global/publishers/anthropic/models/count-tokens:rawPredict",
+    );
+    assert.equal(request.headers.authorization, "Bearer gcloud-session-token");
+    assert.equal(request.body.model, defaultModels.claude);
+    assert.equal(expandRevisions(report)[0].providerTokenTotals.claude, 5);
+
+    // A gcloud that is installed but not ready is not mentioned to someone who only uses Claude.
+    const unready = resolvePrecisePlan({ env: noKeys, run: cliStub({}) }).methods.claude();
+    assert.ok(unready.every((method) => !/Google Cloud|gcloud/.test(method.reason ?? "")));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("strata diff --precise adds each provider's totals at both commits", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude only.\n" });
+  try {
+    const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(join(repo, "AGENTS.md"), "Shared instructions.\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "Add AGENTS.md");
+    const head = git("rev-parse", "HEAD");
+    const { fetchImpl } = countServer();
+    const delta = await compareGitCommitsPrecise(repo, base, head, {
+      providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
+    });
+    assert.equal(delta.schemaVersion, 5);
+    const codexTokens = getEncoding("o200k_base").encode("Shared instructions.\n").length;
+    assert.deepEqual(
+      delta.providerTotals.map(({ provider, beforeTokens, afterTokens, deltaTokens }) => [
+        provider,
+        beforeTokens,
+        afterTokens,
+        deltaTokens,
+      ]),
+      [
+        ["claude", 5, 10, 5],
+        ["codex", 0, codexTokens, codexTokens],
+      ],
+    );
+    const markdown = renderPullRequestDelta(delta);
+    assert.match(markdown, /\| Claude \| api-counted, claude-opus-5-5 via api\.anthropic\.com \| 5 \| 10 \| \+5 \|/);
+    assert.match(markdown, /Instruction text was sent for counting to api\.anthropic\.com\./);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });
 

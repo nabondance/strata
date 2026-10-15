@@ -1,30 +1,18 @@
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify } from "./adapters.js";
-import { geminiContextFiles, geminiSettingsPath } from "./gemini-settings.js";
-import { git, gitText, gitTokens, readBlobs } from "./git.js";
-import {
-  type BlobMeasurement,
-  byPath,
-  measureBlobs,
-  summarize,
-  type TrackedFile,
-  toComponent,
-  trackedFile,
-} from "./inventory.js";
-import { createMeasurer, type MeasurementMode, modeForModel } from "./measurement.js";
+import { geminiSettingsPath } from "./gemini-settings.js";
+import { git, gitText, gitTokens } from "./git.js";
+import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
+import { createMeasurer, type MeasurementMode } from "./measurement.js";
 import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
 import {
-  type CountMethod,
-  countRemoteText,
-  describeMethod,
   type ProviderCountOptions,
   type ProviderCountPlan,
-  type ProviderMeasurementMetadata,
   type ProviderTextCount,
   providerApiPlan,
-  type RemoteProvider,
 } from "./provider-count.js";
+import { countedProviders, countProviderBlobs, geminiSettings } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
 
 export { categories } from "./adapters.js";
@@ -56,8 +44,6 @@ interface CommitDelta {
   written: TrackedFile[];
   renames: Map<string, string>;
 }
-
-const providerRequestConcurrency = 8;
 
 /**
  * Read the whole first-parent history in one streamed Git process. Each commit's raw diff against
@@ -186,39 +172,6 @@ function buildChanges(
   return changes.sort(byPath);
 }
 
-const countedOrder = ["claude", "gemini", "codex"] as const satisfies readonly CountedProvider[];
-
-/**
- * The providers to count a file under: its own provider, or a shared file's readers. A Gemini
- * context file is counted for Gemini only when its blob is present in some revision whose settings
- * make Gemini read it, so versions Gemini never reads are not sent to its API.
- */
-function countedProviders(
-  file: TrackedFile,
-  counted: readonly CountedProvider[],
-  geminiBlobs: Set<string>,
-): CountedProvider[] {
-  const { provider, instructionalText, readers = [], contextFile } = file.classification;
-  if (!instructionalText) return [];
-  const read = new Set(provider === "shared" ? readers : [provider]);
-  if (contextFile) {
-    if (geminiBlobs.has(file.blob)) read.add("gemini");
-    else read.delete("gemini");
-  }
-  return counted.filter((provider) => read.has(provider));
-}
-
-/** Resolve each distinct root Gemini settings blob to the context files it configures. */
-function geminiSettings(root: string, files: TrackedFile[], measured: Map<string, BlobMeasurement>) {
-  const blobs = [...new Set(files.filter((file) => file.path === geminiSettingsPath).map((file) => file.blob))];
-  const decoder = new TextDecoder();
-  const configured = new Map<string, ContextFile[] | null>();
-  for (const [blob, body] of readBlobs(root, blobs, (id) => measured.get(id)?.bytes ?? 0)) {
-    configured.set(blob, geminiContextFiles(decoder.decode(body)));
-  }
-  return configured;
-}
-
 /** Replay only settings and context files to find the context-file blobs Gemini reads somewhere. */
 function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextFile[] | null>): Set<string> {
   const contextFiles = new Map<string, TrackedFile>();
@@ -246,135 +199,6 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
     }
   }
   return read;
-}
-
-/** Count one provider's distinct blobs with one method, with bounded request concurrency. */
-async function countWithMethod(
-  root: string,
-  provider: CountedProvider,
-  method: Exclude<CountMethod, { kind: "unavailable" }>,
-  wanted: Map<string, string>,
-  measured: Map<string, BlobMeasurement>,
-  fetchImpl: typeof fetch | undefined,
-): Promise<Map<string, ProviderTextCount>> {
-  const local = method.kind === "local" ? createMeasurer(modeForModel(method.model), method.model) : null;
-  const labels = describeMethod(method, local?.measurement.encoding ?? undefined);
-  const count = (tokens: number): ProviderTextCount => ({
-    tokens,
-    provider,
-    model: labels.model,
-    method: labels.method,
-    version: labels.version,
-    accuracy: labels.accuracy,
-  });
-  const counts = new Map<string, ProviderTextCount>();
-  if (method.kind === "estimate") {
-    for (const blob of wanted.keys()) counts.set(blob, count(Math.ceil(measured.get(blob)!.bytes / 4)));
-    return counts;
-  }
-  const remote = method.kind === "local" ? null : method;
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const running = new Set<Promise<void>>();
-  let failure: Error | undefined;
-  for (const [blob, body] of readBlobs(root, [...wanted.keys()], (id) => measured.get(id)?.bytes ?? 0)) {
-    const fail = (error: unknown) => {
-      const reason = error instanceof Error ? error.message : String(error);
-      failure ??= Object.assign(
-        new Error(`Could not count ${provider} instructions at ${wanted.get(blob)}: ${reason}`),
-        {
-          reason,
-        },
-      );
-    };
-    try {
-      if (!remote) {
-        counts.set(blob, count(local!.count(body)));
-        continue;
-      }
-      const task: Promise<void> = countRemoteText(provider as RemoteProvider, remote, decoder.decode(body), fetchImpl)
-        .then((tokens) => {
-          counts.set(blob, count(tokens));
-        }, fail)
-        .finally(() => running.delete(task));
-      running.add(task);
-    } catch (error) {
-      fail(error);
-    }
-    if (running.size >= providerRequestConcurrency) await Promise.race(running);
-    if (failure) break;
-  }
-  await Promise.all(running);
-  if (failure) throw failure;
-  return counts;
-}
-
-/**
- * Count each provider's distinct blobs once across the history. A provider's methods are tried in
- * order; if one fails, its partial counts are discarded and the next is tried, so one provider's
- * counts never mix methods. The last method's failure is fatal.
- */
-async function countProviderBlobs(
-  root: string,
-  files: TrackedFile[],
-  measured: Map<string, BlobMeasurement>,
-  plan: ProviderCountPlan,
-  geminiBlobs: Set<string>,
-  onNotice: ((line: string) => void) | undefined,
-): Promise<{ counts: Map<string, ProviderTextCount>; metadata: ProviderMeasurementMetadata[] }> {
-  const counted = countedOrder.filter((provider) => plan.methods[provider]);
-  const wanted = new Map<CountedProvider, Map<string, string>>(counted.map((provider) => [provider, new Map()]));
-  for (const file of files) {
-    for (const provider of countedProviders(file, counted, geminiBlobs)) {
-      const blobs = wanted.get(provider)!;
-      if (!blobs.has(file.blob)) blobs.set(file.blob, file.path);
-    }
-  }
-
-  const counts = new Map<string, ProviderTextCount>();
-  const metadata: ProviderMeasurementMetadata[] = [];
-  for (const provider of counted) {
-    const blobs = wanted.get(provider)!;
-    // A provider with no instructions anywhere in the history needs no credential and gets no column.
-    if (!blobs.size) continue;
-    const planned = plan.methods[provider]!;
-    const methods = typeof planned === "function" ? planned() : planned;
-    const fallbacks: string[] = [];
-    let last: Error | undefined;
-    for (const method of methods) {
-      if (method.kind === "unavailable") {
-        fallbacks.push(method.reason);
-        continue;
-      }
-      const labels = describeMethod(method, method.kind === "local" ? encodingFor(method.model) : undefined);
-      if (labels.recipient) {
-        onNotice?.(
-          `Sending ${blobs.size} ${providerName[provider]} instruction file version${blobs.size === 1 ? "" : "s"} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}.`,
-        );
-      }
-      try {
-        for (const [blob, count] of await countWithMethod(root, provider, method, blobs, measured, plan.fetchImpl)) {
-          counts.set(`${provider}\0${blob}`, count);
-        }
-        metadata.push({ provider, ...labels, ...(fallbacks.length ? { fallbacks } : {}) });
-        last = undefined;
-        break;
-      } catch (error) {
-        last = error instanceof Error ? error : new Error(String(error));
-        // The reason omits the path, so a shareable report's fallbacks do not reveal one.
-        const reason = (last as Error & { reason?: string }).reason ?? last.message;
-        fallbacks.push(`${labels.credential ?? labels.method} failed: ${reason}`);
-        if (method !== methods.at(-1)) onNotice?.(`${last.message}; trying the next method.`);
-      }
-    }
-    if (last) throw last;
-  }
-  return { counts, metadata };
-}
-
-const providerName: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
-
-function encodingFor(model: string): string {
-  return modeForModel(model).replace("openai-", "");
 }
 
 export async function analyzeRepository(repoPath: string, options: AnalysisOptions = {}): Promise<Report> {
