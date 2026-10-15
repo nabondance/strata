@@ -208,14 +208,20 @@ function retryWait(response: Response | undefined, attempt: number): number {
   return Math.min(wait, maxWaitMilliseconds);
 }
 
-/** What to do about the error reasons people can fix themselves. */
+/** What to do about the error reasons people can fix themselves, per kind of endpoint. */
 const reasonHints: Record<string, string> = {
-  BILLING_DISABLED: "enable billing on the Google Cloud project; Vertex AI requires it even for token counts",
-  SERVICE_DISABLED: "enable the Vertex AI API (aiplatform.googleapis.com) on the Google Cloud project",
+  BILLING_DISABLED: "enable billing on the Google Cloud project",
   API_KEY_INVALID: "the API key is not valid",
   not_found_error: "the model was not found; check the model name",
   authentication_error: "the credential was rejected",
   permission_error: "the credential is not allowed to use this model",
+};
+const vertexHints: Record<string, string> = {
+  BILLING_DISABLED: "enable billing on the Google Cloud project; Vertex AI requires it even for token counts",
+  SERVICE_DISABLED: "enable the Vertex AI API (aiplatform.googleapis.com) on the Google Cloud project",
+};
+const geminiApiHints: Record<string, string> = {
+  SERVICE_DISABLED: "enable the Gemini API (generativelanguage.googleapis.com) on the key's Google Cloud project",
 };
 
 /**
@@ -223,7 +229,7 @@ const reasonHints: Record<string, string> = {
  * `error.status`, or Anthropic's `error.type`. Only a short identifier is kept, never the message,
  * so project names and other details do not reach reports or logs.
  */
-async function errorReason(response: Response): Promise<string | null> {
+async function errorReason(response: Response, kind: RemoteMethod["kind"]): Promise<string | null> {
   let parsed: unknown;
   try {
     parsed = await response.json();
@@ -240,7 +246,9 @@ async function errorReason(response: Response): Promise<string | null> {
     (candidate): candidate is string => typeof candidate === "string" && /^[A-Za-z_]{1,64}$/.test(candidate),
   );
   if (!code) return null;
-  return reasonHints[code] ? `${code}: ${reasonHints[code]}` : code;
+  const hints = kind === "vertex" || kind === "vertex-claude" ? vertexHints : kind === "gemini-api" ? geminiApiHints : {};
+  const hint = Object.hasOwn(hints, code) ? hints[code] : Object.hasOwn(reasonHints, code) ? reasonHints[code] : null;
+  return hint ? `${code}: ${hint}` : code;
 }
 
 /**
@@ -303,7 +311,7 @@ export async function countRemoteText(
     if (!retryable || attempt + 1 >= maxAttempts) {
       const attempts = attempt + 1 > 1 ? ` after ${attempt + 1} attempts` : "";
       if (failure === "connection") throw new Error(`${provider} token count request failed to connect${attempts}`);
-      const reason = response ? await errorReason(response) : null;
+      const reason = response ? await errorReason(response, method.kind) : null;
       throw new Error(
         `${provider} token count request failed with HTTP ${failure}${attempts}${reason ? ` (${reason})` : ""}`,
       );

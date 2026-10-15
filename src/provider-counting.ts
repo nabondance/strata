@@ -120,11 +120,13 @@ async function countWithMethod(
     };
     const cachedRaw = (key: string) => plan.cache?.get(cacheKey + key);
     toRead.length = 0;
+    let emptyCount = 0;
     for (const blob of wanted.keys()) {
-      const raw = cachedRaw(blob);
-      if (raw === undefined) toRead.push(blob);
+      // Empty files have nothing to count or send: zero, without a request or a notice.
+      if (!measured.get(blob)?.bytes) emptyCount += 1;
+      else if (cachedRaw(blob) === undefined) toRead.push(blob);
     }
-    const cachedCount = wanted.size - toRead.length;
+    const cachedCount = wanted.size - toRead.length - emptyCount;
     // The probe carries only the letter "a", so it may precede the notice about instruction text.
     if (plan.subtractWrapper) {
       let raw = cachedRaw("wrapper");
@@ -143,10 +145,12 @@ async function countWithMethod(
     onNotice?.(
       toRead.length
         ? `Sending ${plural(toRead.length, `${name} instruction file version`)} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}${cachedCount ? `; ${cachedCount} more counted before, from the local cache` : ""}.`
-        : `Using cached ${name} counts for all ${plural(cachedCount, "instruction file version")}; no instruction text sent.`,
+        : cachedCount
+          ? `Using cached ${name} counts for all ${plural(cachedCount, "instruction file version")}; no instruction text sent.`
+          : `${name} instruction files are all empty; no instruction text sent.`,
     );
     for (const blob of wanted.keys()) {
-      const raw = cachedRaw(blob);
+      const raw = measured.get(blob)?.bytes ? cachedRaw(blob) : 0;
       if (raw !== undefined) counts.set(blob, count(Math.max(0, raw - (wrapperTokens ?? 0))));
     }
     await requestAll(remote, remoteOptions);

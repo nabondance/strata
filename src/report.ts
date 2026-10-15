@@ -212,7 +212,8 @@ export function renderHtml(report: Report): string {
   </header>
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
-    <details class="notice"><summary>How tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
+    ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: names, paths, and IDs are replaced with aliases.</p>' : ""}
+    <details class="notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
     <div class="measure-switch" id="measure-switch" role="group" aria-label="Count with" hidden></div>
@@ -327,20 +328,23 @@ export function renderHtml(report: Report): string {
       const name = providerNames[activeMeasure];
       return { stat: name + ' ' + kind + ' tokens', compare: name + ' ' + kind + ' tokens', meta: name + ' ' + kind + ' tokens under ' + measured.model };
     }
-    const badgeNames = { 'api-counted': 'Exact · API', 'encoding-exact': 'Exact · local', estimate: 'Estimate' };
+    // A count endpoint's result is the provider's own count, which it does not promise is exact; a local encoding is.
+    const badgeNames = { 'api-counted': 'API count', 'encoding-exact': 'Exact · local', estimate: 'Estimate' };
     /** A few words per provider on how its files were counted; the full description is the row's tooltip. */
     function renderCounting() {
       const measurements = data.providerMeasurements ?? [];
       $('counting').hidden = $('counting-note').hidden = !measurements.length;
-      $('counting-summary').textContent = measurements.map((measured) => ' · ' + providerNames[measured.provider] + ' ' + { 'api-counted': 'exact (API)', 'encoding-exact': 'exact (local)', estimate: 'estimate' }[measured.accuracy]).join('');
+      $('counting-summary').textContent = measurements.map((measured) => ' · ' + providerNames[measured.provider] + ' ' + { 'api-counted': 'API count', 'encoding-exact': 'exact (local)', estimate: 'estimate' }[measured.accuracy]).join('');
       $('counting-rows').replaceChildren(...measurements.map((measured) => {
         const row = document.createElement('tr');
         if (measured.provider === activeMeasure) row.className = 'active';
         row.title = describeMeasurement(measured);
         const badge = text('span', badgeNames[measured.accuracy], 'badge ' + (measured.accuracy === 'estimate' ? 'estimate' : 'exact'));
-        const failed = measured.alsoSentTo?.length || measured.fallbacks?.some((reason) => / failed: /.test(reason));
+        const failed = measured.fallbacks?.some((reason) => / failed: /.test(reason));
+        // Missing credentials are the common case; anything else, such as a key a header cannot carry, is "unusable".
+        const missing = measured.fallbacks?.every((reason) => /not installed|is not set|are not set|no signed-in|no local exact/.test(reason));
         const detail = measured.accuracy === 'estimate'
-          ? (measured.alsoSentTo?.length ? 'count failed after text was sent to ' + measured.alsoSentTo.join(' and ') : failed ? 'the count request failed' : 'no account or API key found')
+          ? (measured.alsoSentTo?.length ? 'count failed after text was sent to ' + measured.alsoSentTo.join(' and ') : failed ? 'counting failed' : missing ? 'no account or API key found' : 'no usable account or API key')
           : measured.recipient
             ? measured.model + ', counted by ' + measured.recipient + ' with ' + measured.credential
             : measured.model + ', on this machine';
@@ -355,9 +359,9 @@ export function renderHtml(report: Report): string {
     }
     function renderMethod() {
       renderCounting();
-      const shareable = data.privacy.mode === 'shareable' ? 'Shareable export: names, paths, and IDs are replaced with aliases. ' : '';
-      const base = activeMeasure !== 'estimate' ? '' : data.measurement.accuracy === 'estimate' ? 'Estimate: UTF-8 bytes ÷ 4 per file. ' : data.measurement.label + ', counted on this machine. ';
-      $('method').textContent = shareable + base + 'Text stored in Git, not what an agent session loads.';
+      // A provider view's own count is described by its row and the note below the table.
+      $('method').hidden = activeMeasure !== 'estimate';
+      $('method').textContent = data.measurement.accuracy === 'estimate' ? 'Estimate: UTF-8 bytes ÷ 4 per file.' : data.measurement.label + ', counted on this machine.';
       const label = measureLabel();
       $('tokens-label').textContent = label.stat;
       $('compare-tokens-label').textContent = label.compare;

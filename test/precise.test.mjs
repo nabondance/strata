@@ -207,21 +207,15 @@ test("the HTML report describes the counting method in use and charts a provider
     // All files: the estimate, with each provider's method summarized.
     assert.equal(get("measure-switch").hidden, true);
     assert.equal(get("tokens-label").textContent, "Estimated tokens");
-    assert.equal(
-      get("method").textContent,
-      "Estimate: UTF-8 bytes ÷ 4 per file. Text stored in Git, not what an agent session loads.",
-    );
-    assert.equal(
-      get("counting-summary").textContent,
-      " · Claude exact (API) · Gemini exact (API) · Codex exact (local)",
-    );
+    assert.equal(get("method").textContent, "Estimate: UTF-8 bytes ÷ 4 per file.");
+    assert.equal(get("counting-summary").textContent, " · Claude API count · Gemini API count · Codex exact (local)");
 
     const rows = () =>
       get("counting-rows").children.map((row) =>
         row.children.map((cell) => cell.textContent || cell.children[0]?.textContent),
       );
     assert.equal(get("counting").hidden, false);
-    assert.deepEqual(rows()[0].slice(0, 2), ["Claude", "Exact · API"]);
+    assert.deepEqual(rows()[0].slice(0, 2), ["Claude", "API count"]);
     assert.equal(
       rows()[0][2],
       "claude-opus-5-5, counted by api.anthropic.com with signed-in Anthropic account (ant auth login)",
@@ -241,6 +235,7 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.equal(get("compare-tokens-label").textContent, "Claude API-counted tokens");
     assert.match(get("repo-meta").textContent, /Claude API-counted tokens under claude-opus-5-5$/);
     assert.equal(get("counting-note").textContent, "This view: Claude's own count.");
+    assert.equal(get("method").hidden, true);
     assert.equal(get("counting-rows").children[0].className, "active");
 
     // Switching back to the estimate restores its labels and helper.
@@ -632,10 +627,19 @@ test("blank instruction files count as zero without a request", async () => {
   const repo = fixture({ "CLAUDE.md": "", "AGENTS.md": "  \n\t\n" });
   try {
     const { files, fetchImpl } = countServer();
+    const notices = [];
     const report = await analyzeRepository(repo, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
+      onNotice: (line) => notices.push(line),
     });
     assert.equal(files().length, 0);
+    // The empty CLAUDE.md is not announced as sent; the whitespace-only AGENTS.md is read, then skipped.
+    assert.ok(
+      notices.includes(
+        "Sending 1 Claude instruction file version to api.anthropic.com to count with claude-opus-5-5, using signed-in Anthropic account (ant auth login).",
+      ),
+      notices.join("\n"),
+    );
     assert.equal(report.providerMeasurements[0].accuracy, "api-counted");
     assert.equal(expandRevisions(report)[0].providerTokenTotals.claude, 0);
   } finally {
@@ -804,6 +808,17 @@ test("a failed count names the provider's error reason, never its message", asyn
     fetchImpl: async () => new Response("<html>Forbidden</html>", { status: 403 }),
   }).catch((error) => error.message);
   assert.equal(unexplained, "gemini token count request failed with HTTP 403");
+  // The hint fits the endpoint, and only the hints Strata defines are used.
+  const failWith = (kind, reason) =>
+    countRemoteText("gemini", { ...method, kind }, "text", {
+      fetchImpl: async () => new Response(JSON.stringify({ error: { details: [{ reason }] } }), { status: 403 }),
+    }).catch((error) => error.message);
+  assert.match(
+    await failWith("gemini-api", "SERVICE_DISABLED"),
+    /\(SERVICE_DISABLED: enable the Gemini API \(generativelanguage/,
+  );
+  assert.match(await failWith("vertex", "SERVICE_DISABLED"), /\(SERVICE_DISABLED: enable the Vertex AI API/);
+  assert.match(await failWith("gemini-api", "constructor"), /HTTP 403 \(constructor\)$/);
 });
 
 test("the HTML report says per provider which one was counted exactly and which was estimated", async () => {
@@ -824,7 +839,7 @@ test("the HTML report says per provider which one was counted exactly and which 
     assert.deepEqual(rows[0], ["Claude", "Estimate", "no account or API key found"]);
     assert.deepEqual(rows[1], [
       "Gemini",
-      "Exact · API",
+      "API count",
       "gemini-3.8-flash, counted by generativelanguage.googleapis.com with GEMINI_API_KEY",
     ]);
     assert.match(get("counting-rows").children[0].title, /ANTHROPIC_API_KEY is not set/);
