@@ -101,6 +101,16 @@ export function renderHtml(report: Report): string {
     .notice summary { cursor: pointer; width: fit-content; }
     .notice summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .notice p { margin: 8px 0 0; }
+    .counting { max-width: 970px; margin: 0 0 18px; padding: 14px 16px; border: 1px solid var(--line); background: var(--sheet); font-size: 13px; }
+    .counting h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+    .counting table { width: auto; }
+    .counting td { padding: 5px 14px 5px 0; border: 0; vertical-align: baseline; }
+    .counting tr.active td:first-child { font-weight: 700; }
+    .counting .detail { color: var(--muted); overflow-wrap: anywhere; }
+    .counting .badge { display: inline-block; padding: 2px 8px; border: 1px solid currentColor; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .counting .badge.exact { color: var(--down); }
+    .counting .badge.estimate { color: var(--warn); }
+    .counting p { margin: 8px 0 0; color: var(--muted); }
     .warning { color: var(--warn); font-weight: 600; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
     .panel h2 { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .02em; line-height: 1.05; text-transform: uppercase; margin: 0 0 14px; }
@@ -214,6 +224,7 @@ export function renderHtml(report: Report): string {
   </header>
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
+    <section class="counting" id="counting" aria-labelledby="counting-heading" hidden><h2 id="counting-heading">How tokens are counted</h2><table><tbody id="counting-rows"></tbody></table><p id="counting-note"></p></section>
     <details class="notice"><summary>Stored in Git, not loaded session context · how this is measured</summary><p id="method"></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
@@ -329,7 +340,37 @@ export function renderHtml(report: Report): string {
       const name = providerNames[activeMeasure];
       return { stat: name + ' ' + kind + ' tokens', compare: name + ' ' + kind + ' tokens', meta: name + ' ' + kind + ' tokens under ' + measured.model };
     }
+    /** One short line per provider: how its files were counted and, for the estimate, why. */
+    function renderCounting() {
+      const measurements = data.providerMeasurements ?? [];
+      $('counting').hidden = !measurements.length;
+      if (!measurements.length) return;
+      $('counting-rows').replaceChildren(...measurements.map((measured) => {
+        const row = document.createElement('tr');
+        if (measured.provider === activeMeasure) row.className = 'active';
+        const exact = measured.accuracy !== 'estimate';
+        const badge = text('span', measured.accuracy === 'api-counted' ? 'Exact · API' : exact ? 'Exact · local' : 'Estimate', 'badge ' + (exact ? 'exact' : 'estimate'));
+        const sentTo = measured.alsoSentTo?.length ? 'text was also sent to ' + measured.alsoSentTo.join(' and ') + ', but that count failed' : '';
+        const failed = measured.fallbacks?.some((reason) => / failed: /.test(reason));
+        const detail = measured.accuracy === 'estimate'
+          ? ['UTF-8 bytes ÷ 4', sentTo || (failed ? 'the count request failed' : 'no account or API key found')]
+          : measured.recipient
+            ? [measured.model, 'counted by ' + measured.recipient, measured.credential, sentTo]
+            : [measured.model + ' encoding', 'counted on this machine, nothing sent'];
+        const cells = [text('td', providerNames[measured.provider]), document.createElement('td'), text('td', detail.filter(Boolean).join(' · '), 'detail')];
+        cells[1].append(badge);
+        if (measured.fallbacks?.length) cells[2].title = measured.fallbacks.join('\\n');
+        row.append(...cells);
+        return row;
+      }));
+      $('counting-note').textContent = activeView === 'all'
+        ? 'All files adds providers together, so its totals use the estimate for everyone. Open a provider tab to see its own counts.'
+        : activeMeasure === 'estimate'
+          ? 'This view uses the estimate.'
+          : 'This view uses ' + providerNames[activeMeasure] + "'s own counts.";
+    }
     function renderMethod() {
+      renderCounting();
       const shareable = data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '';
       const providers = (data.providerMeasurements ?? []).map(describeMeasurement).join(' ');
       if (activeMeasure === 'estimate') {
