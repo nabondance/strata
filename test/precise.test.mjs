@@ -216,11 +216,18 @@ test("the HTML report describes the counting method in use and charts a provider
     );
     assert.match(get("method").textContent, /Codex: exact \(local encoding\) with gpt-5 .*counted on this machine/);
 
-    const rows = () => get("counting-rows").children.map((row) => row.children.map((cell) => cell.textContent || cell.children[0]?.textContent));
+    const rows = () =>
+      get("counting-rows").children.map((row) =>
+        row.children.map((cell) => cell.textContent || cell.children[0]?.textContent),
+      );
     assert.equal(get("counting").hidden, false);
     assert.deepEqual(rows()[0].slice(0, 2), ["Claude", "Exact · API"]);
     assert.match(rows()[0][2], /^claude-opus-5-5 · counted by api\.anthropic\.com · signed-in Anthropic account/);
-    assert.deepEqual(rows().at(-1), ["Codex", "Exact · local", "gpt-5 encoding · counted on this machine, nothing sent"]);
+    assert.deepEqual(rows().at(-1), [
+      "Codex",
+      "Exact · local",
+      "gpt-5 encoding · counted on this machine, nothing sent",
+    ]);
     assert.match(get("counting-note").textContent, /^All files adds providers together/);
 
     // The Claude tab opens on Claude's API counts and says so.
@@ -802,7 +809,11 @@ test("the HTML report says per provider which one was counted exactly and which 
   try {
     const { fetchImpl } = countServer();
     const report = await analyzeRepository(repo, {
-      providerPlan: resolvePrecisePlan({ env: { ...noKeys, GEMINI_API_KEY: "gemini-test-key" }, run: () => "missing", fetchImpl }),
+      providerPlan: resolvePrecisePlan({
+        env: { ...noKeys, GEMINI_API_KEY: "gemini-test-key" },
+        run: () => "missing",
+        fetchImpl,
+      }),
     });
     const get = runReport(renderHtml(report));
     const rows = get("counting-rows").children.map((row) =>
