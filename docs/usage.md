@@ -67,6 +67,17 @@ For pull requests, the opt-in [composite Action](pr-action.md) runs the same com
 
 The default `--tokenizer estimate` divides instructional text's UTF-8 byte length by four. For offline OpenAI text-encoding counts, use `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`, or select a supported model with `--model gpt-4o` (also `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`). Use either `--model` or `--tokenizer`, not both. The chosen method applies consistently across the history and measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
 
+### Precise counts
+
+`strata analyze --precise` counts each provider's instructions with the most precise method it can find, with no other flag:
+
+1. **A signed-in account.** For Claude, an `ant auth login` profile from the [Anthropic CLI](https://github.com/anthropics/anthropic-cli). For Gemini, a `gcloud` account with a project set (`gcloud config set project`, or `GOOGLE_CLOUD_PROJECT`), counted through Vertex AI in `GOOGLE_CLOUD_LOCATION` (default `global`).
+2. **An API key** in the environment: `ANTHROPIC_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+3. **A local exact tokenizer.** Codex instructions always use the OpenAI encoding of `--codex-model` (default `gpt-5`) and are never sent. Claude and Gemini have none.
+4. **The byte estimate.**
+
+The defaults are `claude-opus-5-5` and `gemini-3.8-flash`; override them with `--claude-model` and `--gemini-model`. **What leaves the machine:** when step 1 or 2 applies, Strata sends the text of each recognized Claude or Gemini instruction file version to that provider's token-count endpoint. Before it does, it prints the host and the number of file versions; the run ends with each provider's method and anything it skipped. Settings, skill resources, and Codex files are never sent. Without `--precise`, nothing is sent. Reports record the method, its accuracy, the credential source, and the receiving host, never a key or token. The older `--provider-api` flag still works but is deprecated.
+
 ## Shareable reports
 
 For HTML or JSON analysis output, `--shareable` replaces repository and branch names, file paths, skill directory names, commit IDs, and blob IDs with deterministic aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.

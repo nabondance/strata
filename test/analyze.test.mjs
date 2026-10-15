@@ -366,7 +366,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 10);
+    assert.equal(providerApiReport.schemaVersion, 11);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -408,7 +408,10 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!providerJson.includes("anthropic-test-key"));
     assert.ok(!providerJson.includes("gemini-test-key"));
     assert.ok(!providerJson.includes("Shared project instructions."));
-    assert.match(renderHtml(providerApiReport), /Claude and Gemini counts were sent to their provider APIs/);
+    assert.match(
+      renderHtml(providerApiReport),
+      /Claude text was sent to api.anthropic.com; Gemini text was sent to generativelanguage.googleapis.com/,
+    );
     // The per-provider columns are the point of this mode, so their table starts open.
     assert.match(renderHtml(providerApiReport), /<details class="panel" id="files-panel" open>/);
     assert.match(renderHtml(report), /<details class="panel" id="files-panel">/);
@@ -464,7 +467,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 10);
+    assert.equal(report.schemaVersion, 11);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -830,7 +833,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 10);
+    assert.equal(openAiReport.schemaVersion, 11);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -881,7 +884,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 10],
+      ["gpt-4o", "o200k_base", 11],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,

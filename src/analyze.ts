@@ -12,19 +12,18 @@ import {
   toComponent,
   trackedFile,
 } from "./inventory.js";
-import {
-  createMeasurer,
-  type MeasurementMode,
-  type Measurer,
-  modeForModel,
-  tiktokenImplementation,
-} from "./measurement.js";
+import { createMeasurer, type MeasurementMode, modeForModel } from "./measurement.js";
 import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
 import {
-  countProviderText,
+  type CountMethod,
+  countRemoteText,
+  describeMethod,
   type ProviderCountOptions,
+  type ProviderCountPlan,
+  type ProviderMeasurementMetadata,
   type ProviderTextCount,
-  providerMeasurementMetadata,
+  providerApiPlan,
+  type RemoteProvider,
 } from "./provider-count.js";
 import { providerReads } from "./provider-view.js";
 
@@ -40,7 +39,12 @@ export interface AnalysisOptions {
   onProgress?: (progress: AnalysisProgress) => void;
   mode?: MeasurementMode;
   model?: string | null;
+  /** `--provider-api`: explicit models and API keys, failing rather than falling back. */
   providerCounts?: ProviderCountOptions;
+  /** `--precise`: each provider's counting methods, most precise first. */
+  providerPlan?: ProviderCountPlan;
+  /** Called with a line for a person, such as which host is about to receive instruction text. */
+  onNotice?: (line: string) => void;
 }
 
 /** What one commit changed, relative to its first parent, among recognized paths. */
@@ -189,7 +193,11 @@ const countedOrder = ["claude", "gemini", "codex"] as const satisfies readonly C
  * context file is counted for Gemini only when its blob is present in some revision whose settings
  * make Gemini read it, so versions Gemini never reads are not sent to its API.
  */
-function countedProviders(file: TrackedFile, codex: boolean, geminiBlobs: Set<string>): CountedProvider[] {
+function countedProviders(
+  file: TrackedFile,
+  counted: readonly CountedProvider[],
+  geminiBlobs: Set<string>,
+): CountedProvider[] {
   const { provider, instructionalText, readers = [], contextFile } = file.classification;
   if (!instructionalText) return [];
   const read = new Set(provider === "shared" ? readers : [provider]);
@@ -197,7 +205,7 @@ function countedProviders(file: TrackedFile, codex: boolean, geminiBlobs: Set<st
     if (geminiBlobs.has(file.blob)) read.add("gemini");
     else read.delete("gemini");
   }
-  return countedOrder.filter((counted) => read.has(counted) && (counted !== "codex" || codex));
+  return counted.filter((provider) => read.has(provider));
 }
 
 /** Resolve each distinct root Gemini settings blob to the context files it configures. */
@@ -240,65 +248,59 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
   return read;
 }
 
-/** Count each distinct provider/blob pair once across the history, with bounded request concurrency. */
-async function countProviderBlobs(
+/** Count one provider's distinct blobs with one method, with bounded request concurrency. */
+async function countWithMethod(
   root: string,
-  files: TrackedFile[],
+  provider: CountedProvider,
+  method: Exclude<CountMethod, { kind: "unavailable" }>,
+  wanted: Map<string, string>,
   measured: Map<string, BlobMeasurement>,
-  options: ProviderCountOptions,
-  codexMeasurer: Measurer | null,
-  geminiBlobs: Set<string>,
+  fetchImpl: typeof fetch | undefined,
 ): Promise<Map<string, ProviderTextCount>> {
-  const wanted = new Map<string, { path: string; providers: Set<CountedProvider> }>();
-  for (const file of files) {
-    const providers = countedProviders(file, codexMeasurer !== null, geminiBlobs);
-    if (!providers.length) continue;
-    let entry = wanted.get(file.blob);
-    if (!entry) {
-      entry = { path: file.path, providers: new Set() };
-      wanted.set(file.blob, entry);
-    }
-    for (const provider of providers) entry.providers.add(provider);
-  }
-
+  const local = method.kind === "local" ? createMeasurer(modeForModel(method.model), method.model) : null;
+  const labels = describeMethod(method, local?.measurement.encoding ?? undefined);
+  const count = (tokens: number): ProviderTextCount => ({
+    tokens,
+    provider,
+    model: labels.model,
+    method: labels.method,
+    version: labels.version,
+    accuracy: labels.accuracy,
+  });
   const counts = new Map<string, ProviderTextCount>();
+  if (method.kind === "estimate") {
+    for (const blob of wanted.keys()) counts.set(blob, count(Math.ceil(measured.get(blob)!.bytes / 4)));
+    return counts;
+  }
+  const remote = method.kind === "local" ? null : method;
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const running = new Set<Promise<void>>();
   let failure: Error | undefined;
   for (const [blob, body] of readBlobs(root, [...wanted.keys()], (id) => measured.get(id)?.bytes ?? 0)) {
-    const { path, providers } = wanted.get(blob)!;
-    for (const provider of providers) {
-      const fail = (error: unknown) => {
-        failure ??= new Error(
-          `Could not count ${provider} instructions at ${path}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      };
-      try {
-        if (provider === "codex") {
-          const model = options.codexModel!;
-          counts.set(`${provider}\0${blob}`, {
-            tokens: codexMeasurer!.count(body),
-            provider,
-            model,
-            method: `${tiktokenImplementation}: ${model} → ${codexMeasurer!.measurement.encoding}, counted per instructional file`,
-            version: tiktokenImplementation,
-            accuracy: "encoding-exact",
-          });
-          continue;
-        }
-        const model = provider === "claude" ? options.claudeModel : options.geminiModel;
-        const task: Promise<void> = countProviderText(provider, model, decoder.decode(body), options)
-          .then((count) => {
-            counts.set(`${provider}\0${blob}`, count);
-          }, fail)
-          .finally(() => running.delete(task));
-        running.add(task);
-      } catch (error) {
-        fail(error);
+    const fail = (error: unknown) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      failure ??= Object.assign(
+        new Error(`Could not count ${provider} instructions at ${wanted.get(blob)}: ${reason}`),
+        {
+          reason,
+        },
+      );
+    };
+    try {
+      if (!remote) {
+        counts.set(blob, count(local!.count(body)));
+        continue;
       }
-      if (running.size >= providerRequestConcurrency) await Promise.race(running);
-      if (failure) break;
+      const task: Promise<void> = countRemoteText(provider as RemoteProvider, remote, decoder.decode(body), fetchImpl)
+        .then((tokens) => {
+          counts.set(blob, count(tokens));
+        }, fail)
+        .finally(() => running.delete(task));
+      running.add(task);
+    } catch (error) {
+      fail(error);
     }
+    if (running.size >= providerRequestConcurrency) await Promise.race(running);
     if (failure) break;
   }
   await Promise.all(running);
@@ -306,15 +308,79 @@ async function countProviderBlobs(
   return counts;
 }
 
+/**
+ * Count each provider's distinct blobs once across the history. A provider's methods are tried in
+ * order; if one fails, its partial counts are discarded and the next is tried, so one provider's
+ * counts never mix methods. The last method's failure is fatal.
+ */
+async function countProviderBlobs(
+  root: string,
+  files: TrackedFile[],
+  measured: Map<string, BlobMeasurement>,
+  plan: ProviderCountPlan,
+  geminiBlobs: Set<string>,
+  onNotice: ((line: string) => void) | undefined,
+): Promise<{ counts: Map<string, ProviderTextCount>; metadata: ProviderMeasurementMetadata[] }> {
+  const counted = countedOrder.filter((provider) => plan.methods[provider]?.length);
+  const wanted = new Map<CountedProvider, Map<string, string>>(counted.map((provider) => [provider, new Map()]));
+  for (const file of files) {
+    for (const provider of countedProviders(file, counted, geminiBlobs)) {
+      const blobs = wanted.get(provider)!;
+      if (!blobs.has(file.blob)) blobs.set(file.blob, file.path);
+    }
+  }
+
+  const counts = new Map<string, ProviderTextCount>();
+  const metadata: ProviderMeasurementMetadata[] = [];
+  for (const provider of counted) {
+    const blobs = wanted.get(provider)!;
+    const methods = plan.methods[provider]!;
+    const fallbacks: string[] = [];
+    let last: Error | undefined;
+    for (const method of methods) {
+      if (method.kind === "unavailable") {
+        fallbacks.push(method.reason);
+        continue;
+      }
+      const labels = describeMethod(method, method.kind === "local" ? encodingFor(method.model) : undefined);
+      if (labels.recipient && blobs.size) {
+        onNotice?.(
+          `Sending ${blobs.size} ${providerName[provider]} instruction file version${blobs.size === 1 ? "" : "s"} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}.`,
+        );
+      }
+      try {
+        for (const [blob, count] of await countWithMethod(root, provider, method, blobs, measured, plan.fetchImpl)) {
+          counts.set(`${provider}\0${blob}`, count);
+        }
+        metadata.push({ provider, ...labels, ...(fallbacks.length ? { fallbacks } : {}) });
+        last = undefined;
+        break;
+      } catch (error) {
+        last = error instanceof Error ? error : new Error(String(error));
+        // The reason omits the path, so a shareable report's fallbacks do not reveal one.
+        const reason = (last as Error & { reason?: string }).reason ?? last.message;
+        fallbacks.push(`${labels.credential ?? labels.method} failed: ${reason}`);
+        if (method !== methods.at(-1)) onNotice?.(`${last.message}; trying the next method.`);
+      }
+    }
+    if (last) throw last;
+  }
+  return { counts, metadata };
+}
+
+const providerName: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
+
+function encodingFor(model: string): string {
+  return modeForModel(model).replace("openai-", "");
+}
+
 export async function analyzeRepository(repoPath: string, options: AnalysisOptions = {}): Promise<Report> {
-  const { onProgress, mode = "estimate", model = null, providerCounts } = options;
-  if (providerCounts && mode !== "estimate") {
-    throw new Error("Provider API counts accompany the default estimate; do not combine them with another tokenizer");
+  const { onProgress, onNotice, mode = "estimate", model = null } = options;
+  const plan = options.providerPlan ?? (options.providerCounts ? providerApiPlan(options.providerCounts) : undefined);
+  if (plan && mode !== "estimate") {
+    throw new Error("Provider counts accompany the default estimate; do not combine them with another tokenizer");
   }
   const measurer = createMeasurer(mode, model);
-  const codexMeasurer = providerCounts?.codexModel
-    ? createMeasurer(modeForModel(providerCounts.codexModel), providerCounts.codexModel)
-    : null;
   const root = gitText(resolve(repoPath), ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
   const shallow = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
@@ -332,10 +398,9 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const written = deltas.flatMap((delta) => delta.written);
   const measured = measureBlobs(root, written, measurer);
   const configured = geminiSettings(root, written, measured);
-  const geminiBlobs = providerCounts ? geminiReadBlobs(deltas, configured) : new Set<string>();
-  const providerBlobCounts = providerCounts
-    ? await countProviderBlobs(root, written, measured, providerCounts, codexMeasurer, geminiBlobs)
-    : null;
+  const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
+  const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;
+  const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
 
   // Each distinct file version is stored once; revisions refer to it by index.
   const table: Component[] = [];
@@ -345,9 +410,9 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     let index = tableIndex.get(key);
     if (index === undefined) {
       const providerTokenCounts: NonNullable<Component["providerTokenCounts"]> = {};
-      if (providerBlobCounts) {
-        for (const provider of countedProviders(file, codexMeasurer !== null, geminiBlobs)) {
-          providerTokenCounts[provider] = providerBlobCounts.get(`${provider}\0${file.blob}`)!;
+      if (provided) {
+        for (const provider of countedProviders(file, countedByPlan, geminiBlobs)) {
+          providerTokenCounts[provider] = provided.counts.get(`${provider}\0${file.blob}`)!;
         }
       }
       index = table.push(toComponent(file, measured.get(file.blob)!, providerTokenCounts)) - 1;
@@ -393,7 +458,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       firstParent,
       ...summarize(components),
       changes,
-      ...(providerCounts ? { providerTokenTotals } : {}),
+      ...(plan ? { providerTokenTotals } : {}),
       ...(geminiContext ? { geminiContextFiles: geminiContext } : {}),
     });
   }
@@ -409,13 +474,13 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 10,
+    schemaVersion: 11,
     repository: basename(root),
     branch,
     shallow,
     privacy: { mode: "local" },
     measurement: measurer.measurement,
-    ...(providerCounts ? { providerMeasurements: providerMeasurementMetadata(providerCounts) } : {}),
+    ...(provided ? { providerMeasurements: provided.metadata } : {}),
     components: order.map((index) => table[index]!),
     revisions,
   };

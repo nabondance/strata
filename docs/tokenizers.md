@@ -10,15 +10,17 @@ OpenAI/Codex local counts use `js-tiktoken@1.0.21`. `--tokenizer openai-cl100k_b
 
 All default and local methods run offline. They do not send Git content to a service.
 
-## Explicit provider API mode
+## Precise mode
 
-`strata analyze --provider-api --claude-model <model> --gemini-model <model>` opts into sending recognized Claude and Gemini instructional text to provider endpoints. Set `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` (or `GOOGLE_API_KEY`). `--codex-model <openai-model>` optionally adds a local OpenAI encoding count for Codex instructions. The provider models must be named explicitly; Strata does not infer a model from file paths.
+`strata analyze --precise` opts into sending recognized Claude and Gemini instructional text to provider endpoints when it finds a credential, trying a signed-in account (`ant auth login` for Claude; `gcloud` with a project, through Vertex AI, for Gemini), then an API key (`ANTHROPIC_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`), then the byte estimate. Codex is always counted locally with `--codex-model`'s encoding (default `gpt-5`). Models default to `claude-opus-5-5` and `gemini-3.8-flash`; Strata does not infer a model from file paths. [The decision record](decisions.md#measurement) gives the full fallback order and why Claude Code, Gemini CLI, and ChatGPT sign-ins are not used.
 
-Claude text is sent in one user message to [Anthropic's Messages count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens). Gemini text is sent as one user content to [Gemini's `models.countTokens` endpoint](https://ai.google.dev/api/tokens). The report labels every count with its provider, model, request shape/method, API or library version, and accuracy (`api-counted` or `encoding-exact`). API counts reflect those submitted text wrappers, not actual agent context or billing.
+The deprecated `strata analyze --provider-api --claude-model <model> --gemini-model <model>` requires both API keys and fails instead of falling back.
+
+Claude text is sent in one user message to [Anthropic's Messages count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens). Gemini text is sent as one user content to [Gemini's `models.countTokens` endpoint](https://ai.google.dev/api/tokens) or, with a `gcloud` account, [Vertex AI's `countTokens`](https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/count-tokens). The report labels every count with its provider, model, request shape/method, API or library version, and accuracy (`api-counted`, `encoding-exact`, or `estimate`). API counts reflect those submitted text wrappers, not actual agent context or billing.
 
 Shared instruction candidates are counted separately for each selected provider that reads them: `AGENTS.md` for Claude and Codex; `.agents/skills` manifests for Gemini and Codex. Gemini counts for `AGENTS.md` and `GEMINI.md` follow `.gemini/settings.json` `context.fileName` (default: `GEMINI.md` only): a version is sent to Gemini only if a revision where Gemini reads it contains it, and a revision's Gemini total includes it only while Gemini reads it. Per-provider counts and revision totals remain separate; Strata does not add heterogeneous token counts. The legacy `estimatedTokens` value and timeline remain the default comparison estimate in this mode. The HTML inventory displays separate provider columns, and JSON stores a count object for each provider on each recognized instructional component.
 
-Counts are cached by provider, model, and Git blob within one run. Structured settings and source-only skill resources are never submitted. Source text is not embedded in HTML or JSON. `strata diff` remains local-only. `--shareable` reduces identifiers in the report but does not prevent transfer when provider API mode is selected.
+Counts are cached by provider, model, and Git blob within one run. Structured settings and source-only skill resources are never submitted. Source text is not embedded in HTML or JSON. `strata diff` remains local-only. `--shareable` reduces identifiers in the report but does not prevent transfer when precise or provider API mode is selected.
 
 ## Evidence and limits
 

@@ -10,10 +10,13 @@ import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
 import { type MeasurementMode, modeForModel, modelEncodings } from "./measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
+import { defaultModels, resolvePrecisePlan } from "./precise.js";
 import { redactReport } from "./privacy.js";
-import type { ProviderCountOptions } from "./provider-count.js";
+import type { CountedProvider, ProviderCountOptions, ProviderCountPlan } from "./provider-count.js";
 import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
+
+const providerLabel: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
 
 /** A mistake in how the command was invoked. Exits with status 2; other failures exit with 1. */
 class UsageError extends Error {}
@@ -46,7 +49,7 @@ Options:
   -V, --version          Show the version
 
 Strata reads Git-tracked Claude, Codex, and Gemini CLI configuration from first-parent history.
-It never modifies the repository and sends nothing over the network unless --provider-api is set.
+It never modifies the repository and sends nothing over the network unless --precise is set.
 `,
   analyze: `Usage:
   strata analyze [repository] [options]
@@ -64,13 +67,19 @@ Output:
 
 ${measurementHelp}
 
-Provider API counts (opt-in content transfer):
-      --provider-api         Send recognized Claude and Gemini instruction text to their
-                             token-count APIs. Requires --claude-model, --gemini-model,
-                             ANTHROPIC_API_KEY, and GEMINI_API_KEY (or GOOGLE_API_KEY).
-      --claude-model <name>  Claude model to count with
-      --gemini-model <name>  Gemini model to count with
-      --codex-model <name>   Add a local OpenAI encoding count for Codex instructions
+Precise counts (opt-in content transfer):
+      --precise              Count each provider's instructions with the most precise method
+                             available: a signed-in account (ant auth login for Claude, gcloud
+                             for Gemini on Vertex AI), then an API key (ANTHROPIC_API_KEY,
+                             GEMINI_API_KEY or GOOGLE_API_KEY), then the estimate. Claude and
+                             Gemini instruction text is sent to that provider's token-count API
+                             when an account or key is found; the run says what went where.
+                             Codex instructions are counted locally and never sent.
+      --claude-model <name>  Claude model to count with (default: ${defaultModels.claude})
+      --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})
+      --codex-model <name>   OpenAI model whose encoding counts Codex (default: ${defaultModels.codex})
+      --provider-api         Deprecated: use --precise. Requires both model flags and API keys,
+                             and fails instead of falling back.
 
   -h, --help                 Show this help
 
@@ -212,6 +221,7 @@ async function analyze(args: string[]): Promise<void> {
     quiet: { type: "boolean", short: "q" },
     tokenizer: { type: "string" },
     model: { type: "string" },
+    precise: { type: "boolean" },
     "provider-api": { type: "boolean" },
     "claude-model": { type: "string" },
     "gemini-model": { type: "string" },
@@ -227,9 +237,20 @@ async function analyze(args: string[]): Promise<void> {
   const measurement = measurementArguments(values);
 
   let providerCounts: ProviderCountOptions | undefined;
-  if (values["provider-api"]) {
-    if (values.model !== undefined || values.tokenizer !== undefined)
-      throw new UsageError("Choose either --provider-api or --model/--tokenizer");
+  let providerPlan: ProviderCountPlan | undefined;
+  if (values.precise && values["provider-api"]) throw new UsageError("Choose either --precise or --provider-api");
+  if ((values.precise || values["provider-api"]) && (values.model !== undefined || values.tokenizer !== undefined))
+    throw new UsageError(`Choose either ${values.precise ? "--precise" : "--provider-api"} or --model/--tokenizer`);
+  const codexModel = values["codex-model"];
+  if (values.precise) {
+    if (codexModel) measurementArguments({ model: codexModel });
+    providerPlan = resolvePrecisePlan({
+      ...(values["claude-model"] ? { claudeModel: values["claude-model"] } : {}),
+      ...(values["gemini-model"] ? { geminiModel: values["gemini-model"] } : {}),
+      ...(codexModel ? { codexModel } : {}),
+    });
+  } else if (values["provider-api"]) {
+    process.stderr.write("Warning: --provider-api is deprecated; use --precise.\n");
     const claudeModel = values["claude-model"];
     const geminiModel = values["gemini-model"];
     if (!claudeModel || !geminiModel)
@@ -238,17 +259,19 @@ async function analyze(args: string[]): Promise<void> {
     const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!anthropicApiKey) throw new UsageError("--provider-api requires ANTHROPIC_API_KEY");
     if (!geminiApiKey) throw new UsageError("--provider-api requires GEMINI_API_KEY (or GOOGLE_API_KEY)");
-    const codexModel = values["codex-model"];
     if (codexModel) measurementArguments({ model: codexModel });
     providerCounts = { claudeModel, geminiModel, anthropicApiKey, geminiApiKey, ...(codexModel ? { codexModel } : {}) };
-  } else if (values["claude-model"] || values["gemini-model"] || values["codex-model"]) {
-    throw new UsageError("--claude-model, --gemini-model, and --codex-model require --provider-api");
+  } else if (values["claude-model"] || values["gemini-model"] || codexModel) {
+    throw new UsageError("--claude-model, --gemini-model, and --codex-model require --precise");
   }
 
   const analyzed = await analyzeRepository(repository, {
     ...measurement,
     ...(values.quiet ? {} : { onProgress: progressReporter() }),
     ...(providerCounts ? { providerCounts } : {}),
+    ...(providerPlan ? { providerPlan } : {}),
+    // Notices about content leaving the machine are shown even with --quiet.
+    onNotice: (line) => process.stderr.write(`${line}\n`),
   });
   const report = values.shareable ? redactReport(analyzed) : analyzed;
   const content =
@@ -268,6 +291,15 @@ async function analyze(args: string[]): Promise<void> {
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
   );
+  for (const measured of report.providerMeasurements ?? []) {
+    const total = latest?.providerTokenTotals?.[measured.provider] ?? 0;
+    const how =
+      measured.accuracy === "estimate"
+        ? "byte estimate"
+        : `${measured.accuracy} with ${measured.model}${measured.credential ? ` via ${measured.credential}` : ""}`;
+    say(`${providerLabel[measured.provider]}: ${total} tokens latest, ${how}.`);
+    for (const reason of measured.fallbacks ?? []) say(`  Skipped: ${reason}.`);
+  }
   if (toStdout) {
     process.stdout.write(content);
   } else {

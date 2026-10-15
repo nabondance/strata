@@ -182,7 +182,7 @@ test("command line follows common conventions", () => {
       [["analyze", repo, "--minimal"], /--minimal requires --format svg/],
       [["analyze", repo, "--output"], /--output/],
       [["analyze", repo, "--open", "--output", "-"], /--open requires a report file/],
-      [["analyze", repo, "--claude-model", "x"], /require --provider-api/],
+      [["analyze", repo, "--claude-model", "x"], /require --precise/],
       [["diff", repo, "--base", base], /requires --base <commit> and --head <commit>/],
       [["diff", repo, "--base", base, "--head", head, "--format", "html"], /--format must be markdown or json/],
       [["diff", repo, "--base", "main", "--head", head], /full Git commit IDs, not main/],

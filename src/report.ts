@@ -37,8 +37,22 @@ export function renderHtml(report: Report): string {
   const viewSource = viewRevision.toString();
   const readsSource = providerReads.toString();
   const timelineSource = timelineBuckets.toString();
-  const providerColumns = report.providerMeasurements
-    ? '<th class="num">Claude API</th><th class="num">Gemini API</th><th class="num">Codex / OpenAI local</th>'
+  const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
+  const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
+  const providerColumns = (report.providerMeasurements ?? [])
+    .map(
+      (measured) =>
+        `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerNames[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
+    )
+    .join("");
+  const sentTo = (report.providerMeasurements ?? []).filter((measured) => measured.recipient);
+  const fellBack = (report.providerMeasurements ?? []).filter((measured) => measured.fallbacks?.length);
+  const providerNote = report.providerMeasurements
+    ? `Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. ${
+        sentTo.length
+          ? `${sentTo.map((measured) => `${providerNames[measured.provider]} text was sent to ${escapeHtml(measured.recipient!)}`).join("; ")}.`
+          : "No instruction text was sent to a provider."
+      }${fellBack.map((measured) => ` ${providerNames[measured.provider]} fell back to ${accuracyLabels[measured.accuracy]}: ${escapeHtml(measured.fallbacks!.join("; "))}.`).join("")}`
     : "";
 
   return `<!doctype html>
@@ -234,7 +248,7 @@ export function renderHtml(report: Report): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
-      ${report.providerMeasurements ? `<p class="muted provider-note">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
+      ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
   </main>
@@ -250,7 +264,7 @@ export function renderHtml(report: Report): string {
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
-    const providerColumns = data.providerMeasurements ? ['claude', 'gemini', 'codex'] : [];
+    const providerColumns = (data.providerMeasurements ?? []).map((measured) => measured.provider);
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};
     const $ = (id) => document.getElementById(id);
@@ -497,7 +511,7 @@ export function renderHtml(report: Report): string {
           // A Gemini context file has a Gemini count only for revisions whose settings make Gemini read it.
           const count = providerReads(component, provider, revision.geminiContextFiles) ? component.providerTokenCounts?.[provider] : undefined;
           const cell = text('td', count ? fmt(count.tokens) : '—', 'num');
-          if (count) cell.title = count.accuracy + ' · ' + count.model + ' · ' + count.method + ' · ' + count.version;
+          if (count) cell.title = [count.accuracy, count.model, count.method, count.version].filter(Boolean).join(' · ');
           row.append(cell);
         }
         files.append(row);

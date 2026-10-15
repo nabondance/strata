@@ -73,7 +73,7 @@ export interface RevisionSnapshot extends Revision {
 }
 
 export interface Report {
-  schemaVersion: 10;
+  schemaVersion: 11;
   repository: string;
   branch: string;
   shallow: boolean;
