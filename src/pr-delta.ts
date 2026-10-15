@@ -3,7 +3,12 @@ import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, listTree } from "./git.js";
 import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
-import type { CountedProvider, ProviderCountPlan, ProviderMeasurementMetadata } from "./provider-count.js";
+import {
+  type CountedProvider,
+  type ProviderCountPlan,
+  type ProviderMeasurementMetadata,
+  textRecipients,
+} from "./provider-count.js";
 import { countProviderBlobs, geminiSettings, providerName } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
 
@@ -151,16 +156,16 @@ function providerLines(delta: PullRequestDelta): string[] {
       ? ""
       : measured.accuracy === "estimate"
         ? "byte estimate"
-        : `${measured.accuracy}, ${measured.model}${measured.recipient ? ` via ${measured.recipient}` : ", local"}`;
+        : `${measured.accuracy}, ${measured.model}${measured.recipient ? ` via ${measured.recipient}` : ", local"}${measured.wrapperTokens ? `, less a ${measured.wrapperTokens}-token message wrapper per file` : ""}`;
     lines.push(
       `| ${providerName[totals.provider]} | ${cell(how)} | ${totals.beforeTokens} | ${totals.afterTokens} | ${signed(totals.deltaTokens)} |`,
     );
   }
-  const sent = delta.providerMeasurements?.filter((measured) => measured.recipient) ?? [];
+  const sent = [...new Set((delta.providerMeasurements ?? []).flatMap(textRecipients))];
   lines.push(
     "",
     sent.length
-      ? `Provider counts are separate and not added together. Instruction text was sent for counting to ${sent.map((measured) => cell(measured.recipient!)).join(" and ")}.`
+      ? `Provider counts are separate and not added together. Instruction text was sent for counting to ${sent.map(cell).join(" and ")}.`
       : "Provider counts are separate and not added together. No instruction text was sent.",
     "",
   );

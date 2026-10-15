@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import type { CountCache, CountMethod, ProviderCountPlan } from "./provider-count.js";
 
 /** Models counted with when `--precise` is given no model flag. */
@@ -34,6 +35,9 @@ function runCommand(command: string, args: string[]): CommandResult {
     timeout: 20_000,
     stdio: ["ignore", "pipe", "ignore"],
     shell: process.platform === "win32",
+    // Outside the analyzed repository: Windows looks in the working directory before PATH, so a
+    // repository could otherwise supply its own `ant.cmd`.
+    cwd: homedir(),
   });
   // Without a shell, a missing program is ENOENT; through cmd.exe it is exit status 9009.
   if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return "missing";
@@ -42,10 +46,20 @@ function runCommand(command: string, args: string[]): CommandResult {
   return { output: result.stdout.trim() || null };
 }
 
+/** A credential must be one line of visible ASCII to travel in an HTTP header. */
+const headerSafe = (value: string) => /^[\x21-\x7e]+$/.test(value);
+
 /** A printed access token is one line without spaces or JSON; anything else is not trusted as one. */
 function token(result: CommandResult): string | null {
   const output = result === "missing" ? null : result.output;
-  return output && /^[\x21-\x7e]+$/.test(output) && !output.startsWith("{") ? output : null;
+  return output && headerSafe(output) && !output.startsWith("{") ? output : null;
+}
+
+/** An API key from the environment, or why it cannot be used. */
+function environmentKey(env: NodeJS.ProcessEnv, variable: string): { secret: string } | string {
+  const value = env[variable];
+  if (!value) return `${variable} is not set`;
+  return headerSafe(value) ? { secret: value } : `${variable} contains characters an HTTP header cannot carry`;
 }
 
 /**
@@ -55,7 +69,8 @@ function token(result: CommandResult): string | null {
  * account is used only through the provider's own CLI, which prints a short-lived access token;
  * Strata never reads credential files. Codex is always counted locally, because OpenAI's encodings
  * are available offline and exact for stored text. Each provider's methods are resolved only if the
- * history has instructions for it, so a repository without Gemini files never runs `gcloud`.
+ * history has instructions for it. Claude uses Vertex AI only without both an `ant` account and
+ * `ANTHROPIC_API_KEY`, so `gcloud` runs for a Claude-only repository only in that case.
  */
 export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountPlan {
   const env = options.env ?? process.env;
@@ -98,6 +113,18 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
     };
   };
 
+  /** Why `ant` gave no token: signed out, or another program named `ant`, such as Apache Ant. */
+  const signedOutAnt = (): string => {
+    const version = run("ant", ["--version"]);
+    if (version !== "missing" && /^ant version /.test(version.output ?? "")) {
+      return "no signed-in Anthropic account: run `ant auth login`";
+    }
+    const other = run("ant", ["-version"]);
+    return other !== "missing" && /Apache Ant/.test(other.output ?? "")
+      ? "the `ant` on PATH is Apache Ant, not the Anthropic CLI; install the Anthropic CLI (see https://github.com/anthropics/anthropic-cli) ahead of it on PATH and run `ant auth login`"
+      : "no signed-in Anthropic account: run `ant auth login`";
+  };
+
   const claudeMethods = (): CountMethod[] => {
     const claude: CountMethod[] = [];
     const ant = run("ant", ["auth", "print-credentials", "--access-token"]);
@@ -111,20 +138,22 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
         secret: antToken,
         credential: "signed-in Anthropic account (ant auth login)",
       });
-    else claude.push(unavailable("no signed-in Anthropic account: run `ant auth login`"));
-    // Claude on Vertex AI is for people who already use gcloud: it is tried only without an Anthropic
-    // account and only when gcloud is ready, so someone who only uses Claude is never asked about it.
-    const vertexClaude = antToken ? null : vertex("vertex-claude", claudeModel, null);
+    else claude.push(unavailable(signedOutAnt()));
+    const key = environmentKey(env, "ANTHROPIC_API_KEY");
+    // Claude on Vertex AI is for people who already use gcloud and have no Anthropic credential: it
+    // never takes text that an Anthropic account or key would count, and an unready gcloud is not
+    // mentioned to someone who only uses Claude.
+    const vertexClaude = antToken || typeof key !== "string" ? null : vertex("vertex-claude", claudeModel, null);
     if (vertexClaude && vertexClaude.kind !== "unavailable") claude.push(vertexClaude);
-    if (env.ANTHROPIC_API_KEY)
+    if (typeof key === "string") claude.push(unavailable(key));
+    else
       claude.push({
         kind: "anthropic",
         model: claudeModel,
         auth: "x-api-key",
-        secret: env.ANTHROPIC_API_KEY,
+        secret: key.secret,
         credential: "ANTHROPIC_API_KEY",
       });
-    else claude.push(unavailable("ANTHROPIC_API_KEY is not set"));
     claude.push(unavailable("no local exact Claude tokenizer exists"));
     claude.push({ kind: "estimate" });
     return claude;
@@ -133,14 +162,11 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
   const geminiMethods = (): CountMethod[] => {
     const gemini: CountMethod[] = [vertex("vertex", geminiModel, installHints.gcloud)!];
     const geminiKeyVariable = env.GEMINI_API_KEY ? "GEMINI_API_KEY" : env.GOOGLE_API_KEY ? "GOOGLE_API_KEY" : null;
-    if (geminiKeyVariable)
-      gemini.push({
-        kind: "gemini-api",
-        model: geminiModel,
-        secret: env[geminiKeyVariable]!,
-        credential: geminiKeyVariable,
-      });
-    else gemini.push(unavailable("GEMINI_API_KEY and GOOGLE_API_KEY are not set"));
+    const key = geminiKeyVariable
+      ? environmentKey(env, geminiKeyVariable)
+      : "GEMINI_API_KEY and GOOGLE_API_KEY are not set";
+    if (typeof key === "string") gemini.push(unavailable(key));
+    else gemini.push({ kind: "gemini-api", model: geminiModel, secret: key.secret, credential: geminiKeyVariable! });
     gemini.push(unavailable("no local exact Gemini tokenizer exists"));
     gemini.push({ kind: "estimate" });
     return gemini;

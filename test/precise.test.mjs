@@ -211,7 +211,7 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.match(get("method").textContent, /^Estimated stored-text tokens — utf8-bytes-divided-by-four-v1/);
     assert.match(
       get("method").textContent,
-      /Claude: API-counted with claude-opus-5-5 .*counted by api\.anthropic\.com using signed-in Anthropic account \(ant auth login\), less the 2-token message wrapper/,
+      /Claude: API-counted with claude-opus-5-5 — .*less the 2-token message wrapper measured by counting "a".*counted by api\.anthropic\.com using signed-in Anthropic account \(ant auth login\)/,
     );
     assert.match(get("method").textContent, /Codex: exact \(local encoding\) with gpt-5 .*counted on this machine/);
 
@@ -225,7 +225,10 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.equal(get("compare-tokens-label").textContent, "Claude API-counted tokens");
     assert.match(get("repo-meta").textContent, /Claude API-counted tokens under claude-opus-5-5$/);
     assert.match(get("method").textContent, /^Claude: API-counted with claude-opus-5-5/);
-    assert.match(get("method").textContent, /Totals add up the files Claude reads at each revision/);
+    assert.match(
+      get("method").textContent,
+      /Totals add up the files whose paths Claude is documented to read at each revision/,
+    );
 
     // Switching back to the estimate restores its labels and helper.
     get("measure-switch")
@@ -463,7 +466,10 @@ test("counts are cached between runs, so unchanged file versions are not sent ag
     assert.equal(second.requests.length, 0, "everything, including the wrapper probes, came from the cache");
     assert.deepEqual(second.report.providerMeasurements, first.report.providerMeasurements);
     assert.deepEqual(second.report.components, first.report.components);
-    assert.match(second.notices[0], /Using cached Claude counts for all 2 instruction file versions; nothing sent\./);
+    assert.match(
+      second.notices[0],
+      /Using cached Claude counts for all 2 instruction file versions; no instruction text sent\./,
+    );
     const stored = readFileSync(cachePath, "utf8");
     assert.ok(!stored.includes("instructions"), "the cache holds counts, not text");
     assert.ok(!stored.includes("CLAUDE.md"), "the cache holds blob IDs, not paths");
@@ -503,13 +509,13 @@ test("--precise --dry-run says what would be used and sent, and sends nothing", 
   }
 });
 
-test("without an Anthropic account, Claude is counted through a signed-in gcloud on Vertex AI", async () => {
+test("without an Anthropic account or key, Claude is counted through a signed-in gcloud on Vertex AI", async () => {
   const repo = fixture({ "CLAUDE.md": "Claude only.\n" });
   try {
     const { files, fetchImpl } = countServer();
     const report = await analyzeRepository(repo, {
       providerPlan: resolvePrecisePlan({
-        env: { ...noKeys, ANTHROPIC_API_KEY: "anthropic-test-key" },
+        env: noKeys,
         run: cliStub({
           "gcloud config get-value project": "strata-test-project",
           "gcloud auth print-access-token": "gcloud-session-token",
@@ -565,10 +571,112 @@ test("strata diff --precise adds each provider's totals at both commits", async 
       ],
     );
     const markdown = renderPullRequestDelta(delta);
-    assert.match(markdown, /\| Claude \| api-counted, claude-opus-5-5 via api\.anthropic\.com \| 5 \| 10 \| \+5 \|/);
+    assert.match(
+      markdown,
+      /\| Claude \| api-counted, claude-opus-5-5 via api\.anthropic\.com, less a 2-token message wrapper per file \| 5 \| 10 \| \+5 \|/,
+    );
     assert.match(markdown, /Instruction text was sent for counting to api\.anthropic\.com\./);
   } finally {
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("a method that fails after sending some files still discloses where they went", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude instructions.\n", "AGENTS.md": "Shared instructions.\n" });
+  try {
+    const { fetchImpl } = countServer();
+    const rejectShared = async (url, init) =>
+      requestText(JSON.parse(init.body)).startsWith("Shared")
+        ? new Response("{}", { status: 400 })
+        : fetchImpl(url, init);
+    const report = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({
+        env: { ...noKeys, ANTHROPIC_API_KEY: "anthropic-test-key" },
+        run: cliStub({}),
+        fetchImpl: rejectShared,
+      }),
+    });
+    const [claude] = report.providerMeasurements;
+    assert.equal(claude.accuracy, "estimate");
+    assert.deepEqual(claude.alsoSentTo, ["api.anthropic.com"]);
+    assert.match(renderHtml(report), /Claude text was sent to api\.anthropic\.com/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("blank instruction files count as zero without a request", async () => {
+  const repo = fixture({ "CLAUDE.md": "", "AGENTS.md": "  \n\t\n" });
+  try {
+    const { files, fetchImpl } = countServer();
+    const report = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
+    });
+    assert.equal(files().length, 0);
+    assert.equal(report.providerMeasurements[0].accuracy, "api-counted");
+    assert.equal(expandRevisions(report)[0].providerTokenTotals.claude, 0);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("Claude text goes to Google Cloud only without an Anthropic account or key", () => {
+  const ran = [];
+  const run = (command, args) => {
+    ran.push(`${command} ${args.join(" ")}`);
+    return cliStub({
+      "gcloud config get-value project": "strata-test-project",
+      "gcloud auth print-access-token": "gcloud-session-token",
+    })(command, args);
+  };
+  const withKey = resolvePrecisePlan({
+    env: { ...noKeys, ANTHROPIC_API_KEY: "anthropic-test-key" },
+    run,
+  }).methods.claude();
+  assert.ok(!withKey.some((method) => method.kind === "vertex-claude"));
+  assert.ok(!ran.some((command) => command.startsWith("gcloud")), "gcloud is not even run");
+  const withoutKey = resolvePrecisePlan({ env: noKeys, run }).methods.claude();
+  assert.equal(withoutKey.find((method) => method.kind !== "unavailable").kind, "vertex-claude");
+});
+
+test("credential problems are named precisely", () => {
+  const apache = resolvePrecisePlan({
+    env: noKeys,
+    run: (command, args) =>
+      command === "ant" && args[0] === "-version"
+        ? { output: "Apache Ant(TM) version 1.10.14 compiled on August 16 2023" }
+        : { output: null },
+  }).methods.claude();
+  assert.match(apache[0].reason, /Apache Ant, not the Anthropic CLI/);
+  const signedOut = resolvePrecisePlan({
+    env: noKeys,
+    run: (command, args) =>
+      command === "ant" && args[0] === "--version" ? { output: "ant version 1.41.0" } : { output: null },
+  }).methods.claude();
+  assert.equal(signedOut[0].reason, "no signed-in Anthropic account: run `ant auth login`");
+  const badKey = resolvePrecisePlan({ env: { ...noKeys, ANTHROPIC_API_KEY: "sk-ant\nsplit" }, run: cliStub({}) });
+  assert.ok(
+    badKey.methods
+      .claude()
+      .some((method) => method.reason === "ANTHROPIC_API_KEY contains characters an HTTP header cannot carry"),
+  );
+});
+
+test("the count cache merges with counts another run saved meanwhile", () => {
+  const directory = mkdtempSync(join(tmpdir(), "strata-cache-"));
+  try {
+    const path = join(directory, "provider-counts.json");
+    const first = fileCountCache(path);
+    const second = fileCountCache(path);
+    first.set("anthropic\0m\0a", 1);
+    second.set("anthropic\0m\0b", 2);
+    first.save();
+    second.save();
+    const reopened = fileCountCache(path);
+    assert.equal(reopened.get("anthropic\0m\0a"), 1);
+    assert.equal(reopened.get("anthropic\0m\0b"), 2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -635,6 +743,12 @@ test("strata analyze --precise reports each provider's method and what it skippe
       [["--precise", "--provider-api"], /Choose either --precise or --provider-api/],
       [["--precise", "--model", "gpt-4o"], /Choose either --precise or --model\/--tokenizer/],
       [["--precise", "--codex-model", "gpt-unknown"], /Unsupported model: gpt-unknown/],
+      [
+        ["--provider-api", "--claude-model", "c", "--gemini-model", "g", "--dry-run"],
+        /require --precise, not --provider-api/,
+      ],
+      [["--precise", "--claude-model", ""], /--claude-model needs a model name/],
+      [["--dry-run"], /require --precise/],
     ]) {
       const invalid = spawnSync(process.execPath, [cliPath, "analyze", repo, ...args], { encoding: "utf8" });
       assert.equal(invalid.status, 2, args.join(" "));

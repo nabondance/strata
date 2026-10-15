@@ -19,7 +19,9 @@ inputs:
     description: >-
       Set to 'true' to add precise per-provider totals. Claude and Gemini instruction text is sent to
       their token-count APIs when ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY is in the step's
-      environment; a provider without a key falls back to the estimate. Codex is counted locally.
+      environment, or to Vertex AI when the job has a signed-in gcloud with a project (Claude only
+      without ANTHROPIC_API_KEY). A provider with neither falls back to the estimate. Codex is counted
+      locally with gpt-5; the tokenizer and model inputs are not used with precise.
     required: false
     default: 'false'
 runs:
@@ -48,6 +50,9 @@ runs:
       run: |
         args=(diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --output "$RUNNER_TEMP/strata-pr-delta.md")
         if [ "$STRATA_PRECISE" = "true" ]; then
+          if [ -n "$STRATA_MODEL" ] || [ "$STRATA_TOKENIZER" != "estimate" ]; then
+            echo "::warning::The tokenizer and model inputs are not used with precise: 'true'."
+          fi
           # Precise counts accompany the estimate; the runner's cache would not outlive the job.
           args+=(--precise --no-cache)
         elif [ -n "$STRATA_MODEL" ]; then

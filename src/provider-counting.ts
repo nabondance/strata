@@ -68,8 +68,16 @@ const wrapperProbe = "a";
 
 interface MethodCounts {
   counts: Map<string, ProviderTextCount>;
+  /** The method label, which names the wrapper once one is subtracted. */
+  method: string;
   wrapperTokens?: number;
 }
+
+/** A method's failure, with whether it had already sent instruction text, so a report can still disclose it. */
+type CountFailure = Error & { reason?: string; sentText?: boolean };
+
+/** Git object IDs in an error would survive `--shareable`, so recorded reasons leave them out. */
+const withoutObjectIds = (reason: string) => reason.replace(/\b[0-9a-f]{40}(?:[0-9a-f]{24})?\b/g, "<object>");
 
 /**
  * Count one provider's distinct blobs with one method. Remote counts come from the cache when it has
@@ -87,9 +95,10 @@ async function countWithMethod(
   const local = method.kind === "local" ? createMeasurer(modeForModel(method.model), method.model) : null;
   const labels = describeMethod(method, local?.measurement.encoding ?? undefined);
   const counts = new Map<string, ProviderTextCount>();
+  let methodText = labels.method;
   if (method.kind === "estimate") {
     for (const blob of wanted.keys()) counts.set(blob, count(Math.ceil(measured.get(blob)!.bytes / 4)));
-    return { counts };
+    return { counts, method: methodText };
   }
   const remote = method.kind === "local" ? null : method;
   const cacheKey = remote ? `${cacheFamily(remote)}\0${remote.model}\0` : "";
@@ -116,19 +125,26 @@ async function countWithMethod(
       if (raw === undefined) toRead.push(blob);
     }
     const cachedCount = wanted.size - toRead.length;
-    onNotice?.(
-      toRead.length
-        ? `Sending ${plural(toRead.length, `${name} instruction file version`)} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}${cachedCount ? `; ${cachedCount} more counted before, from the local cache` : ""}.`
-        : `Using cached ${name} counts for all ${plural(cachedCount, "instruction file version")}; nothing sent.`,
-    );
+    // The probe carries only the letter "a", so it may precede the notice about instruction text.
     if (plan.subtractWrapper) {
       let raw = cachedRaw("wrapper");
       if (raw === undefined) {
-        raw = await countRemoteText(provider as RemoteProvider, remote, wrapperProbe, remoteOptions);
+        try {
+          raw = await countRemoteText(provider as RemoteProvider, remote, wrapperProbe, remoteOptions);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          throw Object.assign(new Error(`Could not measure the ${name} message wrapper: ${reason}`), { reason });
+        }
         plan.cache?.set(`${cacheKey}wrapper`, raw);
       }
       wrapperTokens = Math.max(0, raw - 1);
+      if (wrapperTokens) methodText += `, less the ${wrapperTokens}-token message wrapper measured by counting "a"`;
     }
+    onNotice?.(
+      toRead.length
+        ? `Sending ${plural(toRead.length, `${name} instruction file version`)} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}${cachedCount ? `; ${cachedCount} more counted before, from the local cache` : ""}.`
+        : `Using cached ${name} counts for all ${plural(cachedCount, "instruction file version")}; no instruction text sent.`,
+    );
     for (const blob of wanted.keys()) {
       const raw = cachedRaw(blob);
       if (raw !== undefined) counts.set(blob, count(Math.max(0, raw - (wrapperTokens ?? 0))));
@@ -143,20 +159,20 @@ async function countWithMethod(
       }
     }
   }
-  return { counts, ...(wrapperTokens !== undefined ? { wrapperTokens } : {}) };
+  return { counts, method: methodText, ...(wrapperTokens !== undefined ? { wrapperTokens } : {}) };
 
   function count(tokens: number): ProviderTextCount {
     return {
       tokens,
       provider,
       model: labels.model,
-      method: labels.method,
+      method: methodText,
       version: labels.version,
       accuracy: labels.accuracy,
     };
   }
 
-  function failure(blob: string, error: unknown): Error {
+  function failure(blob: string, error: unknown): CountFailure {
     const reason = error instanceof Error ? error.message : String(error);
     return Object.assign(new Error(`Could not count ${provider} instructions at ${wanted.get(blob)}: ${reason}`), {
       reason,
@@ -166,15 +182,20 @@ async function countWithMethod(
   async function requestAll(remote: RemoteMethod, remoteOptions: Parameters<typeof countRemoteText>[3]) {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     const running = new Set<Promise<void>>();
-    let failed: Error | undefined;
-    for (const [blob, body] of readBlobs(root, toRead, (id) => measured.get(id)?.bytes ?? 0)) {
-      try {
-        const task: Promise<void> = countRemoteText(
-          provider as RemoteProvider,
-          remote,
-          decoder.decode(body),
-          remoteOptions,
-        )
+    let failed: CountFailure | undefined;
+    let sentText = false;
+    let current = "";
+    try {
+      for (const [blob, body] of readBlobs(root, toRead, (id) => measured.get(id)?.bytes ?? 0)) {
+        current = blob;
+        const text = decoder.decode(body);
+        // Count endpoints reject blank text, and it has nothing to count: zero, without a request.
+        if (!text.trim()) {
+          counts.set(blob, count(0));
+          continue;
+        }
+        sentText = true;
+        const task: Promise<void> = countRemoteText(provider as RemoteProvider, remote, text, remoteOptions)
           .then(
             (raw) => {
               plan.cache?.set(cacheKey + blob, raw);
@@ -186,14 +207,16 @@ async function countWithMethod(
           )
           .finally(() => running.delete(task));
         running.add(task);
-      } catch (error) {
-        failed ??= failure(blob, error);
+        if (running.size >= providerRequestConcurrency) await Promise.race(running);
+        if (failed) break;
       }
-      if (running.size >= providerRequestConcurrency) await Promise.race(running);
-      if (failed) break;
+    } catch (error) {
+      failed ??= failure(current, error);
+    } finally {
+      // Requests already in flight finish before the next method starts.
+      await Promise.allSettled(running);
     }
-    await Promise.all(running);
-    if (failed) throw failed;
+    if (failed) throw Object.assign(failed, { sentText });
   }
 }
 
@@ -262,6 +285,8 @@ export async function countProviderBlobs(
       continue;
     }
     const fallbacks: string[] = [];
+    // Hosts that received instruction text from a method that then failed: still disclosed.
+    const alsoSentTo = new Set<string>();
     let last: Error | undefined;
     for (const method of methods) {
       if (method.kind === "unavailable") {
@@ -272,18 +297,22 @@ export async function countProviderBlobs(
       try {
         const result = await countWithMethod(root, provider, method, blobs, measured, plan, onNotice);
         for (const [blob, count] of result.counts) counts.set(`${provider}\0${blob}`, count);
+        alsoSentTo.delete(labels.recipient ?? "");
         metadata.push({
           provider,
           ...labels,
+          method: result.method,
           ...(result.wrapperTokens !== undefined ? { wrapperTokens: result.wrapperTokens } : {}),
+          ...(alsoSentTo.size ? { alsoSentTo: [...alsoSentTo] } : {}),
           ...(fallbacks.length ? { fallbacks } : {}),
         });
         last = undefined;
         break;
       } catch (error) {
         last = error instanceof Error ? error : new Error(String(error));
-        // The reason omits the path, so a shareable report's fallbacks do not reveal one.
-        const reason = (last as Error & { reason?: string }).reason ?? last.message;
+        if ((last as CountFailure).sentText && labels.recipient) alsoSentTo.add(labels.recipient);
+        // The reason omits the path and object IDs, so a shareable report's fallbacks reveal neither.
+        const reason = withoutObjectIds((last as CountFailure).reason ?? last.message);
         fallbacks.push(`${labels.credential ?? labels.method} failed: ${reason}`);
         if (method !== methods.at(-1)) onNotice?.(`${last.message}; trying the next method.`);
       }

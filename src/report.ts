@@ -7,6 +7,7 @@ import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
 import { categoryColors, categoryInk } from "./palette.js";
+import { textRecipients } from "./provider-count.js";
 import { providerReads, viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
 import { layoutTreemap } from "./treemap.js";
@@ -45,12 +46,12 @@ export function renderHtml(report: Report): string {
         `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerNames[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
     )
     .join("");
-  const sentTo = (report.providerMeasurements ?? []).filter((measured) => measured.recipient);
+  const sentTo = (report.providerMeasurements ?? []).filter((measured) => textRecipients(measured).length);
   const fellBack = (report.providerMeasurements ?? []).filter((measured) => measured.fallbacks?.length);
   const providerNote = report.providerMeasurements
     ? `Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. ${
         sentTo.length
-          ? `${sentTo.map((measured) => `${providerNames[measured.provider]} text was sent to ${escapeHtml(measured.recipient!)}`).join("; ")}.`
+          ? `${sentTo.map((measured) => `${providerNames[measured.provider]} text was sent to ${escapeHtml(textRecipients(measured).join(" and "))}`).join("; ")}.`
           : "No instruction text was sent to a provider."
       }${(report.providerMeasurements ?? [])
         .filter((measured) => measured.wrapperTokens)
@@ -314,11 +315,11 @@ export function renderHtml(report: Report): string {
       return measuredHistory.get(provider);
     }
     function describeMeasurement(measured) {
-      if (measured.accuracy === 'estimate') return providerNames[measured.provider] + ': byte estimate' + (measured.fallbacks?.length ? ' (more precise methods unavailable: ' + measured.fallbacks.join('; ') + ')' : '') + '.';
+      if (measured.accuracy === 'estimate') return providerNames[measured.provider] + ': byte estimate' + (measured.fallbacks?.length ? ' (more precise methods unavailable: ' + measured.fallbacks.join('; ') + ')' : '') + (measured.alsoSentTo?.length ? '; instruction text went to ' + measured.alsoSentTo.join(' and ') + ' through a method that then failed' : '') + '.';
       return providerNames[measured.provider] + ': ' + accuracyNames[measured.accuracy] + ' with ' + measured.model + ' — ' + measured.method + ' (' + measured.version + ')' +
         (measured.recipient ? ', counted by ' + measured.recipient : ', counted on this machine') +
         (measured.credential ? ' using ' + measured.credential : '') +
-        (measured.wrapperTokens ? ', less the ' + measured.wrapperTokens + '-token message wrapper the endpoint adds to each file' : '') +
+        (measured.alsoSentTo?.length ? '; instruction text also went to ' + measured.alsoSentTo.join(' and ') + ' through a method that then failed' : '') +
         (measured.fallbacks?.length ? '; more precise methods unavailable: ' + measured.fallbacks.join('; ') : '') + '.';
     }
     function measureLabel() {
@@ -334,7 +335,7 @@ export function renderHtml(report: Report): string {
       if (activeMeasure === 'estimate') {
         $('method').textContent = shareable + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (providers ? ' Separate provider counts, shown in provider views and the file table: ' + providers : '');
       } else {
-        $('method').textContent = shareable + describeMeasurement(measures.get(activeMeasure)) + ' Totals add up the files ' + providerNames[activeMeasure] + ' reads at each revision. They describe stored text under this model, not loaded session context or billing, and are never added to the counts of another provider. Structured configuration and supporting files remain source-only.';
+        $('method').textContent = shareable + describeMeasurement(measures.get(activeMeasure)) + ' Totals add up the files whose paths ' + providerNames[activeMeasure] + ' is documented to read at each revision; whether a session loads each one is not established. They describe stored text under this model, not loaded session context or billing, and are never added to the counts of another provider. Structured configuration and supporting files remain source-only.';
       }
       const label = measureLabel();
       $('tokens-label').textContent = label.stat;

@@ -23,16 +23,20 @@ export interface FileCountCache extends CountCache {
   save(): void;
 }
 
-/** A count cache backed by one JSON file. A missing or unreadable file starts an empty cache. */
-export function fileCountCache(path: string): FileCountCache {
-  let counts: Record<string, number> = {};
+function readCounts(path: string): Record<string, number> {
   try {
     const stored = JSON.parse(readFileSync(path, "utf8"));
-    if (stored?.version === 1 && stored.counts && typeof stored.counts === "object") counts = stored.counts;
+    if (stored?.version === 1 && stored.counts && typeof stored.counts === "object") return stored.counts;
   } catch {
     // Start empty: a cache only saves requests.
   }
-  let changed = false;
+  return {};
+}
+
+/** A count cache backed by one JSON file. A missing or unreadable file starts an empty cache. */
+export function fileCountCache(path: string): FileCountCache {
+  const counts = readCounts(path);
+  const added: Record<string, number> = {};
   return {
     get: (key) => {
       const value = counts[key];
@@ -41,17 +45,19 @@ export function fileCountCache(path: string): FileCountCache {
     set: (key, tokens) => {
       if (counts[key] === tokens) return;
       counts[key] = tokens;
-      changed = true;
+      added[key] = tokens;
     },
     save: () => {
-      if (!changed) return;
+      if (!Object.keys(added).length) return;
+      // Merge into what is on disk now, so a run that finished meanwhile keeps its counts.
+      const merged = { ...readCounts(path), ...added };
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       // Write beside the cache and rename, so a concurrent run never reads a half-written file.
       const temporary = `${path}.${process.pid}.tmp`;
-      writeFileSync(temporary, `${JSON.stringify({ version: 1, counts })}\n`, { mode: 0o600 });
+      writeFileSync(temporary, `${JSON.stringify({ version: 1, counts: merged })}\n`, { mode: 0o600 });
       chmodSync(temporary, 0o600);
       renameSync(temporary, path);
-      changed = false;
+      for (const key of Object.keys(added)) delete added[key];
     },
   };
 }

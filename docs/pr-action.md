@@ -1,6 +1,6 @@
 # Opt-in pull-request delta
 
-The repository provides a composite GitHub Action and a local `strata diff` command. To upload the full history report from CI instead, see [Running Strata in CI](ci.md). Neither runs automatically in a repository that has not added a workflow. The Action reads the checked-out repository's tracked blobs at the supplied base and head commit IDs, applies the selected offline measurement to instructional text, and appends a Markdown delta to the job summary. It does not modify the target repository, post a PR comment, upload source text, or treat token growth as a failure.
+The repository provides a composite GitHub Action and a local `strata diff` command. To upload the full history report from CI instead, see [Running Strata in CI](ci.md). Neither runs automatically in a repository that has not added a workflow. The Action reads the checked-out repository's tracked blobs at the supplied base and head commit IDs, applies the selected measurement to instructional text, and appends a Markdown delta to the job summary. It does not modify the target repository, post a PR comment, or treat token growth as a failure. It sends no source text anywhere unless `precise: 'true'` is set, as described below.
 
 Example workflow in the **repository you want to analyze**:
 

@@ -23,6 +23,8 @@ export interface ProviderMeasurementMetadata {
   credential?: string;
   /** The host that counted instruction text, in this run or one whose counts were cached. Absent when counting stayed on this machine. */
   recipient?: string;
+  /** Hosts that received instruction text from a method that then failed, before this one was used. */
+  alsoSentTo?: string[];
   /**
    * Tokens a count endpoint adds for wrapping text in a one-message request, measured once per run and
    * subtracted from every file's count so counts describe the stored text alone.
@@ -108,6 +110,11 @@ export function providerApiPlan(options: ProviderCountOptions): ProviderCountPla
   };
   if (options.codexModel) methods.codex = [{ kind: "local", model: options.codexModel }];
   return { methods, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) };
+}
+
+/** Every host that received this provider's instruction text, including from a method that then failed. */
+export function textRecipients(measured: ProviderMeasurementMetadata): string[] {
+  return [...new Set([...(measured.recipient ? [measured.recipient] : []), ...(measured.alsoSentTo ?? [])])];
 }
 
 export const estimateMethod = "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file";

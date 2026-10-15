@@ -229,6 +229,17 @@ function progressReporter(): (progress: AnalysisProgress) => void {
   };
 }
 
+/** The cache only saves requests, so failing to write it never fails the run. */
+function saveCache(cache: FileCountCache | undefined): void {
+  try {
+    cache?.save();
+  } catch (error) {
+    process.stderr.write(
+      `Warning: could not save the count cache (${error instanceof Error ? error.message : String(error)}); the next run will count again.\n`,
+    );
+  }
+}
+
 /** Notices about content leaving the machine go to stderr and are shown even with --quiet. */
 const noticeToStderr = (line: string) => process.stderr.write(`${line}\n`);
 
@@ -260,6 +271,9 @@ function preciseArguments(values: {
   }
   if (values.model !== undefined || values.tokenizer !== undefined)
     throw new UsageError("Choose either --precise or --model/--tokenizer");
+  for (const flag of ["claude-model", "gemini-model", "codex-model"] as const) {
+    if (values[flag] === "") throw new UsageError(`--${flag} needs a model name`);
+  }
   const codexModel = values["codex-model"];
   if (codexModel) measurementArguments({ model: codexModel });
   const cache = values["no-cache"] ? undefined : fileCountCache(defaultCachePath());
@@ -305,6 +319,8 @@ async function analyze(args: string[]): Promise<void> {
   if (values["provider-api"] && (values.model !== undefined || values.tokenizer !== undefined))
     throw new UsageError("Choose either --provider-api or --model/--tokenizer");
   const codexModel = values["codex-model"];
+  if (values["provider-api"] && (values["dry-run"] || values["no-cache"]))
+    throw new UsageError("--dry-run and --no-cache require --precise, not --provider-api");
   const precise = values["provider-api"] ? undefined : preciseArguments(values);
   if (values["provider-api"]) {
     process.stderr.write("Warning: --provider-api is deprecated; use --precise.\n");
@@ -330,7 +346,7 @@ async function analyze(args: string[]): Promise<void> {
       onNotice: precise?.onNotice ?? noticeToStderr,
     });
   } finally {
-    precise?.cache?.save();
+    saveCache(precise?.cache);
   }
   if (precise?.plan.dryRun) {
     process.stdout.write("Dry run: nothing was sent and no report was written.\n");
@@ -362,6 +378,8 @@ async function analyze(args: string[]): Promise<void> {
         : `${measured.accuracy} with ${measured.model}${measured.credential ? ` via ${measured.credential}` : ""}${measured.wrapperTokens ? `, minus the message wrapper (${measured.wrapperTokens} tokens) per file` : ""}`;
     say(`${providerLabel[measured.provider]}: ${total} tokens latest, ${how}.`);
     for (const reason of measured.fallbacks ?? []) say(`  Skipped: ${reason}.`);
+    for (const host of measured.alsoSentTo ?? [])
+      say(`  Instruction text also went to ${host} before that method failed.`);
   }
   if (toStdout) {
     process.stdout.write(content);
@@ -409,7 +427,7 @@ async function diff(args: string[]): Promise<void> {
         })
       : compareGitCommits(repository, values.base, values.head, measurement);
   } finally {
-    precise?.cache?.save();
+    saveCache(precise?.cache);
   }
   if (precise?.plan.dryRun) {
     process.stdout.write("Dry run: nothing was sent and no delta was written.\n");
