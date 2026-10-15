@@ -38,7 +38,11 @@ export type CountMethod =
   | { kind: "unavailable"; reason: string };
 
 export interface ProviderCountPlan {
-  methods: Partial<Record<CountedProvider, CountMethod[]>>;
+  /**
+   * Each counted provider's methods, most precise first. A function is called only when the history
+   * has instructions for that provider, so credentials are looked up only where they are useful.
+   */
+  methods: Partial<Record<CountedProvider, CountMethod[] | (() => CountMethod[])>>;
   fetchImpl?: typeof fetch;
 }
 

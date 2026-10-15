@@ -13,7 +13,13 @@ import { renderHtml } from "../dist/report.js";
 const cliPath = resolve("dist/cli.js");
 const noKeys = { ANTHROPIC_API_KEY: "", GEMINI_API_KEY: "", GOOGLE_API_KEY: "", GOOGLE_CLOUD_PROJECT: "" };
 
-function fixture() {
+function fixture(
+  files = {
+    "CLAUDE.md": "Claude instructions.\n",
+    "GEMINI.md": "Gemini instructions.\n",
+    "AGENTS.md": "Shared instructions.\n",
+  },
+) {
   const repo = mkdtempSync(join(tmpdir(), "strata-precise-"));
   const git = (...args) =>
     execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -25,9 +31,7 @@ function fixture() {
   git("config", "user.name", "Strata Test");
   git("config", "user.email", "strata-test@example.invalid");
   git("config", "commit.gpgsign", "false");
-  put("CLAUDE.md", "Claude instructions.\n");
-  put("GEMINI.md", "Gemini instructions.\n");
-  put("AGENTS.md", "Shared instructions.\n");
+  for (const [path, content] of Object.entries(files)) put(path, content);
   git("add", "-A");
   git("commit", "-q", "-m", "Add instructions");
   return repo;
@@ -250,10 +254,45 @@ test("a failing method is discarded whole, so one provider's counts never mix me
   }
 });
 
+test("--precise looks up credentials only for providers the history has instructions for", async () => {
+  for (const [files, expected, commands] of [
+    [{ "CLAUDE.md": "Claude only.\n" }, ["claude"], ["ant"]],
+    [{ "GEMINI.md": "Gemini only.\n" }, ["gemini"], ["gcloud"]],
+    [{ ".codex/config.toml": "model = 'gpt-5'\n", "README.md": "No instructions.\n" }, [], []],
+  ]) {
+    const repo = fixture(files);
+    try {
+      const ran = [];
+      const run = (command, args) => {
+        ran.push(command);
+        return signedIn(command, args);
+      };
+      const { requests, fetchImpl } = countServer();
+      const notices = [];
+      const report = await analyzeRepository(repo, {
+        providerPlan: resolvePrecisePlan({ env: noKeys, run, fetchImpl }),
+        onNotice: (line) => notices.push(line),
+      });
+      const label = Object.keys(files).join(", ");
+      assert.deepEqual(
+        report.providerMeasurements.map(({ provider }) => provider),
+        expected,
+        label,
+      );
+      assert.deepEqual([...new Set(ran)], commands, label);
+      assert.equal(notices.length, expected.filter((provider) => provider !== "codex").length, label);
+      assert.equal(requests.length, expected.length, label);
+      assert.deepEqual(Object.keys(report.revisions.at(-1).providerTokenTotals), expected, label);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+});
+
 test("--precise explains how to install a provider CLI that is missing", () => {
   const plan = resolvePrecisePlan({ env: noKeys, run: () => "missing" });
-  assert.deepEqual(plan.methods.claude[0], { kind: "unavailable", reason: installHints.ant });
-  assert.deepEqual(plan.methods.gemini[0], { kind: "unavailable", reason: installHints.gcloud });
+  assert.deepEqual(plan.methods.claude()[0], { kind: "unavailable", reason: installHints.ant });
+  assert.deepEqual(plan.methods.gemini()[0], { kind: "unavailable", reason: installHints.gcloud });
   assert.match(installHints.ant, /not installed.*brew install anthropics\/tap\/ant.*ant auth login/);
   assert.match(installHints.gcloud, /not installed.*gcloud auth login/);
 

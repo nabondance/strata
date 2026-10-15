@@ -321,7 +321,7 @@ async function countProviderBlobs(
   geminiBlobs: Set<string>,
   onNotice: ((line: string) => void) | undefined,
 ): Promise<{ counts: Map<string, ProviderTextCount>; metadata: ProviderMeasurementMetadata[] }> {
-  const counted = countedOrder.filter((provider) => plan.methods[provider]?.length);
+  const counted = countedOrder.filter((provider) => plan.methods[provider]);
   const wanted = new Map<CountedProvider, Map<string, string>>(counted.map((provider) => [provider, new Map()]));
   for (const file of files) {
     for (const provider of countedProviders(file, counted, geminiBlobs)) {
@@ -334,7 +334,10 @@ async function countProviderBlobs(
   const metadata: ProviderMeasurementMetadata[] = [];
   for (const provider of counted) {
     const blobs = wanted.get(provider)!;
-    const methods = plan.methods[provider]!;
+    // A provider with no instructions anywhere in the history needs no credential and gets no column.
+    if (!blobs.size) continue;
+    const planned = plan.methods[provider]!;
+    const methods = typeof planned === "function" ? planned() : planned;
     const fallbacks: string[] = [];
     let last: Error | undefined;
     for (const method of methods) {
@@ -343,7 +346,7 @@ async function countProviderBlobs(
         continue;
       }
       const labels = describeMethod(method, method.kind === "local" ? encodingFor(method.model) : undefined);
-      if (labels.recipient && blobs.size) {
+      if (labels.recipient) {
         onNotice?.(
           `Sending ${blobs.size} ${providerName[provider]} instruction file version${blobs.size === 1 ? "" : "s"} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}.`,
         );
