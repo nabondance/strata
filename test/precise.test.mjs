@@ -10,6 +10,7 @@ import { analyzeRepository } from "../dist/analyze.js";
 import { fileCountCache } from "../dist/count-cache.js";
 import { expandRevisions } from "../dist/expand.js";
 import { compareGitCommitsPrecise, renderPullRequestDelta } from "../dist/pr-delta.js";
+import { countRemoteText } from "../dist/provider-count.js";
 import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise.js";
 import { renderHtml } from "../dist/report.js";
 
@@ -336,7 +337,8 @@ test("a failing method is discarded whole, so one provider's counts never mix me
     const mixed = async (url, init) => {
       if (init.headers.authorization === "Bearer ant-session-token" && !rejectedOnce) {
         rejectedOnce = true;
-        return new Response("{}", { status: 401 });
+        const body = { type: "error", error: { type: "authentication_error", message: "invalid token for org-123" } };
+        return new Response(JSON.stringify(body), { status: 401 });
       }
       return fetchImpl(url, init);
     };
@@ -355,7 +357,7 @@ test("a failing method is discarded whole, so one provider's counts never mix me
       codex: ["encoding-exact", null, null],
     });
     assert.deepEqual(report.providerMeasurements[0].fallbacks, [
-      "signed-in Anthropic account (ant auth login) failed: claude token count request failed with HTTP 401",
+      "signed-in Anthropic account (ant auth login) failed: claude token count request failed with HTTP 401 (authentication_error: the credential was rejected)",
     ]);
     assert.deepEqual(report.providerMeasurements[1].fallbacks, [
       "signed-in Google Cloud account (gcloud, Vertex AI) failed: gemini token count request failed with HTTP 403",
@@ -368,7 +370,7 @@ test("a failing method is discarded whole, so one provider's counts never mix me
       if (claude) assert.equal(claude.tokens, 5, `${component.path} is counted with the key, not a mix`);
     }
     assert.ok(requests.some(({ headers }) => headers["x-api-key"] === "anthropic-test-key"));
-    assert.ok(notices.some((line) => /HTTP 401; trying the next method/.test(line)));
+    assert.ok(notices.some((line) => /HTTP 401 \(authentication_error: the credential was rejected\); trying the next method/.test(line)));
     // Paths stay out of the recorded reasons, which shareable reports keep.
     assert.ok(!JSON.stringify(report.providerMeasurements).includes(".md"));
   } finally {
@@ -758,4 +760,27 @@ test("strata analyze --precise reports each provider's method and what it skippe
     rmSync(repo, { recursive: true, force: true });
     rmSync(bin, { recursive: true, force: true });
   }
+});
+
+test("a failed count names the provider's error reason, never its message", async () => {
+  const body = {
+    error: {
+      code: 403,
+      message: "Enable billing on project #secret-project-42",
+      status: "PERMISSION_DENIED",
+      details: [{ reason: "BILLING_DISABLED", metadata: { consumer: "projects/secret-project-42" } }],
+    },
+  };
+  const method = { kind: "vertex", model: "gemini-test", secret: "token", project: "p", location: "global" };
+  const failure = await countRemoteText("gemini", method, "text", {
+    fetchImpl: async () => new Response(JSON.stringify(body), { status: 403 }),
+  }).catch((error) => error.message);
+  assert.equal(
+    failure,
+    "gemini token count request failed with HTTP 403 (BILLING_DISABLED: enable billing on the Google Cloud project; Vertex AI requires it even for token counts)",
+  );
+  const unexplained = await countRemoteText("gemini", method, "text", {
+    fetchImpl: async () => new Response("<html>Forbidden</html>", { status: 403 }),
+  }).catch((error) => error.message);
+  assert.equal(unexplained, "gemini token count request failed with HTTP 403");
 });

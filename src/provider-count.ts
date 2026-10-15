@@ -208,6 +208,41 @@ function retryWait(response: Response | undefined, attempt: number): number {
   return Math.min(wait, maxWaitMilliseconds);
 }
 
+/** What to do about the error reasons people can fix themselves. */
+const reasonHints: Record<string, string> = {
+  BILLING_DISABLED: "enable billing on the Google Cloud project; Vertex AI requires it even for token counts",
+  SERVICE_DISABLED: "enable the Vertex AI API (aiplatform.googleapis.com) on the Google Cloud project",
+  API_KEY_INVALID: "the API key is not valid",
+  not_found_error: "the model was not found; check the model name",
+  authentication_error: "the credential was rejected",
+  permission_error: "the credential is not allowed to use this model",
+};
+
+/**
+ * The provider's error code from a failed response: Google's `error.details[].reason` or
+ * `error.status`, or Anthropic's `error.type`. Only a short identifier is kept, never the message,
+ * so project names and other details do not reach reports or logs.
+ */
+async function errorReason(response: Response): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    return null;
+  }
+  const error = (parsed as { error?: unknown } | null)?.error;
+  if (!error || typeof error !== "object") return null;
+  const { details, status, type } = error as { details?: unknown; status?: unknown; type?: unknown };
+  const reasons = Array.isArray(details)
+    ? details.map((detail) => (detail as { reason?: unknown } | null)?.reason)
+    : [];
+  const code = [...reasons, status, type].find(
+    (candidate): candidate is string => typeof candidate === "string" && /^[A-Za-z_]{1,64}$/.test(candidate),
+  );
+  if (!code) return null;
+  return reasonHints[code] ? `${code}: ${reasonHints[code]}` : code;
+}
+
 /**
  * Count one text with a provider's count endpoint. Rate limits, overload, and server errors are
  * retried with backoff, honoring `retry-after`; other failures throw. Error messages never include
@@ -267,10 +302,10 @@ export async function countRemoteText(
     const retryable = failure === "connection" || retryStatuses.has(failure);
     if (!retryable || attempt + 1 >= maxAttempts) {
       const attempts = attempt + 1 > 1 ? ` after ${attempt + 1} attempts` : "";
+      if (failure === "connection") throw new Error(`${provider} token count request failed to connect${attempts}`);
+      const reason = response ? await errorReason(response) : null;
       throw new Error(
-        failure === "connection"
-          ? `${provider} token count request failed to connect${attempts}`
-          : `${provider} token count request failed with HTTP ${failure}${attempts}`,
+        `${provider} token count request failed with HTTP ${failure}${attempts}${reason ? ` (${reason})` : ""}`,
       );
     }
     // Drain the body so the connection can be reused while waiting.
