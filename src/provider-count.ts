@@ -246,7 +246,8 @@ async function errorReason(response: Response, kind: RemoteMethod["kind"]): Prom
     (candidate): candidate is string => typeof candidate === "string" && /^[A-Za-z_]{1,64}$/.test(candidate),
   );
   if (!code) return null;
-  const hints = kind === "vertex" || kind === "vertex-claude" ? vertexHints : kind === "gemini-api" ? geminiApiHints : {};
+  const hints =
+    kind === "vertex" || kind === "vertex-claude" ? vertexHints : kind === "gemini-api" ? geminiApiHints : {};
   const hint = Object.hasOwn(hints, code) ? hints[code] : Object.hasOwn(reasonHints, code) ? reasonHints[code] : null;
   return hint ? `${code}: ${hint}` : code;
 }
