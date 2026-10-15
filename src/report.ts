@@ -47,21 +47,12 @@ export function renderHtml(report: Report): string {
     )
     .join("");
   const sentTo = (report.providerMeasurements ?? []).filter((measured) => textRecipients(measured).length);
-  const fellBack = (report.providerMeasurements ?? []).filter((measured) => measured.fallbacks?.length);
   const providerNote = report.providerMeasurements
-    ? `Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. ${
+    ? `Provider columns are each provider's own count and are never added together. ${
         sentTo.length
-          ? `${sentTo.map((measured) => `${providerNames[measured.provider]} text was sent to ${escapeHtml(textRecipients(measured).join(" and "))}`).join("; ")}.`
-          : "No instruction text was sent to a provider."
-      }${(report.providerMeasurements ?? [])
-        .filter((measured) => measured.wrapperTokens)
-        .map(
-          (measured) =>
-            ` ${providerNames[measured.provider]} counts exclude the ${measured.wrapperTokens}-token message wrapper its endpoint adds to each file.`,
-        )
-        .join(
-          "",
-        )}${fellBack.map((measured) => ` ${providerNames[measured.provider]} fell back to ${accuracyLabels[measured.accuracy]}: ${escapeHtml(measured.fallbacks!.join("; "))}.`).join("")}`
+          ? `Text sent to: ${sentTo.map((measured) => `${escapeHtml(textRecipients(measured).join(" and "))} (${providerNames[measured.provider]})`).join(", ")}.`
+          : "No text was sent to a provider."
+      }`
     : "";
 
   return `<!doctype html>
@@ -101,16 +92,13 @@ export function renderHtml(report: Report): string {
     .notice summary { cursor: pointer; width: fit-content; }
     .notice summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .notice p { margin: 8px 0 0; }
-    .counting { max-width: 970px; margin: 0 0 18px; padding: 14px 16px; border: 1px solid var(--line); background: var(--sheet); font-size: 13px; }
-    .counting h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
-    .counting table { width: auto; }
-    .counting td { padding: 5px 14px 5px 0; border: 0; vertical-align: baseline; }
-    .counting tr.active td:first-child { font-weight: 700; }
-    .counting .detail { color: var(--muted); overflow-wrap: anywhere; }
-    .counting .badge { display: inline-block; padding: 2px 8px; border: 1px solid currentColor; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .notice summary .counting-summary { color: var(--ink); }
+    .counting { width: auto; margin: 6px 0 0; }
+    .counting td { padding: 4px 14px 4px 0; border: 0; vertical-align: baseline; }
+    .counting tr.active td:first-child { font-weight: 700; color: var(--ink); }
+    .counting .badge { display: inline-block; padding: 1px 7px; border: 1px solid currentColor; font-size: 12px; font-weight: 600; white-space: nowrap; }
     .counting .badge.exact { color: var(--down); }
     .counting .badge.estimate { color: var(--warn); }
-    .counting p { margin: 8px 0 0; color: var(--muted); }
     .warning { color: var(--warn); font-weight: 600; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
     .panel h2 { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .02em; line-height: 1.05; text-transform: uppercase; margin: 0 0 14px; }
@@ -224,8 +212,7 @@ export function renderHtml(report: Report): string {
   </header>
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
-    <section class="counting" id="counting" aria-labelledby="counting-heading" hidden><h2 id="counting-heading">How tokens are counted</h2><table><tbody id="counting-rows"></tbody></table><p id="counting-note"></p></section>
-    <details class="notice"><summary>Stored in Git, not loaded session context · how this is measured</summary><p id="method"></p></details>
+    <details class="notice"><summary>How tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
     <div class="measure-switch" id="measure-switch" role="group" aria-label="Count with" hidden></div>
@@ -340,44 +327,37 @@ export function renderHtml(report: Report): string {
       const name = providerNames[activeMeasure];
       return { stat: name + ' ' + kind + ' tokens', compare: name + ' ' + kind + ' tokens', meta: name + ' ' + kind + ' tokens under ' + measured.model };
     }
-    /** One short line per provider: how its files were counted and, for the estimate, why. */
+    const badgeNames = { 'api-counted': 'Exact · API', 'encoding-exact': 'Exact · local', estimate: 'Estimate' };
+    /** A few words per provider on how its files were counted; the full description is the row's tooltip. */
     function renderCounting() {
       const measurements = data.providerMeasurements ?? [];
-      $('counting').hidden = !measurements.length;
-      if (!measurements.length) return;
+      $('counting').hidden = $('counting-note').hidden = !measurements.length;
+      $('counting-summary').textContent = measurements.map((measured) => ' · ' + providerNames[measured.provider] + ' ' + { 'api-counted': 'exact (API)', 'encoding-exact': 'exact (local)', estimate: 'estimate' }[measured.accuracy]).join('');
       $('counting-rows').replaceChildren(...measurements.map((measured) => {
         const row = document.createElement('tr');
         if (measured.provider === activeMeasure) row.className = 'active';
-        const exact = measured.accuracy !== 'estimate';
-        const badge = text('span', measured.accuracy === 'api-counted' ? 'Exact · API' : exact ? 'Exact · local' : 'Estimate', 'badge ' + (exact ? 'exact' : 'estimate'));
-        const sentTo = measured.alsoSentTo?.length ? 'text was also sent to ' + measured.alsoSentTo.join(' and ') + ', but that count failed' : '';
-        const failed = measured.fallbacks?.some((reason) => / failed: /.test(reason));
+        row.title = describeMeasurement(measured);
+        const badge = text('span', badgeNames[measured.accuracy], 'badge ' + (measured.accuracy === 'estimate' ? 'estimate' : 'exact'));
+        const failed = measured.alsoSentTo?.length || measured.fallbacks?.some((reason) => / failed: /.test(reason));
         const detail = measured.accuracy === 'estimate'
-          ? ['UTF-8 bytes ÷ 4', sentTo || (failed ? 'the count request failed' : 'no account or API key found')]
+          ? (measured.alsoSentTo?.length ? 'count failed after text was sent to ' + measured.alsoSentTo.join(' and ') : failed ? 'the count request failed' : 'no account or API key found')
           : measured.recipient
-            ? [measured.model, 'counted by ' + measured.recipient, measured.credential, sentTo]
-            : [measured.model + ' encoding', 'counted on this machine, nothing sent'];
-        const cells = [text('td', providerNames[measured.provider]), document.createElement('td'), text('td', detail.filter(Boolean).join(' · '), 'detail')];
+            ? measured.model + ', counted by ' + measured.recipient + ' with ' + measured.credential
+            : measured.model + ', on this machine';
+        const cells = [text('td', providerNames[measured.provider]), document.createElement('td'), text('td', detail)];
         cells[1].append(badge);
-        if (measured.fallbacks?.length) cells[2].title = measured.fallbacks.join('\\n');
         row.append(...cells);
         return row;
       }));
       $('counting-note').textContent = activeView === 'all'
-        ? 'All files adds providers together, so its totals use the estimate for everyone. Open a provider tab to see its own counts.'
-        : activeMeasure === 'estimate'
-          ? 'This view uses the estimate.'
-          : 'This view uses ' + providerNames[activeMeasure] + "'s own counts.";
+        ? 'All files adds providers together, so it uses the estimate. Open a provider tab for its own count.'
+        : activeMeasure === 'estimate' ? 'This view: the estimate.' : 'This view: ' + providerNames[activeMeasure] + "'s own count.";
     }
     function renderMethod() {
       renderCounting();
-      const shareable = data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '';
-      const providers = (data.providerMeasurements ?? []).map(describeMeasurement).join(' ');
-      if (activeMeasure === 'estimate') {
-        $('method').textContent = shareable + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations + (providers ? ' Separate provider counts, shown in provider views and the file table: ' + providers : '');
-      } else {
-        $('method').textContent = shareable + describeMeasurement(measures.get(activeMeasure)) + ' Totals add up the files whose paths ' + providerNames[activeMeasure] + ' is documented to read at each revision; whether a session loads each one is not established. They describe stored text under this model, not loaded session context or billing, and are never added to the counts of another provider. Structured configuration and supporting files remain source-only.';
-      }
+      const shareable = data.privacy.mode === 'shareable' ? 'Shareable export: names, paths, and IDs are replaced with aliases. ' : '';
+      const base = activeMeasure !== 'estimate' ? '' : data.measurement.accuracy === 'estimate' ? 'Estimate: UTF-8 bytes ÷ 4 per file. ' : data.measurement.label + ', counted on this machine. ';
+      $('method').textContent = shareable + base + 'Text stored in Git, not what an agent session loads.';
       const label = measureLabel();
       $('tokens-label').textContent = label.stat;
       $('compare-tokens-label').textContent = label.compare;

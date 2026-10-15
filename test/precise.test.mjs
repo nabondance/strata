@@ -144,12 +144,10 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       assert.ok(!notices.join("\n").includes(secret), secret);
     }
     const html = renderHtml(report);
-    assert.match(
-      html,
-      /Claude text was sent to api\.anthropic\.com; Gemini text was sent to aiplatform\.googleapis\.com/,
-    );
+    assert.match(html, /Text sent to: api\.anthropic\.com \(Claude\), aiplatform\.googleapis\.com \(Gemini\)/);
     assert.match(html, /<th class="num"[^>]*>Codex local exact<\/th>/);
-    assert.match(html, /Claude counts exclude the 2-token message wrapper/);
+    // The wrapper is in the column's hover text rather than a sentence.
+    assert.match(html, /<th class="num" title="[^"]*less the 2-token message wrapper[^"]*">Claude API<\/th>/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -209,12 +207,14 @@ test("the HTML report describes the counting method in use and charts a provider
     // All files: the estimate, with each provider's method summarized.
     assert.equal(get("measure-switch").hidden, true);
     assert.equal(get("tokens-label").textContent, "Estimated tokens");
-    assert.match(get("method").textContent, /^Estimated stored-text tokens — utf8-bytes-divided-by-four-v1/);
-    assert.match(
+    assert.equal(
       get("method").textContent,
-      /Claude: API-counted with claude-opus-5-5 — .*less the 2-token message wrapper measured by counting "a".*counted by api\.anthropic\.com using signed-in Anthropic account \(ant auth login\)/,
+      "Estimate: UTF-8 bytes ÷ 4 per file. Text stored in Git, not what an agent session loads.",
     );
-    assert.match(get("method").textContent, /Codex: exact \(local encoding\) with gpt-5 .*counted on this machine/);
+    assert.equal(
+      get("counting-summary").textContent,
+      " · Claude exact (API) · Gemini exact (API) · Codex exact (local)",
+    );
 
     const rows = () =>
       get("counting-rows").children.map((row) =>
@@ -222,12 +222,13 @@ test("the HTML report describes the counting method in use and charts a provider
       );
     assert.equal(get("counting").hidden, false);
     assert.deepEqual(rows()[0].slice(0, 2), ["Claude", "Exact · API"]);
-    assert.match(rows()[0][2], /^claude-opus-5-5 · counted by api\.anthropic\.com · signed-in Anthropic account/);
-    assert.deepEqual(rows().at(-1), [
-      "Codex",
-      "Exact · local",
-      "gpt-5 encoding · counted on this machine, nothing sent",
-    ]);
+    assert.equal(
+      rows()[0][2],
+      "claude-opus-5-5, counted by api.anthropic.com with signed-in Anthropic account (ant auth login)",
+    );
+    // The full description, wrapper included, stays one hover away.
+    assert.match(get("counting-rows").children[0].title, /less the 2-token message wrapper measured by counting "a"/);
+    assert.deepEqual(rows().at(-1), ["Codex", "Exact · local", "gpt-5, on this machine"]);
     assert.match(get("counting-note").textContent, /^All files adds providers together/);
 
     // The Claude tab opens on Claude's API counts and says so.
@@ -239,19 +240,16 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.equal(get("tokens-label").textContent, "Claude API-counted tokens");
     assert.equal(get("compare-tokens-label").textContent, "Claude API-counted tokens");
     assert.match(get("repo-meta").textContent, /Claude API-counted tokens under claude-opus-5-5$/);
-    assert.match(get("method").textContent, /^Claude: API-counted with claude-opus-5-5/);
-    assert.equal(get("counting-note").textContent, "This view uses Claude's own counts.");
-    assert.match(
-      get("method").textContent,
-      /Totals add up the files whose paths Claude is documented to read at each revision/,
-    );
+    assert.equal(get("counting-note").textContent, "This view: Claude's own count.");
+    assert.equal(get("counting-rows").children[0].className, "active");
 
     // Switching back to the estimate restores its labels and helper.
     get("measure-switch")
       .children.find((button) => button.textContent === "Byte estimate")
       .listeners.click();
     assert.equal(get("tokens-label").textContent, "Estimated tokens");
-    assert.match(get("method").textContent, /^Estimated stored-text tokens/);
+    assert.match(get("method").textContent, /^Estimate: UTF-8 bytes ÷ 4 per file/);
+    assert.equal(get("counting-note").textContent, "This view: the estimate.");
     assert.equal(
       get("tokens").textContent,
       String(
@@ -266,7 +264,7 @@ test("the HTML report describes the counting method in use and charts a provider
       .children.find((tab) => tab.textContent === "Codex + shared")
       .listeners.click();
     assert.equal(get("tokens-label").textContent, "Codex exact tokens");
-    assert.match(get("method").textContent, /counted on this machine/);
+    assert.equal(get("counting-note").textContent, "This view: Codex's own count.");
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -336,8 +334,7 @@ test("--precise falls back to the estimate without an account or key, and sends 
     assert.equal(claudeFile.providerTokenCounts.claude.tokens, claudeFile.estimatedTokens);
     assert.equal(claudeFile.providerTokenCounts.claude.accuracy, "estimate");
     const html = renderHtml(report);
-    assert.match(html, /No instruction text was sent to a provider\./);
-    assert.match(html, /Claude fell back to estimate: /);
+    assert.match(html, /No text was sent to a provider\./);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -620,7 +617,12 @@ test("a method that fails after sending some files still discloses where they we
     const [claude] = report.providerMeasurements;
     assert.equal(claude.accuracy, "estimate");
     assert.deepEqual(claude.alsoSentTo, ["api.anthropic.com"]);
-    assert.match(renderHtml(report), /Claude text was sent to api\.anthropic\.com/);
+    const html = renderHtml(report);
+    assert.match(html, /Text sent to: api\.anthropic\.com \(Claude\)/);
+    assert.equal(
+      runReport(html)("counting-rows").children[0].children[2].textContent,
+      "count failed after text was sent to api.anthropic.com",
+    );
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -819,13 +821,13 @@ test("the HTML report says per provider which one was counted exactly and which 
     const rows = get("counting-rows").children.map((row) =>
       row.children.map((cell) => cell.textContent || cell.children[0]?.textContent),
     );
-    assert.deepEqual(rows[0], ["Claude", "Estimate", "UTF-8 bytes ÷ 4 · no account or API key found"]);
+    assert.deepEqual(rows[0], ["Claude", "Estimate", "no account or API key found"]);
     assert.deepEqual(rows[1], [
       "Gemini",
       "Exact · API",
-      "gemini-3.8-flash · counted by generativelanguage.googleapis.com · GEMINI_API_KEY",
+      "gemini-3.8-flash, counted by generativelanguage.googleapis.com with GEMINI_API_KEY",
     ]);
-    assert.match(get("counting-rows").children[0].children[2].title, /ANTHROPIC_API_KEY is not set/);
+    assert.match(get("counting-rows").children[0].title, /ANTHROPIC_API_KEY is not set/);
     assert.ok(!renderHtml(report).includes("gemini-test-key"));
   } finally {
     rmSync(repo, { recursive: true, force: true });

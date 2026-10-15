@@ -211,7 +211,7 @@ function exerciseReportUi(html, report) {
       new Intl.NumberFormat().format(report.revisions[4].providerTokenTotals[provider] ?? 0),
     );
     assert.match(get("tokens-label").textContent, new RegExp(`^${provider[0].toUpperCase()}${provider.slice(1)} `));
-    assert.ok(get("method").textContent.includes(measured.model));
+    assert.ok(get("counting-rows").children.some((row) => row.title.includes(measured.model)));
     get("measure-switch")
       .children.find((child) => child.textContent === "Byte estimate")
       .listeners.click();
@@ -431,7 +431,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!providerJson.includes("Shared project instructions."));
     assert.match(
       renderHtml(providerApiReport),
-      /Claude text was sent to api.anthropic.com; Gemini text was sent to generativelanguage.googleapis.com/,
+      /Text sent to: api\.anthropic\.com \(Claude\), generativelanguage\.googleapis\.com \(Gemini\)/,
     );
     // The per-provider columns are the point of this mode, so their table starts open.
     assert.match(renderHtml(providerApiReport), /<details class="panel" id="files-panel" open>/);
