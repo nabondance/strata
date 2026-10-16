@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/nabondance/strata/compare/v0.2.2...v0.3.0) (2026-10-16)
+
+
+### Features
+
+* count tokens precisely with one `--precise` flag and no API key: a signed-in `ant` or `gcloud` account, then an API key, then a local tokenizer, then the estimate, saying what was sent where ([#25](https://github.com/nabondance/strata/issues/25)) ([b11dbcc](https://github.com/nabondance/strata/commit/b11dbcce9e785db47d40c299645a741ca7f094f8))
+* follow what Gemini CLI reads for AGENTS.md and .agents/skills ([#23](https://github.com/nabondance/strata/issues/23)) ([0a2b528](https://github.com/nabondance/strata/commit/0a2b528b34298713f4b7c6861c4715ba72cb0902))
+* add a shields.io badge output with the latest token total ([#20](https://github.com/nabondance/strata/issues/20)) ([b324bdd](https://github.com/nabondance/strata/commit/b324bdd208284988108924a09ed91f02dcc3e0e4))
+* add the Fault line brand, a repository-first report masthead, and dark mode, and trim the report to its core panels ([#18](https://github.com/nabondance/strata/issues/18)) ([0fbac81](https://github.com/nabondance/strata/commit/0fbac81ee002a254e4d6785578842410fedfe107))
+* add a minimal SVG image with only the layers, and drop the total outline from the full image ([#16](https://github.com/nabondance/strata/issues/16)) ([357e56e](https://github.com/nabondance/strata/commit/357e56e02b73d7e592873397885001f5df0ada8e))
+
+
+### Bug Fixes
+
+* open the file table when provider counts are present ([#18](https://github.com/nabondance/strata/issues/18)) ([47d2b7f](https://github.com/nabondance/strata/commit/47d2b7fa7be9fc17f821e68faa722eef87d6855d))
+* install pnpm with npm in the composite Action ([#19](https://github.com/nabondance/strata/issues/19)) ([ed0f0fa](https://github.com/nabondance/strata/commit/ed0f0fa7d93973edbf70453c1f42fff0f212bd1f))
+
 ## [0.2.2](https://github.com/nabondance/strata/compare/v0.2.1...v0.2.2) (2026-10-12)
 
 
