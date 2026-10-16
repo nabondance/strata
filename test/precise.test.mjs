@@ -11,6 +11,7 @@ import { fileCountCache } from "../dist/count-cache.js";
 import { expandRevisions } from "../dist/expand.js";
 import { compareGitCommitsPrecise, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise.js";
+import { redactReport } from "../dist/privacy.js";
 import { countRemoteText } from "../dist/provider-count.js";
 import { renderHtml } from "../dist/report.js";
 
@@ -626,22 +627,24 @@ test("a method that fails after sending some files still discloses where they we
 test("blank instruction files count as zero without a request", async () => {
   const repo = fixture({ "CLAUDE.md": "", "AGENTS.md": "  \n\t\n" });
   try {
-    const { files, fetchImpl } = countServer();
+    const { requests, fetchImpl } = countServer();
     const notices = [];
     const report = await analyzeRepository(repo, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
       onNotice: (line) => notices.push(line),
     });
-    assert.equal(files().length, 0);
-    // The empty CLAUDE.md is not announced as sent; the whitespace-only AGENTS.md is read, then skipped.
+    // Nothing is sent, not even the wrapper probe, so no host is named as a recipient.
+    assert.equal(requests.length, 0);
     assert.ok(
-      notices.includes(
-        "Sending 1 Claude instruction file version to api.anthropic.com to count with claude-opus-5-5, using signed-in Anthropic account (ant auth login).",
-      ),
+      notices.includes("Claude instruction files are all empty; no instruction text sent."),
       notices.join("\n"),
     );
-    assert.equal(report.providerMeasurements[0].accuracy, "api-counted");
+    const [claude] = report.providerMeasurements;
+    assert.equal(claude.accuracy, "api-counted");
+    assert.equal(claude.recipient, undefined);
+    assert.equal(claude.wrapperTokens, undefined);
     assert.equal(expandRevisions(report)[0].providerTokenTotals.claude, 0);
+    assert.doesNotMatch(renderHtml(report), /Text sent to/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -844,6 +847,115 @@ test("the HTML report says per provider which one was counted exactly and which 
     ]);
     assert.match(get("counting-rows").children[0].title, /ANTHROPIC_API_KEY is not set/);
     assert.ok(!renderHtml(report).includes("gemini-test-key"));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("a file that is not UTF-8 text sends nothing and leaves its provider on the estimate", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude instructions.\n", "AGENTS.md": Buffer.from([0x53, 0xff, 0xfe, 0x0a]) });
+  try {
+    const { requests, fetchImpl } = countServer();
+    const report = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
+    });
+    // AGENTS.md is read by Claude and Codex, so both use the estimate; Gemini does not read it.
+    assert.equal(requests.filter((request) => request.host === "api.anthropic.com").length, 0);
+    const [claude, codex] = report.providerMeasurements;
+    assert.equal(claude.accuracy, "estimate");
+    assert.equal(claude.alsoSentTo, undefined);
+    assert.equal(
+      claude.fallbacks.at(-1),
+      "1 instruction file version is not valid UTF-8 text, so none were counted as text or sent",
+    );
+    assert.equal(codex.accuracy, "estimate");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("counts for a -latest model alias are not cached, since the alias moves", async () => {
+  const repo = fixture({ "GEMINI.md": "Gemini instructions.\n" });
+  const cacheDir = mkdtempSync(join(tmpdir(), "strata-cache-"));
+  try {
+    const run = async () => {
+      const { files, fetchImpl } = countServer();
+      const cache = fileCountCache(join(cacheDir, "provider-counts.json"));
+      await analyzeRepository(repo, {
+        providerPlan: resolvePrecisePlan({
+          env: { ...noKeys, GEMINI_API_KEY: "gemini-test-key" },
+          run: () => "missing",
+          geminiModel: "gemini-flash-latest",
+          fetchImpl,
+          cache,
+        }),
+      });
+      cache.save();
+      return files().length;
+    };
+    assert.equal(await run(), 1);
+    assert.equal(await run(), 1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("a provider's error message reaches neither the JSON nor the HTML report", async () => {
+  const repo = fixture({ "GEMINI.md": "Gemini instructions.\n" });
+  try {
+    const body = {
+      error: {
+        code: 403,
+        message: "Billing is disabled for project secret-project-42",
+        details: [{ reason: "BILLING_DISABLED", metadata: { consumer: "projects/secret-project-42" } }],
+      },
+    };
+    const report = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({
+        env: noKeys,
+        run: signedIn,
+        fetchImpl: async () => new Response(JSON.stringify(body), { status: 403 }),
+      }),
+    });
+    const [gemini] = report.providerMeasurements;
+    assert.equal(gemini.accuracy, "estimate");
+    assert.match(gemini.fallbacks.join("\n"), /BILLING_DISABLED/);
+    for (const output of [JSON.stringify(report), renderHtml(report)]) {
+      assert.doesNotMatch(output, /secret-project-42|Billing is disabled/);
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("--shareable keeps precise counts and labels and aliases every path and ID", async () => {
+  const repo = fixture({ "docs/private-plan/CLAUDE.md": "Claude instructions.\n", "GEMINI.md": "Gemini.\n" });
+  try {
+    const { fetchImpl } = countServer({ "aiplatform.googleapis.com": 403 });
+    const analyzed = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({
+        env: { ...noKeys, GEMINI_API_KEY: "gemini-test-key" },
+        run: signedIn,
+        fetchImpl,
+      }),
+    });
+    const report = redactReport(analyzed);
+    assert.deepEqual(summary(report), summary(analyzed));
+    assert.deepEqual(expandRevisions(report)[0].providerTokenTotals, expandRevisions(analyzed)[0].providerTokenTotals);
+    // Gemini fell back from Vertex AI to the key; the recorded failure names no path or ID.
+    assert.match(
+      report.providerMeasurements[1].fallbacks[0],
+      /failed: gemini token count request failed with HTTP 403/,
+    );
+    const html = renderHtml(report);
+    for (const output of [JSON.stringify(report), html]) {
+      assert.doesNotMatch(output, /private-plan|strata-precise-|strata-test-project/);
+      for (const id of [analyzed.revisions[0].id, ...analyzed.components.map((component) => component.blob)]) {
+        assert.ok(!output.includes(id), id);
+      }
+    }
+    assert.match(html, /Shareable export: names, paths, and IDs are replaced with aliases\./);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

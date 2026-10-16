@@ -6,6 +6,7 @@ import { createMeasurer, modeForModel } from "./measurement.js";
 import {
   type CountedProvider,
   type CountMethod,
+  cacheableModel,
   cacheFamily,
   countRemoteText,
   describeMethod,
@@ -71,6 +72,37 @@ interface MethodCounts {
   /** The method label, which names the wrapper once one is subtracted. */
   method: string;
   wrapperTokens?: number;
+  /** False when every file was blank, so no endpoint counted anything, in this run or a cached one. */
+  counted: boolean;
+}
+
+/** What a blob holds as text: blank (nothing to count) or not valid UTF-8 (not text to count). */
+interface BlobText {
+  blank: Set<string>;
+  invalid: Set<string>;
+}
+
+/**
+ * Read each instruction blob once before anything is sent, so a file that is not UTF-8 text sends
+ * nothing and blank files never reach an endpoint.
+ */
+function inspectText(root: string, blobs: string[], measured: Map<string, BlobMeasurement>): BlobText {
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const blank = new Set<string>();
+  const invalid = new Set<string>();
+  const sized = blobs.filter((blob) => {
+    if (measured.get(blob)?.bytes) return true;
+    blank.add(blob);
+    return false;
+  });
+  for (const [blob, body] of readBlobs(root, sized, (id) => measured.get(id)?.bytes ?? 0)) {
+    try {
+      if (!decoder.decode(body).trim()) blank.add(blob);
+    } catch {
+      invalid.add(blob);
+    }
+  }
+  return { blank, invalid };
 }
 
 /** A method's failure, with whether it had already sent instruction text, so a report can still disclose it. */
@@ -89,6 +121,7 @@ async function countWithMethod(
   method: Exclude<CountMethod, { kind: "unavailable" }>,
   wanted: Map<string, string>,
   measured: Map<string, BlobMeasurement>,
+  blank: Set<string>,
   plan: ProviderCountPlan,
   onNotice: ((line: string) => void) | undefined,
 ): Promise<MethodCounts> {
@@ -98,9 +131,10 @@ async function countWithMethod(
   let methodText = labels.method;
   if (method.kind === "estimate") {
     for (const blob of wanted.keys()) counts.set(blob, count(Math.ceil(measured.get(blob)!.bytes / 4)));
-    return { counts, method: methodText };
+    return { counts, method: methodText, counted: true };
   }
   const remote = method.kind === "local" ? null : method;
+  const cache = remote && cacheableModel(remote.model) ? plan.cache : undefined;
   const cacheKey = remote ? `${cacheFamily(remote)}\0${remote.model}\0` : "";
   let wrapperTokens: number | undefined;
   const toRead = [...wanted.keys()];
@@ -118,15 +152,20 @@ async function countWithMethod(
         );
       },
     };
-    const cachedRaw = (key: string) => plan.cache?.get(cacheKey + key);
+    const cachedRaw = (key: string) => cache?.get(cacheKey + key);
     toRead.length = 0;
-    let emptyCount = 0;
+    let blankCount = 0;
     for (const blob of wanted.keys()) {
-      // Empty files have nothing to count or send: zero, without a request or a notice.
-      if (!measured.get(blob)?.bytes) emptyCount += 1;
+      // Blank files have nothing to count or send: zero, without a request or a notice.
+      if (blank.has(blob)) blankCount += 1;
       else if (cachedRaw(blob) === undefined) toRead.push(blob);
     }
-    const cachedCount = wanted.size - toRead.length - emptyCount;
+    const cachedCount = wanted.size - toRead.length - blankCount;
+    if (!toRead.length && !cachedCount) {
+      onNotice?.(`${name} instruction files are all empty; no instruction text sent.`);
+      for (const blob of wanted.keys()) counts.set(blob, count(0));
+      return { counts, method: methodText, counted: false };
+    }
     // The probe carries only the letter "a", so it may precede the notice about instruction text.
     if (plan.subtractWrapper) {
       let raw = cachedRaw("wrapper");
@@ -137,7 +176,7 @@ async function countWithMethod(
           const reason = error instanceof Error ? error.message : String(error);
           throw Object.assign(new Error(`Could not measure the ${name} message wrapper: ${reason}`), { reason });
         }
-        plan.cache?.set(`${cacheKey}wrapper`, raw);
+        cache?.set(`${cacheKey}wrapper`, raw);
       }
       wrapperTokens = Math.max(0, raw - 1);
       if (wrapperTokens) methodText += `, less the ${wrapperTokens}-token message wrapper measured by counting "a"`;
@@ -145,12 +184,10 @@ async function countWithMethod(
     onNotice?.(
       toRead.length
         ? `Sending ${plural(toRead.length, `${name} instruction file version`)} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}${cachedCount ? `; ${cachedCount} more counted before, from the local cache` : ""}.`
-        : cachedCount
-          ? `Using cached ${name} counts for all ${plural(cachedCount, "instruction file version")}; no instruction text sent.`
-          : `${name} instruction files are all empty; no instruction text sent.`,
+        : `Using cached ${name} counts for all ${plural(cachedCount, "instruction file version")}; no instruction text sent.`,
     );
     for (const blob of wanted.keys()) {
-      const raw = measured.get(blob)?.bytes ? cachedRaw(blob) : 0;
+      const raw = blank.has(blob) ? 0 : cachedRaw(blob);
       if (raw !== undefined) counts.set(blob, count(Math.max(0, raw - (wrapperTokens ?? 0))));
     }
     await requestAll(remote, remoteOptions);
@@ -163,7 +200,7 @@ async function countWithMethod(
       }
     }
   }
-  return { counts, method: methodText, ...(wrapperTokens !== undefined ? { wrapperTokens } : {}) };
+  return { counts, method: methodText, counted: true, ...(wrapperTokens !== undefined ? { wrapperTokens } : {}) };
 
   function count(tokens: number): ProviderTextCount {
     return {
@@ -202,7 +239,7 @@ async function countWithMethod(
         const task: Promise<void> = countRemoteText(provider as RemoteProvider, remote, text, remoteOptions)
           .then(
             (raw) => {
-              plan.cache?.set(cacheKey + blob, raw);
+              cache?.set(cacheKey + blob, raw);
               counts.set(blob, count(Math.max(0, raw - (wrapperTokens ?? 0))));
             },
             (error) => {
@@ -229,6 +266,7 @@ function previewMethod(
   provider: CountedProvider,
   method: Exclude<CountMethod, { kind: "unavailable" }>,
   wanted: Map<string, string>,
+  blank: Set<string>,
   plan: ProviderCountPlan,
 ): string {
   const name = providerName[provider];
@@ -238,9 +276,12 @@ function previewMethod(
     return `${name}: would count ${files} locally with ${method.model} (${encodingFor(method.model)}); nothing sent.`;
   }
   const labels = describeMethod(method);
+  const cache = cacheableModel(method.model) ? plan.cache : undefined;
   const cacheKey = `${cacheFamily(method)}\0${method.model}\0`;
-  const cached = [...wanted.keys()].filter((blob) => plan.cache?.get(cacheKey + blob) !== undefined).length;
-  const sending = wanted.size - cached;
+  const texts = [...wanted.keys()].filter((blob) => !blank.has(blob));
+  const cached = texts.filter((blob) => cache?.get(cacheKey + blob) !== undefined).length;
+  const sending = texts.length - cached;
+  if (!texts.length) return `${name}: instruction files are all empty; nothing would be sent.`;
   return `${name}: would send ${plural(sending, "instruction file version")} to ${labels.recipient} to count with ${labels.model}, using ${labels.credential}${cached ? `; ${cached} cached` : ""}.`;
 }
 
@@ -269,12 +310,29 @@ export async function countProviderBlobs(
 
   const counts = new Map<string, ProviderTextCount>();
   const metadata: ProviderMeasurementMetadata[] = [];
+  const all = [...new Set([...wanted.values()].flatMap((blobs) => [...blobs.keys()]))];
+  const { blank, invalid } = inspectText(root, all, measured);
   for (const provider of counted) {
     const blobs = wanted.get(provider)!;
     // A provider with no instructions anywhere in the history needs no credential and gets no column.
     if (!blobs.size) continue;
     const planned = plan.methods[provider]!;
-    const methods = typeof planned === "function" ? planned() : planned;
+    let methods = typeof planned === "function" ? planned() : planned;
+    // Text that is not UTF-8 has no text count; one provider's counts never mix methods, so its
+    // byte estimate is used for every file, and nothing is sent first.
+    const notText = [...blobs.keys()].filter((blob) => invalid.has(blob)).length;
+    if (notText) {
+      const reason = `${plural(notText, "instruction file version")} ${notText === 1 ? "is" : "are"} not valid UTF-8 text, so none were counted as text or sent`;
+      // The deprecated `--provider-api` has no estimate to fall back to.
+      if (!methods.some((method) => method.kind === "estimate")) {
+        throw new Error(`Could not count ${provider} instructions: ${reason}`);
+      }
+      methods = [
+        ...methods.filter((method) => method.kind === "unavailable"),
+        { kind: "unavailable", reason },
+        ...methods.filter((method) => method.kind === "estimate"),
+      ];
+    }
     if (plan.dryRun) {
       const chosen = methods.find(
         (method): method is Exclude<CountMethod, { kind: "unavailable" }> => method.kind !== "unavailable",
@@ -283,7 +341,7 @@ export async function countProviderBlobs(
         const skipped = methods
           .slice(0, methods.indexOf(chosen))
           .flatMap((method) => (method.kind === "unavailable" ? [method.reason] : []));
-        onNotice?.(previewMethod(provider, chosen, blobs, plan));
+        onNotice?.(previewMethod(provider, chosen, blobs, blank, plan));
         for (const reason of skipped) onNotice?.(`  Skipped: ${reason}.`);
       }
       continue;
@@ -299,12 +357,14 @@ export async function countProviderBlobs(
       }
       const labels = describeMethod(method, method.kind === "local" ? encodingFor(method.model) : undefined);
       try {
-        const result = await countWithMethod(root, provider, method, blobs, measured, plan, onNotice);
+        const result = await countWithMethod(root, provider, method, blobs, measured, blank, plan, onNotice);
         for (const [blob, count] of result.counts) counts.set(`${provider}\0${blob}`, count);
         alsoSentTo.delete(labels.recipient ?? "");
+        const { recipient, ...rest } = labels;
         metadata.push({
           provider,
-          ...labels,
+          ...rest,
+          ...(recipient && result.counted ? { recipient } : {}),
           method: result.method,
           ...(result.wrapperTokens !== undefined ? { wrapperTokens: result.wrapperTokens } : {}),
           ...(alsoSentTo.size ? { alsoSentTo: [...alsoSentTo] } : {}),

@@ -187,6 +187,9 @@ export function cacheFamily(method: RemoteMethod): string {
   return method.kind === "anthropic" ? "anthropic" : method.kind;
 }
 
+/** A `-latest` alias moves to new models, so its counts are not kept between runs. */
+export const cacheableModel = (model: string) => !/(?:^|-)latest$/.test(model);
+
 export interface RemoteCountOptions {
   fetchImpl?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
