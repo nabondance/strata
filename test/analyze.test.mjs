@@ -199,9 +199,28 @@ function exerciseReportUi(html, report) {
   assert.equal(located[0].focused, true);
   assert.ok(get("files").children.length <= 2);
   assert.match(get("treemap-hover").textContent, /source-only/);
+  // A provider tab opens on that provider's own counts when the report has them; the switch returns to the estimate.
+  const openOnEstimate = (provider) => {
+    const measured = report.providerMeasurements?.find(
+      (entry) => entry.provider === provider && entry.accuracy !== "estimate",
+    );
+    assert.equal(get("measure-switch").hidden, !measured);
+    if (!measured) return;
+    assert.equal(
+      get("tokens").textContent,
+      new Intl.NumberFormat().format(report.revisions[4].providerTokenTotals[provider] ?? 0),
+    );
+    assert.match(get("tokens-label").textContent, new RegExp(`^${provider[0].toUpperCase()}${provider.slice(1)} `));
+    assert.ok(get("counting-rows").children.some((row) => row.title.includes(measured.model)));
+    get("measure-switch")
+      .children.find((child) => child.textContent === "Byte estimate")
+      .listeners.click();
+    assert.match(get("tokens-label").textContent, /^(Estimated|Encoding) tokens$/);
+  };
   const claudeTab = get("provider-tabs").children.find((child) => child.textContent === "Claude + shared");
   assert.ok(claudeTab);
   claudeTab.listeners.click();
+  openOnEstimate("claude");
   const claudeView = viewRevision(revisions[4], "claude", revisions[3]);
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(claudeView.estimatedTokens));
   assert.equal(get("components").textContent, new Intl.NumberFormat().format(claudeView.components.length));
@@ -211,12 +230,14 @@ function exerciseReportUi(html, report) {
   const codexTab = get("provider-tabs").children.find((child) => child.textContent === "Codex + shared");
   assert.ok(codexTab);
   codexTab.listeners.click();
+  openOnEstimate("codex");
   const codexView = viewRevision(revisions[4], "codex", revisions[3]);
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(codexView.estimatedTokens));
   assert.equal(get("files").children.length, codexView.components.length);
   const geminiTab = get("provider-tabs").children.find((child) => child.textContent === "Gemini + shared");
   assert.ok(geminiTab);
   geminiTab.listeners.click();
+  openOnEstimate("gemini");
   const geminiView = viewRevision(revisions[4], "gemini", revisions[3]);
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(geminiView.estimatedTokens));
   assert.equal(get("files").children.length, geminiView.components.length);
@@ -366,7 +387,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 10);
+    assert.equal(providerApiReport.schemaVersion, 11);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -408,7 +429,10 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!providerJson.includes("anthropic-test-key"));
     assert.ok(!providerJson.includes("gemini-test-key"));
     assert.ok(!providerJson.includes("Shared project instructions."));
-    assert.match(renderHtml(providerApiReport), /Claude and Gemini counts were sent to their provider APIs/);
+    assert.match(
+      renderHtml(providerApiReport),
+      /Text sent to: api\.anthropic\.com \(Claude\), generativelanguage\.googleapis\.com \(Gemini\)/,
+    );
     // The per-provider columns are the point of this mode, so their table starts open.
     assert.match(renderHtml(providerApiReport), /<details class="panel" id="files-panel" open>/);
     assert.match(renderHtml(report), /<details class="panel" id="files-panel">/);
@@ -447,7 +471,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 4);
+    assert.equal(prDelta.schemaVersion, 5);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -464,7 +488,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 10);
+    assert.equal(report.schemaVersion, 11);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -830,7 +854,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 10);
+    assert.equal(openAiReport.schemaVersion, 11);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -881,7 +905,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 10],
+      ["gpt-4o", "o200k_base", 11],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,

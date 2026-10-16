@@ -67,6 +67,45 @@ For pull requests, the opt-in [composite Action](pr-action.md) runs the same com
 
 The default `--tokenizer estimate` divides instructional text's UTF-8 byte length by four. For offline OpenAI text-encoding counts, use `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`, or select a supported model with `--model gpt-4o` (also `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`). Use either `--model` or `--tokenizer`, not both. The chosen method applies consistently across the history and measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
 
+### Precise counts
+
+`strata analyze --precise` counts each provider's instructions with the most precise method it can find, with no other flag:
+
+1. **A signed-in account.** For Claude, an `ant auth login` profile from the Anthropic CLI, or, with neither that nor `ANTHROPIC_API_KEY`, a ready `gcloud` account on Vertex AI with Claude enabled. For Gemini, a `gcloud` account with a project set (`gcloud config set project`, or `GOOGLE_CLOUD_PROJECT`), counted through Vertex AI in `GOOGLE_CLOUD_LOCATION` (default `global`). See [signing in](#signing-in-for-precise-counts) below.
+2. **An API key** in the environment: `ANTHROPIC_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+3. **A local exact tokenizer.** Codex instructions always use the OpenAI encoding of `--codex-model` (default `gpt-5`) and are never sent. Claude and Gemini have none.
+4. **The byte estimate.**
+
+Only providers with recognized instructions somewhere in the history are counted: a repository with only Gemini files never runs `ant`, and one with only Claude files never asks for a Gemini key and runs `gcloud` only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available. The defaults are `claude-opus-5-5` and `gemini-3.8-flash`; override them with `--claude-model` and `--gemini-model`. **What leaves the machine:** when step 1 or 2 applies, Strata sends the text of each recognized Claude or Gemini instruction file version to that provider's token-count endpoint. Before it does, it prints the host and the number of file versions; the run ends with each provider's method and anything it skipped. Settings and skill resources are never sent, nor are blank files, and Codex is counted on this machine. A file version that is not valid UTF-8 text cannot be counted as text, so its providers use the byte estimate and send nothing. A shared file such as `AGENTS.md` is sent to Claude's or Gemini's endpoint when Strata counts it as read by that provider. Without `--precise`, nothing is sent. Reports record the method, its accuracy, the credential source, and the receiving host, never a key or token. The older `--provider-api` flag still works but is deprecated.
+
+- **Message wrapper.** A count endpoint counts a whole request, so each file's count includes a few tokens for wrapping it in a message: about 8 for Claude. Strata counts a one-letter message once per model, takes its count less one as the wrapper, and subtracts that from every file, so counts describe the stored text and add up across files. The report records it as `wrapperTokens`.
+- **Rate limits.** A rate-limited, overloaded, or failed request is retried up to six times with backoff, waiting as long as the endpoint's `retry-after` asks. Only a method that still fails falls back to the next one. If it had already sent some files, the report and run output still name that host (`alsoSentTo`).
+- **Cache.** Remote counts are kept per endpoint, model, and Git blob in `provider-counts.json` under `STRATA_CACHE_DIR`, or the user cache directory (`~/Library/Caches/strata` on macOS, `$XDG_CACHE_HOME/strata` or `~/.cache/strata` on Linux, `%LOCALAPPDATA%\strata` on Windows). A later run sends only file versions it has not counted before and says how many came from the cache. A `-latest` model alias, which moves to new models, is not cached. The file holds blob IDs, model names, and counts, never paths or text, and is readable by the owner only. `--no-cache` neither reads nor writes it; delete the file to clear it.
+- **Dry run.** `strata analyze --precise --dry-run` prints, for each provider, the method it would use, how many file versions it would send and where, and what it would skip, then stops without sending anything or writing a report.
+- **In the HTML report.** The "How tokens are counted" toggle names each provider's method on one line (the provider's API count, exact on this machine, or the estimate) and opens to a short table with the model, where the text was counted, and the credential, or why the estimate was used; hover a row for the full description. "All files" adds providers together, so it always uses the estimate. A provider tab opens on that provider's own counts when it has them, with a switch back to the byte estimate. The chart, totals, treemap, and comparison follow the selected count, and the provider's row in the table is bold.
+- **Pull requests.** `strata diff --precise` adds each provider's totals at the base and head commits, and the [GitHub Action](pr-action.md) takes `precise: 'true'`.
+
+#### Signing in for precise counts
+
+Strata does not install or sign in to provider CLIs. It asks an installed CLI for a short-lived access token and never reads credential files. If a CLI is missing, `--precise` falls back to the next method and the run says so, with the install command:
+
+```text
+Claude: 1231 tokens latest, byte estimate.
+  Skipped: the Anthropic CLI (`ant`) is not installed; to count with your Anthropic account, install it with `brew install anthropics/tap/ant` (or see https://github.com/anthropics/anthropic-cli) and run `ant auth login`.
+```
+
+**Claude.** [`ant`](https://github.com/anthropics/anthropic-cli) is Anthropic's command-line tool for the Claude API, separate from Claude Code. Install and sign in once:
+
+```sh
+brew install anthropics/tap/ant      # macOS; Linux builds are on the releases page
+ant auth login                       # opens a browser
+ant auth status                      # shows the active profile
+```
+
+`ant auth login` signs in to a Claude Platform (API Console) organization and workspace, not to a Claude.ai Pro or Max subscription, so an account there is needed. A Claude Code login is not used: Anthropic does not permit other tools to use it.
+
+**Gemini, and Claude through Google Cloud.** Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), then run `gcloud auth login` and `gcloud config set project <project>` for a project with the Vertex AI API enabled. Claude is counted this way only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available, and only if the project has Claude enabled in Model Garden; someone who only uses Claude and has no ready `gcloud` is never asked about it. Vertex AI answers only for a project with billing enabled, even though token counts are free; without billing, the count fails with `BILLING_DISABLED` and Strata moves on. To count Gemini without billing, create a key in [Google AI Studio](https://aistudio.google.com/apikey), whose free tier covers token counts, and set `GEMINI_API_KEY`. A Gemini CLI login is not used: its terms forbid third-party tools from using it.
+
 ## Shareable reports
 
 For HTML or JSON analysis output, `--shareable` replaces repository and branch names, file paths, skill directory names, commit IDs, and blob IDs with deterministic aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
@@ -92,4 +131,4 @@ The treemap shows the selected revision's instructional components with rectangl
 
 ## The JSON report
 
-JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 10 and that replay rule, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish.
+JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 11 and that replay rule, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish.

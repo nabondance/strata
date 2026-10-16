@@ -95,7 +95,7 @@ It is honest about what it cannot tell you. Strata measures the text **stored in
 ## Private by default
 
 - **Read-only.** Strata reads tracked Git blobs. It never touches your working tree, index, or history.
-- **Offline.** No network access, unless you explicitly opt in to provider token-count APIs with `--provider-api`.
+- **Offline.** No network access, unless you explicitly opt in to precise provider token counts with `--precise`, which uses your signed-in [`ant`](https://github.com/anthropics/anthropic-cli) or `gcloud` account or an API key, and says what it sent where ([setup](docs/usage.md#precise-counts)).
 - **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions.
 - **Shareable mode.** `--shareable` replaces repository and branch names, paths, and commit IDs with stable aliases before you send a report to someone else.
 
@@ -193,7 +193,7 @@ Configuration tracked in the repository, at the root or in nested project direct
 
 **Does it read my working tree or uncommitted files?** No. Strata reads blobs from Git history through read-only commands. Untracked, ignored, and uncommitted files are invisible to it.
 
-**How accurate is "bytes divided by four"?** It is a comparison estimate, good enough to see growth and find the heaviest files, and it stays consistent across revisions. For exact counts under an OpenAI encoding, use `--model` or `--tokenizer`; [the tokenizer study](docs/tokenizers.md) shows how the methods differ. No mode measures Claude or Gemini billing tokens.
+**How accurate is "bytes divided by four"?** It is a comparison estimate, good enough to see growth and find the heaviest files, and it stays consistent across revisions. For exact counts under an OpenAI encoding, use `--model` or `--tokenizer`; for Claude and Gemini, `--precise` asks each provider's count endpoint ([setup](docs/usage.md#precise-counts)). [The tokenizer study](docs/tokenizers.md) shows how the methods differ. No mode measures billing tokens.
 
 **Does the total equal what my agent loads into context?** No. Strata counts everything tracked, including skills and nested instructions that load only on demand. The total is an upper bound on stored instructions, not a measurement of a session.
 

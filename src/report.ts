@@ -7,6 +7,7 @@ import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
 import { categoryColors, categoryInk } from "./palette.js";
+import { textRecipients } from "./provider-count.js";
 import { providerReads, viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
 import { layoutTreemap } from "./treemap.js";
@@ -37,8 +38,21 @@ export function renderHtml(report: Report): string {
   const viewSource = viewRevision.toString();
   const readsSource = providerReads.toString();
   const timelineSource = timelineBuckets.toString();
-  const providerColumns = report.providerMeasurements
-    ? '<th class="num">Claude API</th><th class="num">Gemini API</th><th class="num">Codex / OpenAI local</th>'
+  const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
+  const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
+  const providerColumns = (report.providerMeasurements ?? [])
+    .map(
+      (measured) =>
+        `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerNames[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
+    )
+    .join("");
+  const sentTo = (report.providerMeasurements ?? []).filter((measured) => textRecipients(measured).length);
+  const providerNote = report.providerMeasurements
+    ? `Provider columns are each provider's own count and are never added together. ${
+        sentTo.length
+          ? `Text sent to: ${sentTo.map((measured) => `${escapeHtml(textRecipients(measured).join(" and "))} (${providerNames[measured.provider]})`).join(", ")}.`
+          : "No text was sent to a provider."
+      }`
     : "";
 
   return `<!doctype html>
@@ -78,6 +92,13 @@ export function renderHtml(report: Report): string {
     .notice summary { cursor: pointer; width: fit-content; }
     .notice summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .notice p { margin: 8px 0 0; }
+    .notice summary .counting-summary { color: var(--ink); }
+    .counting { width: auto; margin: 6px 0 0; }
+    .counting td { padding: 4px 14px 4px 0; border: 0; vertical-align: baseline; }
+    .counting tr.active td:first-child { font-weight: 700; color: var(--ink); }
+    .counting .badge { display: inline-block; padding: 1px 7px; border: 1px solid currentColor; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .counting .badge.exact { color: var(--down); }
+    .counting .badge.estimate { color: var(--warn); }
     .warning { color: var(--warn); font-weight: 600; }
     .panel { background: var(--sheet); border: 1px solid var(--line); padding: 24px; margin-bottom: 18px; min-width: 0; }
     .panel h2 { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .02em; line-height: 1.05; text-transform: uppercase; margin: 0 0 14px; }
@@ -140,6 +161,10 @@ export function renderHtml(report: Report): string {
     .inventory-controls button { border: 1px solid var(--edge); border-radius: 0; padding: 10px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
     .inventory-controls button:hover { background: var(--hover); }
     .provider-note { font-size: 13px; margin: 0 0 12px; }
+    .measure-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: -4px 0 14px; font-size: 13px; color: var(--muted); }
+    .measure-switch button { padding: 6px 11px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+    .measure-switch button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+    .measure-switch button:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .inventory-count { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
     .compare-summary { display: flex; flex-wrap: wrap; gap: 12px 30px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 0 6px; }
     .compare-summary span { color: var(--muted); font-size: 12px; }
@@ -178,7 +203,7 @@ export function renderHtml(report: Report): string {
       <p class="repo-meta" id="repo-meta"></p>
       <div class="stats">
         <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
-        <div class="stat"><span>${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
+        <div class="stat"><span id="tokens-label">${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
         <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
         <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
       </div>
@@ -187,9 +212,11 @@ export function renderHtml(report: Report): string {
   </header>
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
-    <details class="notice"><summary>Stored in Git, not loaded session context · how this is measured</summary><p id="method"></p></details>
+    ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: names, paths, and IDs are replaced with aliases.</p>' : ""}
+    <details class="notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
+    <div class="measure-switch" id="measure-switch" role="group" aria-label="Count with" hidden></div>
     <section class="panel">
       <div class="panel-head"><h2>Stored instruction history</h2><div class="revision" id="revision"></div></div>
       <div class="legend" id="legend"></div>
@@ -216,7 +243,7 @@ export function renderHtml(report: Report): string {
         <label>Target revision<select id="target"></select></label>
       </div>
       <div class="compare-summary">
-        <span>${tokenAdjective} stored-text tokens<strong id="compare-tokens"></strong></span>
+        <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
       </div>
       <div class="grid">
@@ -234,7 +261,7 @@ export function renderHtml(report: Report): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
-      ${report.providerMeasurements ? `<p class="muted provider-note">Provider counts below are separate counts for the selected stored text under each named model. They are not added together; timeline and summary totals continue to use ${escapeHtml(report.measurement.label)}. Claude and Gemini counts were sent to their provider APIs.</p>` : ""}
+      ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
   </main>
@@ -250,7 +277,7 @@ export function renderHtml(report: Report): string {
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
-    const providerColumns = data.providerMeasurements ? ['claude', 'gemini', 'codex'] : [];
+    const providerColumns = (data.providerMeasurements ?? []).map((measured) => measured.provider);
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};
     const $ = (id) => document.getElementById(id);
@@ -266,7 +293,95 @@ export function renderHtml(report: Report): string {
     const beforeHistory = { components: [], estimatedTokens: 0 };
     const baselineRevision = () => baseline === 'previous' ? viewRevisions[selected - 1] ?? beforeHistory : viewRevisions[baseline];
     let activeView = 'all';
+    // 'estimate', or a provider whose own counts the provider view is drawn with.
+    let activeMeasure = 'estimate';
     let viewRevisions = revisions;
+    const tokenAdjective = ${JSON.stringify(tokenAdjective)};
+    const providerNames = { claude: 'Claude', gemini: 'Gemini', codex: 'Codex' };
+    const accuracyNames = { 'api-counted': 'API-counted', 'encoding-exact': 'exact (local encoding)', estimate: 'byte estimate' };
+    // Providers counted with something better than the estimate can chart their own counts.
+    const measures = new Map((data.providerMeasurements ?? []).filter((measured) => measured.accuracy !== 'estimate').map((measured) => [measured.provider, measured]));
+    const measuredHistory = new Map();
+    /** The history with each file's tokens taken from one provider's counts, rebuilt once per provider. */
+    function measuredRevisions(provider) {
+      if (!measuredHistory.has(provider)) {
+        const components = data.components.map((component) => {
+          const count = component.providerTokenCounts?.[provider];
+          return count ? { ...component, estimatedTokens: count.tokens } : component;
+        });
+        measuredHistory.set(provider, { components, revisions: expandRevisions({ ...data, components }) });
+      }
+      return measuredHistory.get(provider);
+    }
+    function describeMeasurement(measured) {
+      if (measured.accuracy === 'estimate') return providerNames[measured.provider] + ': byte estimate' + (measured.fallbacks?.length ? ' (more precise methods unavailable: ' + measured.fallbacks.join('; ') + ')' : '') + (measured.alsoSentTo?.length ? '; instruction text went to ' + measured.alsoSentTo.join(' and ') + ' through a method that then failed' : '') + '.';
+      return providerNames[measured.provider] + ': ' + accuracyNames[measured.accuracy] + ' with ' + measured.model + ' — ' + measured.method + ' (' + measured.version + ')' +
+        (measured.recipient ? ', counted by ' + measured.recipient : ', counted on this machine') +
+        (measured.credential ? ' using ' + measured.credential : '') +
+        (measured.alsoSentTo?.length ? '; instruction text also went to ' + measured.alsoSentTo.join(' and ') + ' through a method that then failed' : '') +
+        (measured.fallbacks?.length ? '; more precise methods unavailable: ' + measured.fallbacks.join('; ') : '') + '.';
+    }
+    function measureLabel() {
+      if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.label };
+      const measured = measures.get(activeMeasure);
+      const kind = measured.accuracy === 'api-counted' ? 'API-counted' : 'exact';
+      const name = providerNames[activeMeasure];
+      return { stat: name + ' ' + kind + ' tokens', compare: name + ' ' + kind + ' tokens', meta: name + ' ' + kind + ' tokens under ' + measured.model };
+    }
+    // A count endpoint's result is the provider's own count, which it does not promise is exact; a local encoding is.
+    const badgeNames = { 'api-counted': 'API count', 'encoding-exact': 'Exact · local', estimate: 'Estimate' };
+    /** A few words per provider on how its files were counted; the full description is the row's tooltip. */
+    function renderCounting() {
+      const measurements = data.providerMeasurements ?? [];
+      $('counting').hidden = $('counting-note').hidden = !measurements.length;
+      $('counting-summary').textContent = measurements.map((measured) => ' · ' + providerNames[measured.provider] + ' ' + { 'api-counted': 'API count', 'encoding-exact': 'exact (local)', estimate: 'estimate' }[measured.accuracy]).join('');
+      $('counting-rows').replaceChildren(...measurements.map((measured) => {
+        const row = document.createElement('tr');
+        if (measured.provider === activeMeasure) row.className = 'active';
+        row.title = describeMeasurement(measured);
+        const badge = text('span', badgeNames[measured.accuracy], 'badge ' + (measured.accuracy === 'estimate' ? 'estimate' : 'exact'));
+        const failed = measured.fallbacks?.some((reason) => / failed: /.test(reason));
+        // Missing credentials are the common case; anything else, such as a key a header cannot carry, is "unusable".
+        const missing = measured.fallbacks?.every((reason) => /not installed|is not set|are not set|no signed-in|no local exact/.test(reason));
+        const detail = measured.accuracy === 'estimate'
+          ? (measured.alsoSentTo?.length ? 'count failed after text was sent to ' + measured.alsoSentTo.join(' and ') : failed ? 'counting failed' : missing ? 'no account or API key found' : 'no usable account or API key')
+          : measured.recipient
+            ? measured.model + ', counted by ' + measured.recipient + ' with ' + measured.credential
+            : measured.model + ', on this machine';
+        const cells = [text('td', providerNames[measured.provider]), document.createElement('td'), text('td', detail)];
+        cells[1].append(badge);
+        row.append(...cells);
+        return row;
+      }));
+      $('counting-note').textContent = activeView === 'all'
+        ? 'All files adds providers together, so it uses the estimate. Open a provider tab for its own count.'
+        : activeMeasure === 'estimate' ? 'This view: the estimate.' : 'This view: ' + providerNames[activeMeasure] + "'s own count.";
+    }
+    function renderMethod() {
+      renderCounting();
+      // A provider view's own count is described by its row and the note below the table.
+      $('method').hidden = activeMeasure !== 'estimate';
+      $('method').textContent = data.measurement.accuracy === 'estimate' ? 'Estimate: UTF-8 bytes ÷ 4 per file.' : data.measurement.label + ', counted on this machine.';
+      const label = measureLabel();
+      $('tokens-label').textContent = label.stat;
+      $('compare-tokens-label').textContent = label.compare;
+      $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + label.meta;
+    }
+    function renderMeasureSwitch() {
+      const container = $('measure-switch');
+      container.replaceChildren();
+      const measured = measures.get(activeView);
+      container.hidden = !measured;
+      if (!measured) return;
+      container.append(text('span', 'Count with'));
+      for (const [key, label] of [[activeView, providerNames[activeView] + ' ' + (measured.accuracy === 'api-counted' ? 'API' : 'exact') + ' · ' + measured.model], ['estimate', 'Byte estimate']]) {
+        const button = text('button', label);
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(activeMeasure === key));
+        button.addEventListener('click', () => { if (activeMeasure !== key) setView(activeView, key); });
+        container.append(button);
+      }
+    }
     let showAllSkills = false;
     let providerFilter = '';
     let categoryFilter = '';
@@ -284,8 +399,7 @@ export function renderHtml(report: Report): string {
     let settleTimer;
 
     $('repo').textContent = data.repository;
-    $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + data.measurement.label;
-    $('method').textContent = (data.privacy.mode === 'shareable' ? 'Shareable export: repository names, paths, commit IDs, and blob IDs are replaced with aliases; dates and measurements remain visible. ' : '') + data.measurement.label + ' — ' + data.measurement.method + '. ' + data.measurement.limitations;
+    renderMethod();
     $('shallow').hidden = !data.shallow;
     function capped(id, items, limit, redraw) {
       const button = $(id + '-more');
@@ -326,7 +440,7 @@ export function renderHtml(report: Report): string {
         const button = text('button', '', 'bar');
         button.type = 'button';
         const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
-        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' stored-text tokens at end';
+        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + measureLabel().stat.toLowerCase() + ' at end';
         button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revision.date.slice(0, 10));
         const stack = text('span', '', 'stack');
         stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
@@ -395,32 +509,38 @@ export function renderHtml(report: Report): string {
       const button = text('button', view.label, 'provider-tab');
       button.type = 'button';
       button.setAttribute('aria-pressed', String(view.key === activeView));
-      button.addEventListener('click', () => {
-        activeView = view.key;
-        viewRevisions = [];
-        for (const [index, revision] of revisions.entries()) {
-          const view = viewRevision(revision, activeView, revisions[index - 1], data.components);
-          // Revisions that changed nothing keep sharing arrays in a provider view too.
-          if (view !== revision && index && revision.components === revisions[index - 1].components) {
-            view.components = viewRevisions[index - 1].components;
-            view.skillGroups = viewRevisions[index - 1].skillGroups;
-          }
-          viewRevisions.push(view);
-        }
-        drawn = {};
-        showAllSkills = false;
-        providerFilter = '';
-        categoryFilter = '';
-        pathSearch = '';
-        $('category-filter').value = '';
-        $('path-search').value = '';
-        Array.from($('provider-tabs').children).forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
-        renderProviderOptions();
-        renderViewNote();
-        renderChart();
-        render(selected);
-      });
+      // A provider view opens on that provider's own counts when the report has them.
+      button.addEventListener('click', () => setView(view.key, measures.has(view.key) ? view.key : 'estimate'));
       $('provider-tabs').append(button);
+    }
+    function setView(view, measure) {
+      activeView = view;
+      activeMeasure = measure;
+      const base = measure === 'estimate' ? { components: data.components, revisions } : measuredRevisions(measure);
+      viewRevisions = [];
+      for (const [index, revision] of base.revisions.entries()) {
+        const projected = viewRevision(revision, activeView, base.revisions[index - 1], base.components);
+        // Revisions that changed nothing keep sharing arrays in a provider view too.
+        if (projected !== revision && index && revision.components === base.revisions[index - 1].components) {
+          projected.components = viewRevisions[index - 1].components;
+          projected.skillGroups = viewRevisions[index - 1].skillGroups;
+        }
+        viewRevisions.push(projected);
+      }
+      drawn = {};
+      showAllSkills = false;
+      providerFilter = '';
+      categoryFilter = '';
+      pathSearch = '';
+      $('category-filter').value = '';
+      $('path-search').value = '';
+      Array.from($('provider-tabs').children).forEach((tab, index) => tab.setAttribute('aria-pressed', String(viewTabs[index].key === activeView)));
+      renderProviderOptions();
+      renderViewNote();
+      renderMeasureSwitch();
+      renderMethod();
+      renderChart();
+      render(selected);
     }
     function renderProviderOptions() {
       const select = $('provider-filter');
@@ -466,6 +586,7 @@ export function renderHtml(report: Report): string {
     $('skill-toggle').addEventListener('click', () => { showAllSkills = !showAllSkills; renderSkills(); });
     renderProviderOptions();
     renderViewNote();
+    renderMeasureSwitch();
     renderChart();
 
     function renderInventory() {
@@ -497,7 +618,7 @@ export function renderHtml(report: Report): string {
           // A Gemini context file has a Gemini count only for revisions whose settings make Gemini read it.
           const count = providerReads(component, provider, revision.geminiContextFiles) ? component.providerTokenCounts?.[provider] : undefined;
           const cell = text('td', count ? fmt(count.tokens) : '—', 'num');
-          if (count) cell.title = count.accuracy + ' · ' + count.model + ' · ' + count.method + ' · ' + count.version;
+          if (count) cell.title = [count.accuracy, count.model, count.method, count.version].filter(Boolean).join(' · ');
           row.append(cell);
         }
         files.append(row);

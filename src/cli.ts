@@ -8,12 +8,22 @@ import { pathToFileURL } from "node:url";
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
-import { type MeasurementMode, modeForModel, modelEncodings } from "./measurement.js";
-import { compareGitCommits, renderPullRequestDelta } from "./pr-delta.js";
+import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
+import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
+import type { Report } from "./model.js";
+import {
+  compareGitCommits,
+  compareGitCommitsPrecise,
+  type PullRequestDelta,
+  renderPullRequestDelta,
+} from "./pr-delta.js";
+import { defaultModels, resolvePrecisePlan } from "./precise.js";
 import { redactReport } from "./privacy.js";
-import type { ProviderCountOptions } from "./provider-count.js";
+import type { CountedProvider, ProviderCountOptions, ProviderCountPlan } from "./provider-count.js";
 import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
+
+const providerLabel: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
 
 /** A mistake in how the command was invoked. Exits with status 2; other failures exit with 1. */
 class UsageError extends Error {}
@@ -27,7 +37,26 @@ const models = Object.keys(modelEncodings).join(", ");
 
 const measurementHelp = `Measurement (offline; choose at most one):
       --tokenizer <mode>     ${tokenizers.join(", ")} (default: estimate)
-      --model <name>         Count with a documented OpenAI model encoding: ${models}`;
+      --model <name>         Count with a documented OpenAI model encoding: ${models},
+                             or a name starting with ${Object.keys(modelPrefixEncodings).join(", ")}`;
+
+const preciseHelp = `Precise counts (opt-in content transfer):
+      --precise              Count each provider's instructions with the most precise method
+                             available: a signed-in account (ant auth login for Claude; gcloud
+                             on Vertex AI for Gemini, and for Claude without ant), then an API
+                             key (ANTHROPIC_API_KEY; GEMINI_API_KEY or GOOGLE_API_KEY), then the
+                             estimate. Claude and Gemini instruction text is sent to that
+                             provider's token-count API when an account or key is found; the
+                             run says what went where. Codex is counted locally, never sent.
+                             Only providers with instructions in the history are looked up.
+                             Strata installs neither CLI: get ant with
+                             brew install anthropics/tap/ant, and gcloud from
+                             https://cloud.google.com/sdk/docs/install.
+      --dry-run              With --precise, print what would be used and sent, then stop
+      --no-cache             With --precise, ignore and do not update the local count cache
+      --claude-model <name>  Claude model to count with (default: ${defaultModels.claude})
+      --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})
+      --codex-model <name>   OpenAI model whose encoding counts Codex (default: ${defaultModels.codex})`;
 
 const help = {
   main: `Strata — see how your agent context evolved across Git history.
@@ -46,7 +75,7 @@ Options:
   -V, --version          Show the version
 
 Strata reads Git-tracked Claude, Codex, and Gemini CLI configuration from first-parent history.
-It never modifies the repository and sends nothing over the network unless --provider-api is set.
+It never modifies the repository and sends nothing over the network unless --precise is set.
 `,
   analyze: `Usage:
   strata analyze [repository] [options]
@@ -64,13 +93,9 @@ Output:
 
 ${measurementHelp}
 
-Provider API counts (opt-in content transfer):
-      --provider-api         Send recognized Claude and Gemini instruction text to their
-                             token-count APIs. Requires --claude-model, --gemini-model,
-                             ANTHROPIC_API_KEY, and GEMINI_API_KEY (or GOOGLE_API_KEY).
-      --claude-model <name>  Claude model to count with
-      --gemini-model <name>  Gemini model to count with
-      --codex-model <name>   Add a local OpenAI encoding count for Codex instructions
+${preciseHelp}
+      --provider-api         Deprecated: use --precise. Requires both model flags and API keys,
+                             and fails instead of falling back.
 
   -h, --help                 Show this help
 
@@ -96,6 +121,8 @@ Options:
   -h, --help                 Show this help
 
 ${measurementHelp}
+
+${preciseHelp}
 
 Example:
   strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)"
@@ -202,6 +229,69 @@ function progressReporter(): (progress: AnalysisProgress) => void {
   };
 }
 
+/** The cache only saves requests, so failing to write it never fails the run. */
+function saveCache(cache: FileCountCache | undefined): void {
+  try {
+    cache?.save();
+  } catch (error) {
+    process.stderr.write(
+      `Warning: could not save the count cache (${error instanceof Error ? error.message : String(error)}); the next run will count again.\n`,
+    );
+  }
+}
+
+/** Notices about content leaving the machine go to stderr and are shown even with --quiet. */
+const noticeToStderr = (line: string) => process.stderr.write(`${line}\n`);
+
+const preciseOptions = {
+  precise: { type: "boolean" },
+  "dry-run": { type: "boolean" },
+  "no-cache": { type: "boolean" },
+  "claude-model": { type: "string" },
+  "gemini-model": { type: "string" },
+  "codex-model": { type: "string" },
+} as const satisfies NonNullable<ParseArgsConfig["options"]>;
+
+/** Validate the precise-count flags and resolve each provider's methods; undefined without --precise. */
+function preciseArguments(values: {
+  precise?: boolean | undefined;
+  "dry-run"?: boolean | undefined;
+  "no-cache"?: boolean | undefined;
+  "claude-model"?: string | undefined;
+  "gemini-model"?: string | undefined;
+  "codex-model"?: string | undefined;
+  model?: string | undefined;
+  tokenizer?: string | undefined;
+}): { plan: ProviderCountPlan; cache: FileCountCache | undefined; onNotice: (line: string) => void } | undefined {
+  if (!values.precise) {
+    if (values["claude-model"] || values["gemini-model"] || values["codex-model"])
+      throw new UsageError("--claude-model, --gemini-model, and --codex-model require --precise");
+    if (values["dry-run"] || values["no-cache"]) throw new UsageError("--dry-run and --no-cache require --precise");
+    return undefined;
+  }
+  if (values.model !== undefined || values.tokenizer !== undefined)
+    throw new UsageError("Choose either --precise or --model/--tokenizer");
+  for (const flag of ["claude-model", "gemini-model", "codex-model"] as const) {
+    if (values[flag] === "") throw new UsageError(`--${flag} needs a model name`);
+  }
+  const codexModel = values["codex-model"];
+  if (codexModel) measurementArguments({ model: codexModel });
+  const cache = values["no-cache"] ? undefined : fileCountCache(defaultCachePath());
+  const dryRun = values["dry-run"] ?? false;
+  return {
+    plan: resolvePrecisePlan({
+      ...(values["claude-model"] ? { claudeModel: values["claude-model"] } : {}),
+      ...(values["gemini-model"] ? { geminiModel: values["gemini-model"] } : {}),
+      ...(codexModel ? { codexModel } : {}),
+      ...(cache ? { cache } : {}),
+      dryRun,
+    }),
+    cache,
+    // A dry run's preview is its output.
+    onNotice: dryRun ? (line) => process.stdout.write(`${line}\n`) : noticeToStderr,
+  };
+}
+
 async function analyze(args: string[]): Promise<void> {
   const { values, positionals } = parse(args, {
     output: { type: "string", short: "o" },
@@ -212,10 +302,8 @@ async function analyze(args: string[]): Promise<void> {
     quiet: { type: "boolean", short: "q" },
     tokenizer: { type: "string" },
     model: { type: "string" },
+    ...preciseOptions,
     "provider-api": { type: "boolean" },
-    "claude-model": { type: "string" },
-    "gemini-model": { type: "string" },
-    "codex-model": { type: "string" },
   });
   const repository = repositoryArgument(positionals);
   const format = choice("--format", values.format, ["html", "json", "svg", "badge"], "html");
@@ -227,9 +315,15 @@ async function analyze(args: string[]): Promise<void> {
   const measurement = measurementArguments(values);
 
   let providerCounts: ProviderCountOptions | undefined;
+  if (values.precise && values["provider-api"]) throw new UsageError("Choose either --precise or --provider-api");
+  if (values["provider-api"] && (values.model !== undefined || values.tokenizer !== undefined))
+    throw new UsageError("Choose either --provider-api or --model/--tokenizer");
+  const codexModel = values["codex-model"];
+  if (values["provider-api"] && (values["dry-run"] || values["no-cache"]))
+    throw new UsageError("--dry-run and --no-cache require --precise, not --provider-api");
+  const precise = values["provider-api"] ? undefined : preciseArguments(values);
   if (values["provider-api"]) {
-    if (values.model !== undefined || values.tokenizer !== undefined)
-      throw new UsageError("Choose either --provider-api or --model/--tokenizer");
+    process.stderr.write("Warning: --provider-api is deprecated; use --precise.\n");
     const claudeModel = values["claude-model"];
     const geminiModel = values["gemini-model"];
     if (!claudeModel || !geminiModel)
@@ -238,18 +332,26 @@ async function analyze(args: string[]): Promise<void> {
     const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!anthropicApiKey) throw new UsageError("--provider-api requires ANTHROPIC_API_KEY");
     if (!geminiApiKey) throw new UsageError("--provider-api requires GEMINI_API_KEY (or GOOGLE_API_KEY)");
-    const codexModel = values["codex-model"];
     if (codexModel) measurementArguments({ model: codexModel });
     providerCounts = { claudeModel, geminiModel, anthropicApiKey, geminiApiKey, ...(codexModel ? { codexModel } : {}) };
-  } else if (values["claude-model"] || values["gemini-model"] || values["codex-model"]) {
-    throw new UsageError("--claude-model, --gemini-model, and --codex-model require --provider-api");
   }
 
-  const analyzed = await analyzeRepository(repository, {
-    ...measurement,
-    ...(values.quiet ? {} : { onProgress: progressReporter() }),
-    ...(providerCounts ? { providerCounts } : {}),
-  });
+  let analyzed: Report;
+  try {
+    analyzed = await analyzeRepository(repository, {
+      ...measurement,
+      ...(values.quiet ? {} : { onProgress: progressReporter() }),
+      ...(providerCounts ? { providerCounts } : {}),
+      ...(precise ? { providerPlan: precise.plan } : {}),
+      onNotice: precise?.onNotice ?? noticeToStderr,
+    });
+  } finally {
+    saveCache(precise?.cache);
+  }
+  if (precise?.plan.dryRun) {
+    process.stdout.write("Dry run: nothing was sent and no report was written.\n");
+    return;
+  }
   const report = values.shareable ? redactReport(analyzed) : analyzed;
   const content =
     format === "json"
@@ -268,6 +370,17 @@ async function analyze(args: string[]): Promise<void> {
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
   );
+  for (const measured of report.providerMeasurements ?? []) {
+    const total = latest?.providerTokenTotals?.[measured.provider] ?? 0;
+    const how =
+      measured.accuracy === "estimate"
+        ? "byte estimate"
+        : `${measured.accuracy} with ${measured.model}${measured.credential ? ` via ${measured.credential}` : ""}${measured.wrapperTokens ? `, minus the ${measured.wrapperTokens}-token message wrapper per file` : ""}`;
+    say(`${providerLabel[measured.provider]}: ${total} tokens latest, ${how}.`);
+    for (const reason of measured.fallbacks ?? []) say(`  Skipped: ${reason}.`);
+    for (const host of measured.alsoSentTo ?? [])
+      say(`  Instruction text also went to ${host} before that method failed.`);
+  }
   if (toStdout) {
     process.stdout.write(content);
   } else {
@@ -286,7 +399,7 @@ async function analyze(args: string[]): Promise<void> {
   if (report.shallow) process.stderr.write("Warning: shallow clone; earlier history is unavailable.\n");
 }
 
-function diff(args: string[]): void {
+async function diff(args: string[]): Promise<void> {
   const { values, positionals } = parse(args, {
     base: { type: "string" },
     head: { type: "string" },
@@ -294,6 +407,7 @@ function diff(args: string[]): void {
     format: { type: "string", short: "f" },
     tokenizer: { type: "string" },
     model: { type: "string" },
+    ...preciseOptions,
   });
   const repository = repositoryArgument(positionals);
   if (!values.base || !values.head) throw new UsageError("diff requires --base <commit> and --head <commit>");
@@ -301,7 +415,24 @@ function diff(args: string[]): void {
     if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new UsageError(`Base and head must be full Git commit IDs, not ${id}`);
   }
   const format = choice("--format", values.format, ["markdown", "json"], "markdown");
-  const delta = compareGitCommits(repository, values.base, values.head, measurementArguments(values));
+  const measurement = measurementArguments(values);
+  const precise = preciseArguments(values);
+  let delta: PullRequestDelta;
+  try {
+    delta = precise
+      ? await compareGitCommitsPrecise(repository, values.base, values.head, {
+          ...measurement,
+          providerPlan: precise.plan,
+          onNotice: precise.onNotice,
+        })
+      : compareGitCommits(repository, values.base, values.head, measurement);
+  } finally {
+    saveCache(precise?.cache);
+  }
+  if (precise?.plan.dryRun) {
+    process.stdout.write("Dry run: nothing was sent and no delta was written.\n");
+    return;
+  }
   const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
   if (values.output === undefined || values.output === "-") {
     process.stdout.write(content);
@@ -351,7 +482,7 @@ async function main(args: string[]): Promise<void> {
   } else if (command === "analyze") {
     await analyze(rest);
   } else if (command === "diff") {
-    diff(rest);
+    await diff(rest);
   } else {
     skill(rest);
   }
