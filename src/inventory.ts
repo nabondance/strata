@@ -2,6 +2,7 @@ import { type Classification, categories, classify } from "./adapters.js";
 import { blobSizes, readBlobs } from "./git.js";
 import type { Measurer } from "./measurement.js";
 import type { CategoryTotals, Component, Revision } from "./model.js";
+import type { SkillListing } from "./skill-listing.js";
 
 export interface TrackedFile {
   path: string;
@@ -69,6 +70,7 @@ export function toComponent(
   file: TrackedFile,
   measured: BlobMeasurement,
   providerTokenCounts?: Component["providerTokenCounts"],
+  listing?: SkillListing,
 ): Component {
   const { classification } = file;
   return {
@@ -82,7 +84,13 @@ export function toComponent(
     estimatedTokens: classification.instructionalText ? measured.tokens : null,
     ...(providerTokenCounts && Object.keys(providerTokenCounts).length ? { providerTokenCounts } : {}),
     ...(classification.skillRoot && classification.skillRole
-      ? { skill: { root: classification.skillRoot, role: classification.skillRole } }
+      ? {
+          skill: {
+            root: classification.skillRoot,
+            role: classification.skillRole,
+            ...(listing && classification.skillRole === "manifest" ? { listing } : {}),
+          },
+        }
       : {}),
   };
 }
@@ -90,12 +98,17 @@ export function toComponent(
 /** Derive a revision's totals from its components, so they are never maintained as separate facts. */
 export function summarize(
   components: Iterable<Component>,
-): Pick<Revision, "componentCount" | "categoryTotals" | "estimatedTokens"> {
+): Pick<
+  Revision,
+  "componentCount" | "categoryTotals" | "estimatedTokens" | "skillListingTokens" | "skillListingUnresolved"
+> {
   const categoryTotals = Object.fromEntries(
     categories.map((category) => [category, { count: 0, bytes: 0, estimatedTokens: 0, sourceOnlyCount: 0 }]),
   ) as CategoryTotals;
   let componentCount = 0;
   let estimatedTokens = 0;
+  let skillListingTokens = 0;
+  let skillListingUnresolved = 0;
   for (const component of components) {
     const total = categoryTotals[component.category];
     componentCount += 1;
@@ -104,6 +117,8 @@ export function summarize(
     total.estimatedTokens += component.estimatedTokens ?? 0;
     estimatedTokens += component.estimatedTokens ?? 0;
     if (component.estimatedTokens === null) total.sourceOnlyCount += 1;
+    skillListingTokens += component.skill?.listing?.tokens ?? 0;
+    if (component.skill?.listing?.status === "unresolved") skillListingUnresolved += 1;
   }
-  return { componentCount, categoryTotals, estimatedTokens };
+  return { componentCount, categoryTotals, estimatedTokens, skillListingTokens, skillListingUnresolved };
 }

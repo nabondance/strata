@@ -370,6 +370,16 @@ async function analyze(args: string[]): Promise<void> {
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
   );
+  const skills = latest?.categoryTotals.skills;
+  if (skills && skills.count > skills.sourceOnlyCount) {
+    const unresolved = latest.skillListingUnresolved;
+    say(
+      `Skills: ${latest.skillListingTokens} listed tokens, the names and descriptions kept in context before a skill is used; the skill files store ${skills.estimatedTokens}.` +
+        (unresolved
+          ? ` ${unresolved} manifest${unresolved === 1 ? " has" : "s have"} frontmatter Strata could not read and ${unresolved === 1 ? "is" : "are"} not counted.`
+          : ""),
+    );
+  }
   for (const measured of report.providerMeasurements ?? []) {
     const total = latest?.providerTokenTotals?.[measured.provider] ?? 0;
     const how =

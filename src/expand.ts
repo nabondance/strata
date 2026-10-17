@@ -32,6 +32,7 @@ export function expandRevisions(report: Report): RevisionSnapshot[] {
             ...(component.readers ? { readers: component.readers } : {}),
             manifestPath: null,
             manifestEstimatedTokens: 0,
+            listing: null,
             resourceCount: 0,
             resourceBytes: 0,
           };
@@ -40,6 +41,7 @@ export function expandRevisions(report: Report): RevisionSnapshot[] {
         if (component.skill.role === "manifest") {
           group.manifestPath = component.path;
           group.manifestEstimatedTokens = component.estimatedTokens ?? 0;
+          group.listing = component.skill.listing ?? null;
         } else {
           group.resourceCount += 1;
           group.resourceBytes += component.bytes;

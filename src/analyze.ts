@@ -14,6 +14,7 @@ import {
 } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, geminiSettings } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
+import { skillListings } from "./skill-listing.js";
 import { inspectSubmodules } from "./submodules.js";
 
 export { categories } from "./adapters.js";
@@ -242,6 +243,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const written = deltas.flatMap((delta) => delta.written);
   const measured = measureBlobs(root, written, measurer);
   const configured = geminiSettings(root, written, measured);
+  const listings = skillListings(root, written, measured, measurer);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
@@ -259,7 +261,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
           providerTokenCounts[provider] = provided.counts.get(`${provider}\0${file.blob}`)!;
         }
       }
-      index = table.push(toComponent(file, measured.get(file.blob)!, providerTokenCounts)) - 1;
+      index = table.push(toComponent(file, measured.get(file.blob)!, providerTokenCounts, listings.get(key))) - 1;
       tableIndex.set(key, index);
     }
     return index;
@@ -318,7 +320,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     repository: basename(root),
     branch,
     shallow,

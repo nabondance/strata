@@ -195,7 +195,7 @@ Configuration tracked in the repository, at the root or in nested project direct
 
 **How accurate is "bytes divided by four"?** It is a comparison estimate, good enough to see growth and find the heaviest files, and it stays consistent across revisions. For exact counts under an OpenAI encoding, use `--model` or `--tokenizer`; for Claude and Gemini, `--precise` asks each provider's count endpoint ([setup](docs/usage.md#precise-counts)). [The tokenizer study](docs/tokenizers.md) shows how the methods differ. No mode measures billing tokens.
 
-**Does the total equal what my agent loads into context?** No. Strata counts everything tracked, including skills and nested instructions that load only on demand. The total is an upper bound on stored instructions, not a measurement of a session.
+**Does the total equal what my agent loads into context?** No. Strata counts everything tracked, including skills and nested instructions that load only on demand. The total is an upper bound on stored instructions, not a measurement of a session. For skills, the report also shows the smaller part an agent keeps in context before a skill is used: its frontmatter name and description.
 
 **Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, paths, and commit IDs with aliases, then inspect the report before sending it.
 

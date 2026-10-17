@@ -1,4 +1,5 @@
 import type { Component, RevisionSnapshot } from "./model.js";
+import type { SkillListing } from "./skill-listing.js";
 
 /** The part of a revision a comparison reads. */
 export type ComparedRevision = Pick<RevisionSnapshot, "components" | "estimatedTokens">;
@@ -22,6 +23,23 @@ export interface ComponentDelta {
   afterTokens: number | null;
   deltaFiles: number;
   deltaTokens: number;
+  /** On a skill manifest: its listing at each side, null where the manifest is absent. */
+  listing?: { before: SkillListing | null; after: SkillListing | null; deltaTokens: number };
+}
+
+/**
+ * Listed skill tokens at each side, measured separately from the stored-text totals and never added
+ * to them. `beforeManifests` and `afterManifests` count the skill manifests present, and
+ * `beforeUnresolved` and `afterUnresolved` those whose listing is unresolved and left out of the tokens.
+ */
+export interface ListingComparison {
+  beforeTokens: number;
+  afterTokens: number;
+  deltaTokens: number;
+  beforeManifests: number;
+  afterManifests: number;
+  beforeUnresolved: number;
+  afterUnresolved: number;
 }
 
 export interface Comparison {
@@ -34,6 +52,7 @@ export interface Comparison {
   deltaFiles: number;
   byProvider: ComparisonDelta[];
   byCategory: ComparisonDelta[];
+  skillListing: ListingComparison;
   components: ComponentDelta[];
 }
 
@@ -77,6 +96,8 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
     const newComponent = after.get(key);
     if (oldComponent?.blob === newComponent?.blob) continue;
     const component = newComponent ?? oldComponent!;
+    const manifest = (entry: Component | undefined) => (entry?.skill?.role === "manifest" ? entry : undefined);
+    const listed = manifest(oldComponent) || manifest(newComponent);
     components.push({
       path: component.path,
       provider: component.provider,
@@ -86,10 +107,35 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
       afterTokens: newComponent?.estimatedTokens ?? null,
       deltaFiles: Number(Boolean(newComponent)) - Number(Boolean(oldComponent)),
       deltaTokens: (newComponent?.estimatedTokens ?? 0) - (oldComponent?.estimatedTokens ?? 0),
+      ...(listed
+        ? {
+            listing: {
+              before: manifest(oldComponent)?.skill?.listing ?? null,
+              after: manifest(newComponent)?.skill?.listing ?? null,
+              deltaTokens:
+                (manifest(newComponent)?.skill?.listing?.tokens ?? 0) -
+                (manifest(oldComponent)?.skill?.listing?.tokens ?? 0),
+            },
+          }
+        : {}),
     });
   }
   components.sort((a, b) => Math.abs(b.deltaTokens) - Math.abs(a.deltaTokens) || a.path.localeCompare(b.path));
 
+  const listing = (revision: ComparedRevision) => {
+    let tokens = 0;
+    let manifests = 0;
+    let unresolved = 0;
+    for (const component of revision.components) {
+      if (component.skill?.role !== "manifest") continue;
+      manifests += 1;
+      tokens += component.skill.listing?.tokens ?? 0;
+      if (component.skill.listing?.status === "unresolved") unresolved += 1;
+    }
+    return { tokens, manifests, unresolved };
+  };
+  const listedBefore = listing(baseline);
+  const listedAfter = listing(target);
   const deltaTokens = target.estimatedTokens - baseline.estimatedTokens;
   return {
     beforeTokens: baseline.estimatedTokens,
@@ -101,6 +147,15 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
     deltaFiles: target.components.length - baseline.components.length,
     byProvider: groups((component) => component.provider),
     byCategory: groups((component) => component.category),
+    skillListing: {
+      beforeTokens: listedBefore.tokens,
+      afterTokens: listedAfter.tokens,
+      deltaTokens: listedAfter.tokens - listedBefore.tokens,
+      beforeManifests: listedBefore.manifests,
+      afterManifests: listedAfter.manifests,
+      beforeUnresolved: listedBefore.unresolved,
+      afterUnresolved: listedAfter.unresolved,
+    },
     components,
   };
 }

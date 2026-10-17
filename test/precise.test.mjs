@@ -92,7 +92,7 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
       onNotice: (line) => notices.push(line),
     });
-    assert.equal(report.schemaVersion, 12);
+    assert.equal(report.schemaVersion, 13);
     assert.deepEqual(summary(report), {
       claude: ["api-counted", "signed-in Anthropic account (ant auth login)", "api.anthropic.com"],
       gemini: ["api-counted", "signed-in Google Cloud account (gcloud, Vertex AI)", "aiplatform.googleapis.com"],
@@ -238,6 +238,12 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.equal(get("counting-note").textContent, "This view: Claude's own count.");
     assert.equal(get("method").hidden, true);
     assert.equal(get("counting-rows").children[0].className, "active");
+    // Skill listings keep the report's own measurement, so this view names it rather than implying Claude's count.
+    assert.equal(get("compare-listing-label").textContent, "Listed skill tokens (byte estimate)");
+    assert.match(
+      get("listing-note").textContent,
+      /^Manifest tokens here are Claude counts, but listed tokens use the byte estimate of the whole report, so the two are not comparable\. /,
+    );
 
     // Switching back to the estimate restores its labels and helper.
     get("measure-switch")
@@ -246,6 +252,8 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.equal(get("tokens-label").textContent, "Estimated tokens");
     assert.match(get("method").textContent, /^Estimate: UTF-8 bytes ÷ 4 per file/);
     assert.equal(get("counting-note").textContent, "This view: the estimate.");
+    assert.equal(get("compare-listing-label").textContent, "Listed skill tokens");
+    assert.match(get("listing-note").textContent, /^Listed tokens measure/);
     assert.equal(
       get("tokens").textContent,
       String(
@@ -570,7 +578,7 @@ test("strata diff --precise adds each provider's totals at both commits", async 
     const delta = await compareGitCommitsPrecise(repo, base, head, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
     });
-    assert.equal(delta.schemaVersion, 5);
+    assert.equal(delta.schemaVersion, 6);
     const codexTokens = getEncoding("o200k_base").encode("Shared instructions.\n").length;
     assert.deepEqual(
       delta.providerTotals.map(({ provider, beforeTokens, afterTokens, deltaTokens }) => [
