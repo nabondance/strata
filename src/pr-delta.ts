@@ -1,4 +1,4 @@
-import { type ComparedRevision, type Comparison, compareRevisions } from "./compare.js";
+import { type ComparedRevision, type Comparison, type ComponentDelta, compareRevisions } from "./compare.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, listTree } from "./git.js";
 import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
@@ -11,6 +11,9 @@ import {
 } from "./provider-count.js";
 import { countProviderBlobs, geminiSettings, providerName } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
+import { type SkillListing, skillListings } from "./skill-listing.js";
+
+type ComparedListing = NonNullable<ComponentDelta["listing"]>;
 
 function commitId(repo: string, id: string): string {
   if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new Error("Base and head must be full Git commit IDs");
@@ -35,7 +38,7 @@ export interface ProviderTotalDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 5;
+  schemaVersion: 6;
   base: string;
   head: string;
   measurement: Measurement;
@@ -56,12 +59,15 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
   const ids = [commitId(repo, base), commitId(repo, head)] as const;
   const files = ids.map((id) => trackedFiles(repo, id));
   const measured = measureBlobs(repo, files.flat(), measurer);
+  const listings = skillListings(repo, files.flat(), measured, measurer);
   const [before, after] = files.map((snapshot): ComparedRevision => {
-    const components = snapshot.map((file) => toComponent(file, measured.get(file.blob)!)).sort(byPath);
+    const components = snapshot
+      .map((file) => toComponent(file, measured.get(file.blob)!, undefined, listings.get(`${file.path}\0${file.blob}`)))
+      .sort(byPath);
     return { components, estimatedTokens: summarize(components).estimatedTokens };
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 5,
+    schemaVersion: 6,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
@@ -172,9 +178,30 @@ function providerLines(delta: PullRequestDelta): string[] {
   return lines;
 }
 
+/** A manifest's listing at one side, as the file table shows it. */
+function listed(listing: SkillListing | null): string {
+  return !listing ? "none" : listing.status === "listed" ? String(listing.tokens) : listing.status;
+}
+
 export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const comparison = delta.comparison;
   const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
+  const skills = comparison.skillListing;
+  const listingLine =
+    skills.beforeManifests || skills.afterManifests
+      ? [
+          `Skill listings, the names and descriptions an agent keeps in context before a skill is used: **${signed(skills.deltaTokens)}** tokens (${skills.beforeTokens} → ${skills.afterTokens}), a part of the stored text above.`,
+          "",
+        ]
+      : [];
+  const listingColumn = comparison.components.some((component) => component.listing);
+  // Both sides listed: the token change; otherwise each side's state, such as a manifest added or hidden.
+  const listingCell = (listing: ComparedListing | undefined) =>
+    !listing
+      ? " —"
+      : listing.before?.status === "listed" && listing.after?.status === "listed"
+        ? ` ${signed(listing.deltaTokens)}`
+        : ` ${listed(listing.before)} → ${listed(listing.after)}`;
   const lines = [
     "## Strata configuration delta",
     "",
@@ -184,6 +211,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     `Method: ${cell(delta.measurement.method)}. ${cell(delta.measurement.limitations)}`,
     "",
+    ...listingLine,
     ...providerLines(delta),
     "| Category | Δ files | Δ tokens |",
     "| --- | ---: | ---: |",
@@ -191,11 +219,14 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
       .filter((group) => group.deltaFiles || group.deltaTokens)
       .map((group) => `| ${cell(group.key)} | ${signed(group.deltaFiles)} | ${signed(group.deltaTokens)} |`),
     "",
-    "| File | Change | Δ tokens |",
-    "| --- | --- | ---: |",
+    listingColumn ? "| File | Change | Δ tokens | Δ listed |" : "| File | Change | Δ tokens |",
+    listingColumn ? "| --- | --- | ---: | ---: |" : "| --- | --- | ---: |",
     ...comparison.components
       .slice(0, 25)
-      .map((component) => `| ${cell(component.path)} | ${component.kind} | ${signed(component.deltaTokens)} |`),
+      .map(
+        (component) =>
+          `| ${cell(component.path)} | ${component.kind} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
+      ),
   ];
   if (comparison.components.length > 25)
     lines.push("", `${comparison.components.length - 25} more changed components omitted from this summary.`);

@@ -233,7 +233,8 @@ export function renderHtml(report: Report): string {
     </section>
     <details class="panel" id="skills-panel">
       <summary><h2>Skill bundles</h2><span class="summary-count" id="skill-count"></span></summary>
-      <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Listed tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
+      <p class="muted">Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used, counted the same way and already part of the manifest tokens. Hidden skills are left out of that listing by their frontmatter; unresolved ones have frontmatter Strata could not read.</p>
       <button class="skill-toggle" id="skill-toggle" type="button" aria-expanded="false" hidden></button>
     </details>
     <section class="panel" aria-labelledby="compare-heading">
@@ -246,12 +247,13 @@ export function renderHtml(report: Report): string {
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
+        <span id="compare-listing-wrap" hidden>Listed skill tokens<strong id="compare-listing"></strong></span>
       </div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
       </div>
-      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
+      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ listed</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
     </section>
     <details class="panel" id="files-panel"${report.providerMeasurements ? " open" : ""}>
       <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
@@ -631,7 +633,9 @@ export function renderHtml(report: Report): string {
       for (const component of capped('files', sorted, 25, renderInventory)) {
         const row = document.createElement('tr');
         row.tabIndex = -1;
-        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num'), text('td', fmt(component.bytes), 'num'));
+        const tokensCell = text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num');
+        if (component.skill?.listing) tokensCell.title = listingLabel(component).slice(3);
+        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), tokensCell, text('td', fmt(component.bytes), 'num'));
         for (const provider of providerColumns) {
           // A Gemini context file has a Gemini count only for revisions whose settings make Gemini read it.
           const count = providerReads(component, provider, revision.geminiContextFiles) ? component.providerTokenCounts?.[provider] : undefined;
@@ -667,7 +671,7 @@ export function renderHtml(report: Report): string {
           button.style.color = inks[component.category];
           const change = changedHere.get(component.path);
           const changeLabel = !change ? '' : change.kind === 'added' ? ' · added at this revision' : change.kind === 'renamed' ? ' · renamed at this revision from ' + change.previousPath : ' · edited at this revision';
-          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + changeLabel;
+          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + listingLabel(component) + changeLabel;
           button.setAttribute('aria-label', detail);
           if (change) {
             button.classList.add('changed');
@@ -771,7 +775,9 @@ export function renderHtml(report: Report): string {
       const skillBody = $('skill-groups');
       skillBody.replaceChildren();
       $('skills-panel').hidden = !groups.length;
-      $('skill-count').textContent = fmt(groups.length);
+      const manifestTokens = groups.reduce((sum, group) => sum + (group.manifestPath ? group.manifestEstimatedTokens : 0), 0);
+      const listedTokens = groups.reduce((sum, group) => sum + (group.listing?.tokens ?? 0), 0);
+      $('skill-count').textContent = fmt(groups.length) + ' · ' + fmt(listedTokens) + ' listed of ' + fmt(manifestTokens) + ' manifest tokens';
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;
       toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';
@@ -779,15 +785,38 @@ export function renderHtml(report: Report): string {
       if (!groups.length) {
         const row = document.createElement('tr');
         const cell = text('td', 'No tracked skill bundles at this revision.', 'empty');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         row.append(cell);
         skillBody.append(row);
       }
       for (const group of visible) {
         const row = document.createElement('tr');
-        row.append(text('td', group.root, 'path'), text('td', group.provider), text('td', group.manifestPath ? 'SKILL.md' : 'Missing', 'kind'), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
+        row.append(text('td', group.root, 'path'), text('td', group.provider), text('td', group.manifestPath ? 'SKILL.md' : 'Missing', 'kind'), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), listingCell(group.listing), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
         skillBody.append(row);
       }
+    }
+
+    // How a skill manifest is listed before use, as a clause after its stored-text tokens.
+    function listingLabel(component) {
+      const listing = component.skill?.listing;
+      if (!listing) return '';
+      if (listing.status === 'listed') return ' · ' + fmt(listing.tokens) + ' listed before use';
+      return listing.status === 'hidden' ? ' · hidden from the listing' : ' · listing unresolved';
+    }
+    function listingCell(listing) {
+      if (!listing) return text('td', '—', 'num');
+      if (listing.status === 'listed') return text('td', fmt(listing.tokens), 'num');
+      const cell = text('td', listing.status, 'num kind');
+      cell.title = listing.status === 'hidden' ? 'disable-model-invocation keeps this skill out of the listing until it is invoked' : 'Strata could not read the listed name and description from this frontmatter';
+      return cell;
+    }
+
+    // Both sides listed: the token change; otherwise each side's state, such as a manifest added or hidden.
+    function listingDeltaCell(listing) {
+      if (!listing) return text('td', '—', 'num');
+      const side = (entry) => !entry ? 'none' : entry.status === 'listed' ? fmt(entry.tokens) : entry.status;
+      if (listing.before?.status === 'listed' && listing.after?.status === 'listed') return text('td', signed(listing.deltaTokens), 'num ' + tone(listing.deltaTokens));
+      return text('td', side(listing.before) + ' → ' + side(listing.after), 'num');
     }
 
     function renderComparison() {
@@ -800,6 +829,10 @@ export function renderHtml(report: Report): string {
       $('compare-tokens').className = tone(comparison.deltaTokens);
       $('compare-files').textContent = signed(comparison.deltaFiles) + ' (' + fmt(comparison.beforeFiles) + ' → ' + fmt(comparison.afterFiles) + ')';
       $('compare-files').className = tone(comparison.deltaFiles);
+      const skills = comparison.skillListing;
+      $('compare-listing-wrap').hidden = !skills.beforeManifests && !skills.afterManifests;
+      $('compare-listing').textContent = signed(skills.deltaTokens) + ' (' + fmt(skills.beforeTokens) + ' → ' + fmt(skills.afterTokens) + ')';
+      $('compare-listing').className = tone(skills.deltaTokens);
       for (const [id, groups] of [['compare-providers', comparison.byProvider], ['compare-categories', comparison.byCategory]]) {
         const body = $(id);
         body.replaceChildren();
@@ -822,13 +855,13 @@ export function renderHtml(report: Report): string {
       if (!comparison.components.length) {
         const row = document.createElement('tr');
         const cell = text('td', 'No component changes between these revisions.', 'empty');
-        cell.colSpan = 5;
+        cell.colSpan = 6;
         row.append(cell);
         body.append(row);
       }
       for (const component of capped('compare-components', comparison.components, 25, renderComparison)) {
         const row = document.createElement('tr');
-        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)));
+        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)), listingDeltaCell(component.listing));
         body.append(row);
       }
     }

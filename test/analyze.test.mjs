@@ -392,7 +392,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 12);
+    assert.equal(providerApiReport.schemaVersion, 13);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -476,7 +476,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 5);
+    assert.equal(prDelta.schemaVersion, 6);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -493,7 +493,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 12);
+    assert.equal(report.schemaVersion, 13);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -574,6 +574,7 @@ test("tracks configuration across first-parent history without reading untracked
         manifestEstimatedTokens: revisions[0].components.find(
           (component) => component.path === ".agents/skills/release/SKILL.md",
         )?.estimatedTokens,
+        listing: { status: "listed", tokens: Math.ceil(Buffer.byteLength("release\nPrepare a release") / 4) },
         resourceCount: 3,
         resourceBytes: releaseResources.reduce((sum, component) => sum + component.bytes, 0),
       },
@@ -582,6 +583,7 @@ test("tracks configuration across first-parent history without reading untracked
         provider: "claude",
         manifestPath: null,
         manifestEstimatedTokens: 0,
+        listing: null,
         resourceCount: 1,
         resourceBytes: Buffer.byteLength("No manifest yet.\n"),
       },
@@ -592,6 +594,7 @@ test("tracks configuration across first-parent history without reading untracked
         manifestEstimatedTokens: revisions[0].components.find(
           (component) => component.path === ".gemini/skills/release/SKILL.md",
         )?.estimatedTokens,
+        listing: { status: "listed", tokens: Math.ceil(Buffer.byteLength("release\nRelease safely") / 4) },
         resourceCount: 1,
         resourceBytes: Buffer.byteLength("Release checklist.\n"),
       },
@@ -859,7 +862,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 12);
+    assert.equal(openAiReport.schemaVersion, 13);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -910,7 +913,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 12],
+      ["gpt-4o", "o200k_base", 13],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,

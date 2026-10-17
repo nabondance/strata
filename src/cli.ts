@@ -370,6 +370,12 @@ async function analyze(args: string[]): Promise<void> {
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
   );
+  const skills = latest?.categoryTotals.skills;
+  if (skills && skills.count > skills.sourceOnlyCount) {
+    say(
+      `Skills: ${latest.skillListingTokens} of their ${skills.estimatedTokens} tokens are the names and descriptions listed before a skill is used.`,
+    );
+  }
   for (const measured of report.providerMeasurements ?? []) {
     const total = latest?.providerTokenTotals?.[measured.provider] ?? 0;
     const how =

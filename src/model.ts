@@ -1,6 +1,7 @@
 import type { Category, ContextFile, Provider } from "./adapters.js";
 import type { Measurement } from "./measurement.js";
 import type { ProviderMeasurementMetadata, ProviderTextCount } from "./provider-count.js";
+import type { SkillListing } from "./skill-listing.js";
 
 export type CountedProvider = ProviderTextCount["provider"];
 
@@ -17,7 +18,8 @@ export interface Component {
   bytes: number;
   estimatedTokens: number | null;
   providerTokenCounts?: Partial<Record<CountedProvider, ProviderTextCount>>;
-  skill?: { root: string; role: "manifest" | "resource" };
+  /** On a skill manifest, `listing` measures the frontmatter text an agent lists before the skill is used. */
+  skill?: { root: string; role: "manifest" | "resource"; listing?: SkillListing };
 }
 
 export interface SkillGroup {
@@ -26,6 +28,8 @@ export interface SkillGroup {
   readers?: Provider[];
   manifestPath: string | null;
   manifestEstimatedTokens: number;
+  /** The manifest's listing; null without a manifest. Part of the manifest, never added to it. */
+  listing: SkillListing | null;
   resourceCount: number;
   resourceBytes: number;
 }
@@ -57,6 +61,8 @@ export interface Revision {
   componentCount: number;
   categoryTotals: CategoryTotals;
   estimatedTokens: number;
+  /** Listed tokens of the skill manifests present, a part of `estimatedTokens` rather than an addition. */
+  skillListingTokens: number;
   changes: Change[];
   providerTokenTotals?: Partial<Record<CountedProvider, number>>;
   /**
@@ -83,7 +89,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 12;
+  schemaVersion: 13;
   repository: string;
   branch: string;
   shallow: boolean;
