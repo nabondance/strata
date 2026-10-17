@@ -69,7 +69,11 @@ function scalar(first: string, rest: string[]): string | null {
     return rest.some((line) => line.trim()) ? null : quoted(first);
   }
   if (/^[[{&*!%@`|>]/.test(head)) return null;
-  const parts = [head.trim(), ...rest.map((line) => line.replace(comment, "").trim())];
+  // A comment line ends a plain scalar; any value text after it is not part of the scalar, which YAML rejects.
+  const commentLine = rest.findIndex((line) => /^[ \t]*#/.test(line));
+  if (commentLine >= 0 && rest.slice(commentLine).some((line) => line.trim() && !/^[ \t]*#/.test(line))) return null;
+  const lines = commentLine >= 0 ? rest.slice(0, commentLine) : rest;
+  const parts = [head.trim(), ...lines.map((line) => line.replace(comment, "").trim())];
   // Inside a plain scalar these start a comment, a mapping, or a sequence, which YAML treats otherwise.
   if (parts.some((part) => /^#|^-(?:\s|$)|:(?:\s|$)/.test(part))) return null;
   const value = fold(parts);
@@ -155,12 +159,12 @@ function quoted(text: string): string | null {
       if (sequence in escapes) {
         output += escapes[sequence];
         index += 1;
-      } else if (
-        hex &&
-        /^[0-9a-fA-F]+$/.test(text.slice(index + 2, index + 2 + hex)) &&
-        text.length >= index + 2 + hex
-      ) {
-        output += String.fromCodePoint(Number.parseInt(text.slice(index + 2, index + 2 + hex), 16));
+      } else if (hex) {
+        const digits = text.slice(index + 2, index + 2 + hex);
+        const point = digits.length === hex && /^[0-9a-fA-F]+$/.test(digits) ? Number.parseInt(digits, 16) : -1;
+        // Beyond U+10FFFF is not a code point, so the value is not one Strata can read.
+        if (point < 0 || point > 0x10ffff) return null;
+        output += String.fromCodePoint(point);
         index += 1 + hex;
       } else return null;
     } else output += char;
@@ -204,6 +208,15 @@ export function listingText(text: string, provider: Provider, directoryName: str
   return listed ? `${name}\n${listed}` : name;
 }
 
+/** One manifest Strata cannot read must not stop the analysis, so any failure leaves it unresolved. */
+function safeListingText(text: string, provider: Provider, directoryName: string): string | null {
+  try {
+    return listingText(text, provider, directoryName);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Measure the listing of every distinct skill manifest version, keyed by path and blob. Manifest
  * content is read for this even when the measurement itself needs only sizes. A manifest that is
@@ -233,7 +246,7 @@ export function skillListings(
   for (const [key, file] of manifests) {
     const text = texts.get(file.blob);
     const { provider, skillRoot = "" } = file.classification;
-    const listed = text == null ? null : listingText(text, provider, skillRoot.split("/").at(-1) ?? "");
+    const listed = text == null ? null : safeListingText(text, provider, skillRoot.split("/").at(-1) ?? "");
     listings.set(
       key,
       listed === null

@@ -234,7 +234,7 @@ export function renderHtml(report: Report): string {
     <details class="panel" id="skills-panel">
       <summary><h2>Skill bundles</h2><span class="summary-count" id="skill-count"></span></summary>
       <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Listed tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
-      <p class="muted">Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used, counted the same way and already part of the manifest tokens. Hidden skills are left out of that listing by their frontmatter; unresolved ones have frontmatter Strata could not read.</p>
+      <p class="muted" id="listing-note"></p>
       <button class="skill-toggle" id="skill-toggle" type="button" aria-expanded="false" hidden></button>
     </details>
     <section class="panel" aria-labelledby="compare-heading">
@@ -247,7 +247,7 @@ export function renderHtml(report: Report): string {
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
-        <span id="compare-listing-wrap" hidden>Listed skill tokens<strong id="compare-listing"></strong></span>
+        <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Listed skill tokens</span><strong id="compare-listing"></strong></span>
       </div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
@@ -777,7 +777,10 @@ export function renderHtml(report: Report): string {
       $('skills-panel').hidden = !groups.length;
       const manifestTokens = groups.reduce((sum, group) => sum + (group.manifestPath ? group.manifestEstimatedTokens : 0), 0);
       const listedTokens = groups.reduce((sum, group) => sum + (group.listing?.tokens ?? 0), 0);
-      $('skill-count').textContent = fmt(groups.length) + ' · ' + fmt(listedTokens) + ' listed of ' + fmt(manifestTokens) + ' manifest tokens';
+      const unresolved = groups.filter((group) => group.listing?.status === 'unresolved').length;
+      $('skill-count').textContent = fmt(groups.length) + ' · ' + fmt(listedTokens) + ' listed' + listingKind() + ' · ' + fmt(manifestTokens) + ' manifest tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Manifest tokens here are ' + providerNames[activeMeasure] + ' counts, but listed tokens use the ' + listingKind().slice(2, -1) + ' of the whole report, so the two are not comparable. ') +
+        'Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used. They mostly repeat text the manifest tokens already count, so never add the two; a Claude skill without a name is listed by its directory name, which is not in the file. Hidden skills are left out of the listing by their frontmatter; unresolved ones have frontmatter Strata could not read and are not counted.';
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;
       toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';
@@ -796,11 +799,16 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // Listings always use the report's own measurement, never a provider's counts, so measured views say which.
+    function listingKind() {
+      if (activeMeasure === 'estimate') return '';
+      return ' (' + (data.measurement.accuracy === 'estimate' ? 'byte estimate' : data.measurement.encoding + ' encoding') + ')';
+    }
     // How a skill manifest is listed before use, as a clause after its stored-text tokens.
     function listingLabel(component) {
       const listing = component.skill?.listing;
       if (!listing) return '';
-      if (listing.status === 'listed') return ' · ' + fmt(listing.tokens) + ' listed before use';
+      if (listing.status === 'listed') return ' · ' + fmt(listing.tokens) + ' listed before use' + listingKind();
       return listing.status === 'hidden' ? ' · hidden from the listing' : ' · listing unresolved';
     }
     function listingCell(listing) {
@@ -831,7 +839,9 @@ export function renderHtml(report: Report): string {
       $('compare-files').className = tone(comparison.deltaFiles);
       const skills = comparison.skillListing;
       $('compare-listing-wrap').hidden = !skills.beforeManifests && !skills.afterManifests;
-      $('compare-listing').textContent = signed(skills.deltaTokens) + ' (' + fmt(skills.beforeTokens) + ' → ' + fmt(skills.afterTokens) + ')';
+      $('compare-listing-label').textContent = 'Listed skill tokens' + listingKind();
+      $('compare-listing').textContent = signed(skills.deltaTokens) + ' (' + fmt(skills.beforeTokens) + ' → ' + fmt(skills.afterTokens) + ')' +
+        (skills.beforeUnresolved || skills.afterUnresolved ? ' · unresolved ' + fmt(skills.beforeUnresolved) + ' → ' + fmt(skills.afterUnresolved) : '');
       $('compare-listing').className = tone(skills.deltaTokens);
       for (const [id, groups] of [['compare-providers', comparison.byProvider], ['compare-categories', comparison.byCategory]]) {
         const body = $(id);

@@ -28,8 +28,9 @@ export interface ComponentDelta {
 }
 
 /**
- * Listed skill tokens at each side: a part of the stored-text totals, never an addition to them.
- * `beforeManifests` and `afterManifests` count the skill manifests present.
+ * Listed skill tokens at each side, measured separately from the stored-text totals and never added
+ * to them. `beforeManifests` and `afterManifests` count the skill manifests present, and
+ * `beforeUnresolved` and `afterUnresolved` those whose listing is unresolved and left out of the tokens.
  */
 export interface ListingComparison {
   beforeTokens: number;
@@ -37,6 +38,8 @@ export interface ListingComparison {
   deltaTokens: number;
   beforeManifests: number;
   afterManifests: number;
+  beforeUnresolved: number;
+  afterUnresolved: number;
 }
 
 export interface Comparison {
@@ -122,12 +125,14 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
   const listing = (revision: ComparedRevision) => {
     let tokens = 0;
     let manifests = 0;
+    let unresolved = 0;
     for (const component of revision.components) {
       if (component.skill?.role !== "manifest") continue;
       manifests += 1;
       tokens += component.skill.listing?.tokens ?? 0;
+      if (component.skill.listing?.status === "unresolved") unresolved += 1;
     }
-    return { tokens, manifests };
+    return { tokens, manifests, unresolved };
   };
   const listedBefore = listing(baseline);
   const listedAfter = listing(target);
@@ -148,6 +153,8 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
       deltaTokens: listedAfter.tokens - listedBefore.tokens,
       beforeManifests: listedBefore.manifests,
       afterManifests: listedAfter.manifests,
+      beforeUnresolved: listedBefore.unresolved,
+      afterUnresolved: listedAfter.unresolved,
     },
     components,
   };

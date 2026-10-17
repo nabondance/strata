@@ -98,13 +98,17 @@ export function toComponent(
 /** Derive a revision's totals from its components, so they are never maintained as separate facts. */
 export function summarize(
   components: Iterable<Component>,
-): Pick<Revision, "componentCount" | "categoryTotals" | "estimatedTokens" | "skillListingTokens"> {
+): Pick<
+  Revision,
+  "componentCount" | "categoryTotals" | "estimatedTokens" | "skillListingTokens" | "skillListingUnresolved"
+> {
   const categoryTotals = Object.fromEntries(
     categories.map((category) => [category, { count: 0, bytes: 0, estimatedTokens: 0, sourceOnlyCount: 0 }]),
   ) as CategoryTotals;
   let componentCount = 0;
   let estimatedTokens = 0;
   let skillListingTokens = 0;
+  let skillListingUnresolved = 0;
   for (const component of components) {
     const total = categoryTotals[component.category];
     componentCount += 1;
@@ -114,6 +118,7 @@ export function summarize(
     estimatedTokens += component.estimatedTokens ?? 0;
     if (component.estimatedTokens === null) total.sourceOnlyCount += 1;
     skillListingTokens += component.skill?.listing?.tokens ?? 0;
+    if (component.skill?.listing?.status === "unresolved") skillListingUnresolved += 1;
   }
-  return { componentCount, categoryTotals, estimatedTokens, skillListingTokens };
+  return { componentCount, categoryTotals, estimatedTokens, skillListingTokens, skillListingUnresolved };
 }

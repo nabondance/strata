@@ -190,7 +190,10 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const listingLine =
     skills.beforeManifests || skills.afterManifests
       ? [
-          `Skill listings, the names and descriptions an agent keeps in context before a skill is used: **${signed(skills.deltaTokens)}** tokens (${skills.beforeTokens} → ${skills.afterTokens}), a part of the stored text above.`,
+          `Skill listings, the names and descriptions an agent keeps in context before a skill is used: **${signed(skills.deltaTokens)}** tokens (${skills.beforeTokens} → ${skills.afterTokens}), measured separately from the stored text above; do not add them.` +
+            (skills.beforeUnresolved || skills.afterUnresolved
+              ? ` Manifests with unreadable frontmatter, not counted: ${skills.beforeUnresolved} → ${skills.afterUnresolved}.`
+              : ""),
           "",
         ]
       : [];

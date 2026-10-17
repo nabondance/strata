@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { getEncoding } from "js-tiktoken";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -50,6 +50,11 @@ test("reads the listed name and description from the frontmatter subset", () => 
   assert.equal(claude("---\nname: a\nname: b\n---\n"), null);
   assert.equal(claude("---\ndescription: never closed\n"), null);
   assert.equal(readFrontmatter("---\n  indented: key\n---\n"), null);
+  // An escape past the last code point, or value text after a comment line, is not readable YAML.
+  assert.equal(claude('---\ndescription: "\\UFFFFFFFF"\n---\n'), null);
+  assert.equal(claude('---\ndescription: "\\U0001F600"\n---\n'), "skill\n😀");
+  assert.equal(claude("---\ndescription: first\n  # note\n  second\n---\n"), null);
+  assert.equal(claude("---\ndescription: first\n  # trailing note\nname: n\n---\n"), "n\nfirst");
 
   // Codex and Gemini CLI require both fields and ignore Claude-only ones.
   assert.equal(codex("---\nname: release\ndescription: Ship it\nwhen_to_use: Always\n---\n"), "release\nShip it");
@@ -58,7 +63,7 @@ test("reads the listed name and description from the frontmatter subset", () => 
   assert.equal(codex("---\nname: r\ndescription: d\ndisable-model-invocation: true\n---\n"), "r\nd");
 });
 
-test("measures each manifest's listing as a part of its stored tokens", async () => {
+test("measures each manifest's listing separately from its stored tokens", async () => {
   const repo = mkdtempSync(join(tmpdir(), "strata-listing-"));
   const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
   const put = (path, content) => {
@@ -113,8 +118,10 @@ test("measures each manifest's listing as a part of its stored tokens", async ()
     const latest = revisions.at(-1);
     const listed = latest.components.reduce((sum, component) => sum + (component.skill?.listing?.tokens ?? 0), 0);
     assert.equal(latest.skillListingTokens, listed);
+    // The broken, nameless, and non-UTF-8 manifests are unresolved and counted apart.
+    assert.equal(latest.skillListingUnresolved, 3);
     assert.equal(revisions[0].skillListingTokens, listed - 1);
-    // The listing is part of the manifest's count, never added to the category total.
+    // The listing is never added to the category total.
     assert.equal(
       latest.categoryTotals.skills.estimatedTokens,
       latest.components
@@ -128,8 +135,10 @@ test("measures each manifest's listing as a part of its stored tokens", async ()
 
     const claudeView = viewRevision(latest, "claude", revisions.at(-2), report.components);
     assert.equal(claudeView.skillListingTokens, listing(".claude/skills/code-review/SKILL.md").tokens);
+    assert.equal(claudeView.skillListingUnresolved, 1);
     const codexView = viewRevision(latest, "codex", revisions.at(-2), report.components);
     assert.equal(codexView.skillListingTokens, listing(".agents/skills/release/SKILL.md").tokens);
+    assert.equal(codexView.skillListingUnresolved, 1);
 
     const shareable = redactReport(report);
     assert.deepEqual(
@@ -150,6 +159,8 @@ test("measures each manifest's listing as a part of its stored tokens", async ()
       deltaTokens: 1,
       beforeManifests: 6,
       afterManifests: 6,
+      beforeUnresolved: 3,
+      afterUnresolved: 3,
     });
     assert.deepEqual(
       compared.components.map(({ path, listing }) => [path, listing]),
@@ -182,11 +193,13 @@ test("measures each manifest's listing as a part of its stored tokens", async ()
       deltaTokens: delta.comparison.skillListing.afterTokens - latest.skillListingTokens,
       beforeManifests: 6,
       afterManifests: 6,
+      beforeUnresolved: 3,
+      afterUnresolved: 2,
     });
     const markdown = renderPullRequestDelta(delta);
     assert.match(
       markdown,
-      /Skill listings, the names and descriptions an agent keeps in context before a skill is used: \*\*\+\d+\*\* tokens/,
+      /Skill listings, the names and descriptions an agent keeps in context before a skill is used: \*\*\+\d+\*\* tokens \(\d+ → \d+\), measured separately from the stored text above; do not add them\. Manifests with unreadable frontmatter, not counted: 3 → 2\./,
     );
     assert.match(markdown, /\| File \| Change \| Δ tokens \| Δ listed \|/);
     assert.match(markdown, /\| \.agents\/skills\/release\/SKILL\.md \| edited \| \+\d+ \| \+2 \|/);
@@ -195,6 +208,20 @@ test("measures each manifest's listing as a part of its stored tokens", async ()
     const unchanged = renderPullRequestDelta(compareGitCommits(repo, added, added));
     assert.doesNotMatch(unchanged, /Δ listed/);
     assert.match(unchanged, /Skill listings, .*\*\*0\*\* tokens/);
+
+    // The command line names the listed total beside the stored one and counts unreadable manifests apart.
+    const cli = spawnSync(
+      process.execPath,
+      [resolve("dist/cli.js"), "analyze", repo, "--format", "json", "--output", "-"],
+      {
+        encoding: "utf8",
+      },
+    );
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(
+      cli.stderr,
+      /Skills: \d+ listed tokens, the names and descriptions kept in context before a skill is used; the skill files store \d+\. 2 manifests have frontmatter Strata could not read and are not counted\./,
+    );
 
     // An OpenAI encoding rejects text that is not UTF-8, so its check uses a history without that manifest.
     git("checkout", "-q", "--orphan", "utf8");

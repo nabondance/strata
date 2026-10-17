@@ -69,6 +69,7 @@ export function viewRevision(
     categoryTotals,
     estimatedTokens: components.reduce((sum, component) => sum + (component.estimatedTokens ?? 0), 0),
     skillListingTokens: components.reduce((sum, component) => sum + (component.skill?.listing?.tokens ?? 0), 0),
+    skillListingUnresolved: components.filter((component) => component.skill?.listing?.status === "unresolved").length,
     changes: [...revision.changes, ...flips()].flatMap((change) => {
       const oldComponent = before.get(change.previousPath ?? change.path);
       const newComponent = after.get(change.path);

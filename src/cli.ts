@@ -372,8 +372,12 @@ async function analyze(args: string[]): Promise<void> {
   );
   const skills = latest?.categoryTotals.skills;
   if (skills && skills.count > skills.sourceOnlyCount) {
+    const unresolved = latest.skillListingUnresolved;
     say(
-      `Skills: ${latest.skillListingTokens} of their ${skills.estimatedTokens} tokens are the names and descriptions listed before a skill is used.`,
+      `Skills: ${latest.skillListingTokens} listed tokens, the names and descriptions kept in context before a skill is used; the skill files store ${skills.estimatedTokens}.` +
+        (unresolved
+          ? ` ${unresolved} manifest${unresolved === 1 ? " has" : "s have"} frontmatter Strata could not read and ${unresolved === 1 ? "is" : "are"} not counted.`
+          : ""),
     );
   }
   for (const measured of report.providerMeasurements ?? []) {

@@ -28,7 +28,7 @@ export interface SkillGroup {
   readers?: Provider[];
   manifestPath: string | null;
   manifestEstimatedTokens: number;
-  /** The manifest's listing; null without a manifest. Part of the manifest, never added to it. */
+  /** The manifest's listing; null without a manifest. Measured separately; never add it to the manifest's tokens. */
   listing: SkillListing | null;
   resourceCount: number;
   resourceBytes: number;
@@ -61,8 +61,13 @@ export interface Revision {
   componentCount: number;
   categoryTotals: CategoryTotals;
   estimatedTokens: number;
-  /** Listed tokens of the skill manifests present, a part of `estimatedTokens` rather than an addition. */
+  /**
+   * Listed tokens of the skill manifests present. Measured separately and mostly drawn from text
+   * `estimatedTokens` already counts, so never add the two.
+   */
   skillListingTokens: number;
+  /** Skill manifests present whose listing is unresolved, so `skillListingTokens` leaves them out. */
+  skillListingUnresolved: number;
   changes: Change[];
   providerTokenTotals?: Partial<Record<CountedProvider, number>>;
   /**
