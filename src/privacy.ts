@@ -21,6 +21,10 @@ export function redactReport(report: Report): Report {
     report.components.map((component) => component.blob),
     "blob",
   );
+  const submodules = aliases(
+    (report.submodules ?? []).map((submodule) => submodule.path),
+    "submodule",
+  );
   const revisions = new Map(
     report.revisions.map((revision, index) => [revision.id, `revision-${String(index + 1).padStart(5, "0")}`]),
   );
@@ -35,6 +39,9 @@ export function redactReport(report: Report): Report {
     repository: "redacted repository",
     branch: "redacted branch",
     privacy: { mode: "shareable" },
+    ...(report.submodules
+      ? { submodules: report.submodules.map((submodule) => ({ ...submodule, path: submodules.get(submodule.path)! })) }
+      : {}),
     components: report.components.map((component) => ({
       ...component,
       path: paths.get(component.path)!,

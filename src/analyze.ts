@@ -14,6 +14,7 @@ import {
 } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, geminiSettings } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
+import { inspectSubmodules } from "./submodules.js";
 
 export { categories } from "./adapters.js";
 export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
@@ -45,11 +46,19 @@ interface CommitDelta {
   renames: Map<string, string>;
 }
 
+/** Git's mode for a submodule entry: a commit in another repository, with no files in this one. */
+const gitlinkMode = "160000";
+
 /**
  * Read the whole first-parent history in one streamed Git process. Each commit's raw diff against
- * its first parent is reduced to the recognized paths it removed, wrote, or renamed.
+ * its first parent is reduced to the recognized paths it removed, wrote, or renamed. The submodules
+ * present at the last commit are collected into `submodules`, each with the commit it records.
  */
-async function readHistory(root: string, onCommit: (count: number) => void): Promise<CommitDelta[]> {
+async function readHistory(
+  root: string,
+  submodules: Map<string, string>,
+  onCommit: (count: number) => void,
+): Promise<CommitDelta[]> {
   const deltas: CommitDelta[] = [];
   let current: CommitDelta | undefined;
   let status = "";
@@ -84,8 +93,11 @@ async function readHistory(root: string, onCommit: (count: number) => void): Pro
         const source = paths[0]!;
         if (status === "D" || status[0] === "R") {
           if (classify(source)) current.removed.push(source);
+          submodules.delete(source);
         }
         if (status !== "D") {
+          if (mode === gitlinkMode) submodules.set(path, blob);
+          else submodules.delete(path);
           const file = trackedFile(mode, blob, path);
           if (file) current.written.push(file);
           else if (classify(path)) current.removed.push(path);
@@ -219,7 +231,10 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const total = Number(gitText(root, ["rev-list", "--count", "--first-parent", "HEAD"]));
   onProgress?.({ completed: 0, total });
-  const deltas = await readHistory(root, (completed) => onProgress?.({ completed, total: Math.max(total, completed) }));
+  const submodules = new Map<string, string>();
+  const deltas = await readHistory(root, submodules, (completed) =>
+    onProgress?.({ completed, total: Math.max(total, completed) }),
+  );
   if (!deltas.length) throw new Error("The repository has no commits to analyze");
 
   const written = deltas.flatMap((delta) => delta.written);
@@ -301,10 +316,11 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 11,
+    schemaVersion: 12,
     repository: basename(root),
     branch,
     shallow,
+    ...(submodules.size ? { submodules: inspectSubmodules(root, submodules) } : {}),
     privacy: { mode: "local" },
     measurement: measurer.measurement,
     ...(provided ? { providerMeasurements: provided.metadata } : {}),

@@ -72,11 +72,23 @@ export interface RevisionSnapshot extends Revision {
   skillGroups: SkillGroup[];
 }
 
+/** A submodule: a commit from another repository, whose files are not part of this history. */
+export interface Submodule {
+  path: string;
+  /**
+   * Recognized agent-configuration files in the submodule at the commit the parent records, or
+   * null when that commit could not be read because the submodule is not checked out or lacks it.
+   */
+  configFiles: number | null;
+}
+
 export interface Report {
-  schemaVersion: 11;
+  schemaVersion: 12;
   repository: string;
   branch: string;
   shallow: boolean;
+  /** Submodules at the last revision, when there are any. Their files are never analyzed. */
+  submodules?: Submodule[];
   privacy: { mode: "local" | "shareable" };
   measurement: Measurement;
   providerMeasurements?: ProviderMeasurementMetadata[];

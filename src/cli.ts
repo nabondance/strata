@@ -10,7 +10,7 @@ import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
-import type { Report } from "./model.js";
+import type { Report, Submodule } from "./model.js";
 import {
   compareGitCommits,
   compareGitCommitsPrecise,
@@ -397,6 +397,33 @@ async function analyze(args: string[]): Promise<void> {
     if (values.open) openReport(destination);
   }
   if (report.shallow) process.stderr.write("Warning: shallow clone; earlier history is unavailable.\n");
+  for (const line of submoduleNotes(report.submodules ?? [])) process.stderr.write(`Note: ${line}\n`);
+}
+
+/** Name the submodules that hold agent configuration Strata did not analyze; count those it could not check. */
+function submoduleNotes(submodules: Submodule[]): string[] {
+  const files = (count: number) => `${count} recognized agent configuration file${count === 1 ? "" : "s"}`;
+  const configured = submodules.flatMap(({ path, configFiles }) => (configFiles ? [{ path, configFiles }] : []));
+  const unknown = submodules.filter(({ configFiles }) => configFiles === null).length;
+  const notes: string[] = [];
+  const [only] = configured;
+  if (only && configured.length === 1) {
+    notes.push(
+      `the Git submodule ${only.path} holds ${files(only.configFiles)} that Strata did not analyze. Run strata analyze on it to see its history.`,
+    );
+  } else if (configured.length) {
+    const listed = configured.slice(0, 5).map(({ path, configFiles }) => `${path} (${configFiles})`);
+    if (configured.length > 5) listed.push(`and ${configured.length - 5} more`);
+    notes.push(
+      `${configured.length} Git submodules hold recognized agent configuration files that Strata did not analyze: ${listed.join(", ")}. Run strata analyze on one to see its history.`,
+    );
+  }
+  if (unknown) {
+    notes.push(
+      `${unknown} Git submodule${unknown === 1 ? " was" : "s were"} not checked for agent configuration because ${unknown === 1 ? "it is" : "they are"} not checked out at the recorded commit.`,
+    );
+  }
+  return notes;
 }
 
 async function diff(args: string[]): Promise<void> {
