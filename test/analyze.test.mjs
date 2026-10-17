@@ -19,9 +19,9 @@ import { renderSvg } from "../dist/svg.js";
 import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 
-function exerciseReportUi(html, report) {
-  const revisions = expandRevisions(report);
-  let crampedLabels = false;
+/** Run the report's script against a minimal fake DOM and return its elements by ID. */
+function loadReportUi(html) {
+  const layout = { crampedLabels: false };
   class Element {
     constructor(tag) {
       this.tag = tag;
@@ -58,7 +58,7 @@ function exerciseReportUi(html, report) {
       if (this.className === "treemap-leaf") return { bottom: 100, right: 180 };
       if (this.className === "leaf-name") return { bottom: 40 };
       if (this.className === "leaf-size")
-        return crampedLabels ? { top: 42, bottom: 95, right: 165 } : { top: 60, bottom: 80, right: 150 };
+        return layout.crampedLabels ? { top: 42, bottom: 95, right: 165 } : { top: 60, bottom: 80, right: 150 };
       return { bottom: 0, right: 0 };
     }
     get scrollHeight() {
@@ -95,7 +95,12 @@ function exerciseReportUi(html, report) {
   };
   runInNewContext(d3Script, context);
   runInNewContext(script, context);
-  const get = (id) => elements.get(id);
+  return { get: (id) => elements.get(id), timers, layout };
+}
+
+function exerciseReportUi(html, report) {
+  const revisions = expandRevisions(report);
+  const { get, timers, layout } = loadReportUi(html);
   // The masthead silhouette has a layer for each category holding tokens; the legend also lists source-only ones.
   const tokenCategories = Object.values(revisions.at(-1).categoryTotals).filter((total) => total.estimatedTokens > 0);
   assert.ok(get("silhouette").children.length >= tokenCategories.length);
@@ -263,7 +268,7 @@ function exerciseReportUi(html, report) {
   get("slider").listeners.input();
   get("slider").listeners.change();
   assert.equal(get("files").children.length, revisions[3].components.length);
-  crampedLabels = true;
+  layout.crampedLabels = true;
   get("target").value = "4";
   get("target").listeners.change();
   const fittedLeaf = get("treemap").children.find(
@@ -387,7 +392,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 11);
+    assert.equal(providerApiReport.schemaVersion, 12);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -488,7 +493,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 11);
+    assert.equal(report.schemaVersion, 12);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -854,7 +859,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 11);
+    assert.equal(openAiReport.schemaVersion, 12);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -905,7 +910,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 11],
+      ["gpt-4o", "o200k_base", 12],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
@@ -1278,6 +1283,112 @@ test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's 
         [".agents/skills", "gemini", ".agents/skills/SKILL.md"],
         [".gemini/skills", "gemini", ".gemini/skills/SKILL.md"],
       ],
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("names submodules that hold agent configuration it did not analyze", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "strata-submodules-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  // A submodule entry records a commit from another repository; `nested` makes that repository in place.
+  const link = (path, commit) => git("update-index", "--add", "--cacheinfo", `160000,${commit},${path}`);
+  const missing = "1".repeat(40);
+  const nested = (path, files) => {
+    const dir = join(repo, path);
+    const sub = (...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
+    mkdirSync(dir, { recursive: true });
+    sub("init", "-q", "-b", "main");
+    sub("config", "user.name", "Strata Test");
+    sub("config", "user.email", "strata-test@example.invalid");
+    sub("config", "commit.gpgsign", "false");
+    for (const [file, content] of Object.entries(files)) {
+      mkdirSync(join(dir, file, ".."), { recursive: true });
+      writeFileSync(join(dir, file), content);
+    }
+    sub("add", "-A");
+    sub("commit", "-q", "-m", "Submodule content");
+    return sub("rev-parse", "HEAD");
+  };
+  try {
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Strata Test");
+    git("config", "user.email", "strata-test@example.invalid");
+    git("config", "commit.gpgsign", "false");
+    writeFileSync(join(repo, "CLAUDE.md"), "Root instructions.\n");
+    git("add", "CLAUDE.md");
+    git("commit", "-q", "-m", "No submodules");
+    const plain = await analyzeRepository(repo);
+    assert.equal("submodules" in plain, false);
+    assert.equal(loadReportUi(renderHtml(plain)).get("submodules").hidden, true);
+
+    const template = nested(".claude-template", {
+      "CLAUDE.md": "Template instructions.\n",
+      ".claude/settings.json": "{}\n",
+      ".claude/agents/review.md": "Review.\n",
+      "README.md": "Not configuration.\n",
+    });
+    link(".claude-template", template);
+    link("vendor/lib", nested("vendor/lib", { "index.js": "export {};\n" }));
+    // A skill kept as its own repository is recognized by where it is mounted.
+    link(
+      ".claude/skills/review",
+      nested(".claude/skills/review", { "SKILL.md": "Review.\n", "references/checklist.md": "Check.\n" }),
+    );
+    link("vendor/old-lib", missing);
+    link("tools/agents", missing);
+    git("commit", "-q", "-m", "Add submodules");
+    // A stale checkout lacks the recorded commit; an absent one has no repository at all.
+    nested("vendor/stale", { "AGENTS.md": "Newer than the record.\n" });
+    link("vendor/stale", missing);
+    link("vendor/absent", missing);
+    git("rm", "-q", "--cached", "vendor/old-lib", "tools/agents");
+    mkdirSync(join(repo, "tools"));
+    writeFileSync(join(repo, "tools/agents"), "A file where a submodule was.\n");
+    git("add", "tools/agents");
+    git("commit", "-q", "-m", "Remove one submodule, replace another with a file, add two");
+    // Only the commit the parent records is read, not the submodule's working tree.
+    writeFileSync(join(repo, ".claude-template/AGENTS.md"), "Uncommitted.\n");
+
+    // Configuration that hides submodules from diffs does not hide them from analysis.
+    git("config", "diff.ignoreSubmodules", "all");
+    const report = await analyzeRepository(repo);
+    assert.deepEqual(report.submodules, [
+      { path: ".claude-template", configFiles: 3 },
+      { path: ".claude/skills/review", configFiles: 2 },
+      { path: "vendor/absent", configFiles: null },
+      { path: "vendor/lib", configFiles: 0 },
+      { path: "vendor/stale", configFiles: null },
+    ]);
+    assert.deepEqual(new Set(report.components.map((component) => component.path)), new Set(["CLAUDE.md"]));
+    const notice = loadReportUi(renderHtml(report)).get("submodules");
+    assert.equal(notice.hidden, false);
+    assert.equal(
+      notice.textContent,
+      "Not analyzed: 2 Git submodules hold recognized agent configuration files: .claude-template (3), .claude/skills/review (2). " +
+        "Run Strata on one to see its history. " +
+        "2 Git submodules were not checked for agent configuration because they are not checked out at the recorded commit.",
+    );
+
+    const shareable = redactReport(report);
+    assert.deepEqual(
+      shareable.submodules.map(({ path }) => path),
+      ["submodule-00001", "submodule-00002", "submodule-00003", "submodule-00004", "submodule-00005"],
+    );
+    assert.doesNotMatch(JSON.stringify(shareable), /claude-template|vendor/);
+
+    // Submodules without agent configuration are left out of the notice.
+    const quiet = { ...report, submodules: [{ path: "vendor/lib", configFiles: 0 }] };
+    assert.equal(loadReportUi(renderHtml(quiet)).get("submodules").hidden, true);
+    const many = {
+      ...report,
+      submodules: Array.from({ length: 7 }, (_, index) => ({ path: `lib/${index + 1}`, configFiles: index + 1 })),
+    };
+    assert.equal(
+      loadReportUi(renderHtml(many)).get("submodules").textContent,
+      "Not analyzed: 7 Git submodules hold recognized agent configuration files: " +
+        "lib/1 (1), lib/2 (2), lib/3 (3), lib/4 (4), lib/5 (5), and 2 more. Run Strata on one to see its history.",
     );
   } finally {
     rmSync(repo, { recursive: true, force: true });

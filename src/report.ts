@@ -212,6 +212,7 @@ export function renderHtml(report: Report): string {
   </header>
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
+    <p class="notice warning" id="submodules" hidden></p>
     ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: names, paths, and IDs are replaced with aliases.</p>' : ""}
     <details class="notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
@@ -401,6 +402,23 @@ export function renderHtml(report: Report): string {
     $('repo').textContent = data.repository;
     renderMethod();
     $('shallow').hidden = !data.shallow;
+    // Name the submodules holding agent configuration that was not analyzed; count those that could not be checked.
+    const configuredSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles);
+    const uncheckedSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles === null).length;
+    const configFileCount = (count) => fmt(count) + ' recognized agent configuration file' + (count === 1 ? '' : 's');
+    const submoduleNotes = [];
+    if (configuredSubmodules.length === 1) {
+      submoduleNotes.push('Not analyzed: the Git submodule ' + configuredSubmodules[0].path + ' holds ' + configFileCount(configuredSubmodules[0].configFiles) + '. Run Strata on it to see its history.');
+    } else if (configuredSubmodules.length) {
+      const listed = configuredSubmodules.slice(0, 5).map((submodule) => submodule.path + ' (' + fmt(submodule.configFiles) + ')');
+      if (configuredSubmodules.length > 5) listed.push('and ' + fmt(configuredSubmodules.length - 5) + ' more');
+      submoduleNotes.push('Not analyzed: ' + fmt(configuredSubmodules.length) + ' Git submodules hold recognized agent configuration files: ' + listed.join(', ') + '. Run Strata on one to see its history.');
+    }
+    if (uncheckedSubmodules) {
+      submoduleNotes.push(fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.');
+    }
+    $('submodules').hidden = !submoduleNotes.length;
+    $('submodules').textContent = submoduleNotes.join(' ');
     function capped(id, items, limit, redraw) {
       const button = $(id + '-more');
       button.hidden = items.length <= limit;

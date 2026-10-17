@@ -271,6 +271,41 @@ test("command line follows common conventions", () => {
   }
 });
 
+test("analyze notes submodules that hold agent configuration", () => {
+  const { repo, git, put, commit } = fixture();
+  try {
+    put("CLAUDE.md", "Root instructions.\n");
+    commit("Add instructions");
+    const sub = (...args) =>
+      execFileSync("git", ["-C", join(repo, ".claude-template"), ...args], { encoding: "utf8" }).trim();
+    put(".claude-template/.claude/agents/review.md", "Review.\n");
+    sub("init", "-q", "-b", "main");
+    sub("config", "user.name", "Strata Test");
+    sub("config", "user.email", "strata-test@example.invalid");
+    sub("config", "commit.gpgsign", "false");
+    sub("add", "-A");
+    sub("commit", "-q", "-m", "Template");
+    git("update-index", "--add", "--cacheinfo", `160000,${sub("rev-parse", "HEAD")},.claude-template`);
+    git("update-index", "--add", "--cacheinfo", `160000,${"1".repeat(40)},vendor/lib`);
+    git("commit", "-q", "-m", "Add submodules");
+
+    const result = strata(["analyze", repo, "--format", "json", "--output", "-"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).submodules.length, 2);
+    assert.match(
+      result.stderr,
+      /Note: the Git submodule \.claude-template holds 1 recognized agent configuration file that Strata did not analyze\./,
+    );
+    assert.match(result.stderr, /Note: 1 Git submodule was not checked for agent configuration/);
+    // A shareable run keeps the submodule's name out of its output too.
+    const shareable = strata(["analyze", repo, "--shareable", "--format", "json", "--output", "-"]);
+    assert.doesNotMatch(shareable.stdout + shareable.stderr, /claude-template/);
+    assert.match(shareable.stderr, /submodule submodule-00001 holds 1 recognized/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("recorded tokenizer version matches the installed dependency", () => {
   const entry = createRequire(import.meta.url).resolve("js-tiktoken");
   const { version } = JSON.parse(readFileSync(join(dirname(entry), "..", "package.json"), "utf8"));

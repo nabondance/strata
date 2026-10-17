@@ -18,10 +18,11 @@ function failure(args: string[], stderr: string, error?: unknown): Error {
 }
 
 /** Run a read-only Git command in a repository and return its raw output. */
-export function git(repo: string, args: string[], input?: string): Buffer {
+export function git(repo: string, args: string[], input?: string, env?: NodeJS.ProcessEnv): Buffer {
   try {
     return execFileSync("git", ["-C", repo, ...args], {
       encoding: "buffer",
+      ...(env ? { env } : {}),
       maxBuffer,
       stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       ...(input === undefined ? {} : { input: Buffer.from(input) }),
@@ -81,8 +82,8 @@ export interface TreeEntry {
 }
 
 /** List every entry of a revision's tree, recursively. */
-export function listTree(repo: string, revision: string): TreeEntry[] {
-  const output = git(repo, ["ls-tree", "-r", "-z", "--full-tree", revision]);
+export function listTree(repo: string, revision: string, env?: NodeJS.ProcessEnv): TreeEntry[] {
+  const output = git(repo, ["ls-tree", "-r", "-z", "--full-tree", revision], undefined, env);
   const entries: TreeEntry[] = [];
   for (let start = 0; start < output.length; ) {
     const end = output.indexOf(0, start);
