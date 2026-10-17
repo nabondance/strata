@@ -403,7 +403,12 @@ async function analyze(args: string[]): Promise<void> {
 /** Name the submodules that hold agent configuration Strata did not analyze; count those it could not check. */
 function submoduleNotes(submodules: Submodule[]): string[] {
   const files = (count: number) => `${count} recognized agent configuration file${count === 1 ? "" : "s"}`;
-  const configured = submodules.flatMap(({ path, configFiles }) => (configFiles ? [{ path, configFiles }] : []));
+  // Paths come from the repository, so control characters are escaped before reaching a terminal.
+  const printable = (path: string) =>
+    path.replace(/\p{Cc}/gu, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  const configured = submodules.flatMap(({ path, configFiles }) =>
+    configFiles ? [{ path: printable(path), configFiles }] : [],
+  );
   const unknown = submodules.filter(({ configFiles }) => configFiles === null).length;
   const notes: string[] = [];
   const [only] = configured;

@@ -1331,6 +1331,11 @@ test("names submodules that hold agent configuration it did not analyze", async 
     });
     link(".claude-template", template);
     link("vendor/lib", nested("vendor/lib", { "index.js": "export {};\n" }));
+    // A skill kept as its own repository is recognized by where it is mounted.
+    link(
+      ".claude/skills/review",
+      nested(".claude/skills/review", { "SKILL.md": "Review.\n", "references/checklist.md": "Check.\n" }),
+    );
     link("vendor/old-lib", missing);
     link("tools/agents", missing);
     git("commit", "-q", "-m", "Add submodules");
@@ -1346,9 +1351,12 @@ test("names submodules that hold agent configuration it did not analyze", async 
     // Only the commit the parent records is read, not the submodule's working tree.
     writeFileSync(join(repo, ".claude-template/AGENTS.md"), "Uncommitted.\n");
 
+    // Configuration that hides submodules from diffs does not hide them from analysis.
+    git("config", "diff.ignoreSubmodules", "all");
     const report = await analyzeRepository(repo);
     assert.deepEqual(report.submodules, [
       { path: ".claude-template", configFiles: 3 },
+      { path: ".claude/skills/review", configFiles: 2 },
       { path: "vendor/absent", configFiles: null },
       { path: "vendor/lib", configFiles: 0 },
       { path: "vendor/stale", configFiles: null },
@@ -1358,14 +1366,15 @@ test("names submodules that hold agent configuration it did not analyze", async 
     assert.equal(notice.hidden, false);
     assert.equal(
       notice.textContent,
-      "Not analyzed: the Git submodule .claude-template holds 3 recognized agent configuration files. Run Strata on it to see its history. " +
+      "Not analyzed: 2 Git submodules hold recognized agent configuration files: .claude-template (3), .claude/skills/review (2). " +
+        "Run Strata on one to see its history. " +
         "2 Git submodules were not checked for agent configuration because they are not checked out at the recorded commit.",
     );
 
     const shareable = redactReport(report);
     assert.deepEqual(
       shareable.submodules.map(({ path }) => path),
-      ["submodule-00001", "submodule-00002", "submodule-00003", "submodule-00004"],
+      ["submodule-00001", "submodule-00002", "submodule-00003", "submodule-00004", "submodule-00005"],
     );
     assert.doesNotMatch(JSON.stringify(shareable), /claude-template|vendor/);
 

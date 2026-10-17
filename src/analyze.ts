@@ -79,6 +79,8 @@ async function readHistory(
     "--no-ext-diff",
     "--no-color",
     "--no-show-signature",
+    // Configuration such as diff.ignoreSubmodules would otherwise hide submodule entries.
+    "--ignore-submodules=none",
     "--format=%x01%H%x09%aI%x09%P",
     "HEAD",
   ]);
