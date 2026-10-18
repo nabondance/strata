@@ -68,6 +68,7 @@ Usage:
 
 Commands:
   analyze [repository]   Write an offline report of tracked agent configuration over time
+                         (analyse is an alias)
   diff [repository]      Compare tracked agent configuration at two commits
   skill                  Print the bundled skill for interpreting JSON reports
   help [command]         Show help for a command
@@ -85,6 +86,7 @@ first-parent history. It never modifies the repository and sends nothing over th
 
 Analyze the first-parent history of the checked-out branch. The repository defaults to the
 current directory. Without --output, the report goes to a private temporary directory.
+strata analyse is an alias for strata analyze.
 
 Output:
   -o, --output <file>        Write the report to a file, or - for standard output
@@ -142,6 +144,13 @@ Options:
 } as const;
 
 type Command = Exclude<keyof typeof help, "main">;
+
+/** Alternate spellings accepted on the command line. */
+const aliases: Record<string, Command> = { analyse: "analyze" };
+
+function resolveAlias(value: string | undefined): string | undefined {
+  return value !== undefined && Object.hasOwn(aliases, value) ? aliases[value] : value;
+}
 
 function isCommand(value: string | undefined): value is Command {
   return value !== undefined && value !== "main" && Object.hasOwn(help, value);
@@ -560,13 +569,15 @@ function skill(args: string[]): void {
 }
 
 async function main(args: string[]): Promise<void> {
-  const [command, ...rest] = args;
+  const [given, ...rest] = args;
+  const command = resolveAlias(given);
   if (command === undefined || command === "--help" || command === "-h") {
     process.stdout.write(help.main);
   } else if (command === "help") {
-    if (rest.length > 1 || (rest[0] !== undefined && !isCommand(rest[0])))
+    const topic = resolveAlias(rest[0]);
+    if (rest.length > 1 || (topic !== undefined && !isCommand(topic)))
       throw new UsageError(`Unknown command: ${rest.join(" ")}`);
-    process.stdout.write(help[rest[0] ?? "main"]);
+    process.stdout.write(help[topic ?? "main"]);
   } else if (command === "--version" || command === "-V" || command === "-v") {
     const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
       version: string;
