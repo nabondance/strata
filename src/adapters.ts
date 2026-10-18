@@ -11,7 +11,7 @@ export const categories = [
 ] as const;
 
 export type Category = (typeof categories)[number];
-export type Provider = "claude" | "codex" | "gemini" | "shared" | "unknown";
+export type Provider = "claude" | "codex" | "cursor" | "gemini" | "shared" | "unknown";
 /**
  * Context files whose Gemini CLI loading depends on `context.fileName`: `AGENTS.md` and `GEMINI.md`.
  * The labels are not the file names, so they cannot match a path a shareable report aliases.
@@ -23,23 +23,30 @@ export interface Classification {
   category: Category;
   instructionalText: boolean;
   /**
-   * For a shared file, the providers documented as reading its path. A reader may still depend on
-   * a runtime condition Strata does not resolve, such as Claude Code reading `AGENTS.md`.
+   * The providers documented as reading the path, on a shared file or on another tool's file Cursor
+   * reads for compatibility. A reader may still depend on a runtime condition Strata does not
+   * resolve, such as Claude Code reading `AGENTS.md`. Cursor reads a file it does not own only at a
+   * revision that tracks Cursor configuration, and is left out of `readers` when no revision does.
    */
   readers?: Provider[];
   /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
   contextFile?: ContextFile;
+  /** Set on a format the provider still reads but documents as superseded, such as `.cursorrules`. */
+  legacy?: true;
   skillRoot?: string;
   skillRole?: "manifest" | "resource";
 }
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
-// Codex and Gemini CLI both discover project skills under `.agents/skills`.
+// Codex, Cursor, and Gemini CLI all discover project skills under `.agents/skills`. Cursor also
+// loads `.claude/skills` for compatibility; those skills stay Claude's, with Cursor as a conditional
+// reader (see `providerReads`).
 const skillDirectories: Array<[directory: string, provider: Provider, readers?: Provider[]]> = [
-  [".agents", "shared", ["codex", "gemini"]],
-  [".claude", "claude"],
+  [".agents", "shared", ["codex", "cursor", "gemini"]],
+  [".claude", "claude", ["claude", "cursor"]],
   [".gemini", "gemini"],
+  [".cursor", "cursor"],
 ];
 
 function skill(_path: string, parts: string[]): Classification | null {
@@ -50,8 +57,8 @@ function skill(_path: string, parts: string[]): Classification | null {
     if (within[0] !== "skills") continue;
     const labels = { provider, ...(readers ? { readers: [...readers] } : {}) };
     // Gemini CLI also accepts a single skill whose manifest sits directly in its skill directory;
-    // Codex and Claude Code document only `<name>/SKILL.md`.
-    if (directory !== ".claude" && within.length === 2 && within[1] === "SKILL.md") {
+    // Codex, Claude Code, and Cursor document only `<name>/SKILL.md`.
+    if ((directory === ".agents" || directory === ".gemini") && within.length === 2 && within[1] === "SKILL.md") {
       return {
         provider: "gemini",
         category: "skills",
@@ -152,9 +159,36 @@ function shared(_path: string, parts: string[]): Classification | null {
         provider: "shared",
         category: "instructions",
         instructionalText: true,
-        readers: ["claude", "codex"],
+        readers: ["claude", "codex", "cursor"],
         contextFile: "agents-md",
       }
+    : null;
+}
+
+function cursor(path: string, parts: string[]): Classification | null {
+  // Cursor still reads a root `.cursorrules`, but documents `.cursor/rules` as its replacement.
+  if (path === ".cursorrules") return { provider: "cursor", category: "rules", instructionalText: true, legacy: true };
+  if (path === ".cursorignore") return { provider: "cursor", category: "settings", instructionalText: false };
+  const index = parts.indexOf(".cursor");
+  if (index < 0) return null;
+  const within = parts.slice(index + 1);
+  const filename = parts.at(-1) ?? "";
+  // Cursor ignores a rule file without the `.mdc` extension, so plain Markdown there stays `other`.
+  if (within[0] === "rules" && within.length >= 2 && filename.endsWith(".mdc")) {
+    return { provider: "cursor", category: "rules", instructionalText: true };
+  }
+  if (within[0] === "commands" && within.length === 2 && filename.endsWith(".md")) {
+    return { provider: "cursor", category: "commands", instructionalText: true };
+  }
+  if (within.length === 1 && filename === "mcp.json") {
+    return { provider: "cursor", category: "tools", instructionalText: false };
+  }
+  // Projects also keep notes and reports under `.cursor/`, so only Cursor's own folders and its
+  // top-level JSON configuration stay visible as candidates.
+  const candidate =
+    ["rules", "commands", "skills"].includes(within[0] ?? "") || (within.length === 1 && filename.endsWith(".json"));
+  return candidate && /\.(?:md|mdc|json)$/.test(filename)
+    ? { provider: "cursor", category: "other", instructionalText: false }
     : null;
 }
 
@@ -162,7 +196,7 @@ function candidateExtension(filename: string | undefined): boolean {
   return /\.(?:md|json|toml|rules)$/.test(filename ?? "");
 }
 
-const adapters: Adapter[] = [skill, shared, codex, claude, gemini];
+const adapters: Adapter[] = [skill, shared, codex, claude, gemini, cursor];
 
 export function classify(path: string): Classification | null {
   const parts = path.split("/");
@@ -171,4 +205,15 @@ export function classify(path: string): Classification | null {
     if (classification) return classification;
   }
   return null;
+}
+
+/**
+ * Drop Cursor from `readers` in a history with no Cursor configuration, so a repository that does not
+ * use Cursor is described without it. A file left with only its own provider loses `readers`.
+ */
+export function withoutCursorReader(classification: Classification): void {
+  if (!classification.readers?.includes("cursor")) return;
+  const readers = classification.readers.filter((reader) => reader !== "cursor");
+  if (readers.length === 1 && readers[0] === classification.provider) delete classification.readers;
+  else classification.readers = readers;
 }

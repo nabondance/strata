@@ -80,6 +80,7 @@ export function toComponent(
     ...(classification.readers ? { readers: classification.readers } : {}),
     ...(classification.contextFile ? { contextFile: classification.contextFile } : {}),
     category: classification.category,
+    ...(classification.legacy ? { legacy: true as const } : {}),
     bytes: measured.bytes,
     estimatedTokens: classification.instructionalText ? measured.tokens : null,
     ...(providerTokenCounts && Object.keys(providerTokenCounts).length ? { providerTokenCounts } : {}),

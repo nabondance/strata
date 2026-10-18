@@ -578,10 +578,10 @@ export function renderHtml(report: Report): string {
       $('view-note').textContent = activeView === 'all'
         ? ''
         : activeView === 'shared'
-          ? 'Files that more than one tool reads. Each also appears in the view of every provider that reads it.'
+          ? 'Files labeled shared because more than one tool reads them by convention, such as AGENTS.md. Each also appears in the view of every provider that reads it. Files Cursor reads from .claude/skills stay labeled Claude.'
           : activeView === 'unknown'
             ? 'Files not assigned to a supported provider; source-only unless recognized.'
-            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
+            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : activeView === 'cursor' ? '. Cursor also reads AGENTS.md, .agents/skills, and .claude/skills, which it includes only at revisions that track Cursor configuration' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
       $('view-note').hidden = activeView === 'all';
     }
     for (const category of categories) {
@@ -635,7 +635,7 @@ export function renderHtml(report: Report): string {
         row.tabIndex = -1;
         const tokensCell = text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num');
         if (component.skill?.listing) tokensCell.title = listingLabel(component).slice(3);
-        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), tokensCell, text('td', fmt(component.bytes), 'num'));
+        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', categoryLabel(component), 'kind'), tokensCell, text('td', fmt(component.bytes), 'num'));
         for (const provider of providerColumns) {
           // A Gemini context file has a Gemini count only for revisions whose settings make Gemini read it.
           const count = providerReads(component, provider, revision.geminiContextFiles) ? component.providerTokenCounts?.[provider] : undefined;
@@ -671,7 +671,7 @@ export function renderHtml(report: Report): string {
           button.style.color = inks[component.category];
           const change = changedHere.get(component.path);
           const changeLabel = !change ? '' : change.kind === 'added' ? ' · added at this revision' : change.kind === 'renamed' ? ' · renamed at this revision from ' + change.previousPath : ' · edited at this revision';
-          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + listingLabel(component) + changeLabel;
+          const detail = component.path + ' · ' + component.provider + ' / ' + categoryLabel(component) + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + listingLabel(component) + changeLabel;
           button.setAttribute('aria-label', detail);
           if (change) {
             button.classList.add('changed');
@@ -780,7 +780,8 @@ export function renderHtml(report: Report): string {
       const unresolved = groups.filter((group) => group.listing?.status === 'unresolved').length;
       $('skill-count').textContent = fmt(groups.length) + ' · ' + fmt(listedTokens) + ' listed' + listingKind() + ' · ' + fmt(manifestTokens) + ' manifest tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Manifest tokens here are ' + providerNames[activeMeasure] + ' counts, but listed tokens use the ' + listingKind().slice(2, -1) + ' of the whole report, so the two are not comparable. ') +
-        'Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used. They mostly repeat text the manifest tokens already count, so never add the two; a Claude skill without a name is listed by its directory name, which is not in the file. Hidden skills are left out of the listing by their frontmatter; unresolved ones have frontmatter Strata could not read and are not counted.';
+        'Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used. They mostly repeat text the manifest tokens already count, so never add the two; a Claude skill without a name is listed by its directory name, which is not in the file. Hidden skills are left out of the listing by their frontmatter; unresolved ones have frontmatter Strata could not read and are not counted.' +
+        (activeView === 'cursor' && groups.some((group) => group.provider !== 'cursor') ? " Skills Cursor reads from .claude/skills or .agents/skills keep the listing measured by Claude Code's or Codex and Gemini CLI's rules; Cursor needs a name and description and honors disable-model-invocation, so its own listing of them can differ." : '');
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;
       toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';
@@ -803,6 +804,10 @@ export function renderHtml(report: Report): string {
     function listingKind() {
       if (activeMeasure === 'estimate') return '';
       return ' (' + (data.measurement.accuracy === 'estimate' ? 'byte estimate' : data.measurement.encoding + ' encoding') + ')';
+    }
+    // A superseded format, such as .cursorrules, keeps its category but says it is legacy.
+    function categoryLabel(component) {
+      return component.category + (component.legacy ? ' (legacy)' : '');
     }
     // How a skill manifest is listed before use, as a clause after its stored-text tokens.
     function listingLabel(component) {
@@ -871,7 +876,7 @@ export function renderHtml(report: Report): string {
       }
       for (const component of capped('compare-components', comparison.components, 25, renderComparison)) {
         const row = document.createElement('tr');
-        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)), listingDeltaCell(component.listing));
+        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', categoryLabel(component)), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)), listingDeltaCell(component.listing));
         body.append(row);
       }
     }
