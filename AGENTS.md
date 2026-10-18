@@ -4,7 +4,7 @@ Strata shows how Git-tracked AI-agent configuration changes through time. It ana
 
 ## Where to work
 
-Unless the user says otherwise, work in a new Git worktree on a new branch created from an up-to-date `main`, not in the main checkout: `git fetch origin`, then `git worktree add .claude/worktrees/<name> -b <type>/<name> origin/main`, then `pnpm install` inside it. Leave the main checkout on `main` and untouched. Remove the worktree once its branch is merged or abandoned.
+Unless the user says otherwise, work in a new Git worktree on a new branch created from an up-to-date `main`, not in the main checkout: `git fetch origin`, then `git worktree add --no-track -b <type>/<name> .claude/worktrees/<name> origin/main`, then `pnpm install` inside it. `--no-track` keeps the branch from tracking `main`; push it with `git push -u origin HEAD`. Leave the main checkout on `main` and untouched. Remove the worktree once its branch is merged or abandoned.
 
 ## Code map
 
@@ -16,7 +16,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch creat
 - `src/report.ts` renders the self-contained HTML report and `src/svg.ts` the static SVG image; both take category colors from `src/palette.ts` and the logo mark from `src/brand.ts`. `src/brand-font.ts` is the embedded display font; [docs/brand](docs/brand/README.md) explains how it is built. `src/cli.ts` handles command-line input and output.
 - `src/expand.ts`, `src/compare.ts`, `src/provider-view.ts`, `src/import-links.ts`, `src/treemap.ts`, `src/timeline.ts`, and `upFrontContext` in `src/up-front.ts` are embedded into the HTML report as source text, so each must stay self-contained; the exceptions are `viewRevision`, which may call `providerReads`, and `upFrontContext`, which may call `providerReads` and `importLinks`, all embedded beside them.
 - `test/analyze.test.mjs` and `test/cli.test.mjs` build synthetic Git histories to verify analysis and CLI behavior.
-- `skills/strata-interpret` is the skill Strata ships to its users. The agent configuration for working on this repository is kept as plain copies, one per tool: `.claude/agents` and `.codex/agents` for the reviewer, `.claude/skills` and `.agents/skills` for skills. Change both copies together. Do not use symlinks: Strata skips them, so its report on this repository would miss the file.
+- `skills/strata-interpret` is the skill Strata ships to its users. The agent configuration for working on this repository is kept as plain copies, one per tool: `.claude/agents` and `.codex/agents` for the reviewer, `.claude/skills` and `.agents/skills` for skills. Change both copies together; `test/agent-config.test.mjs` checks that the skill copies match. Do not use symlinks: Strata skips them, so its report on this repository would miss the file.
 
 ## Changes that affect analysis
 
