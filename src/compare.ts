@@ -46,6 +46,28 @@ export interface ListingComparison {
   afterUnresolved: number;
 }
 
+/** An MCP server one side's files define, by name and the file that defines it. */
+export interface McpServerRef {
+  name: string;
+  path: string;
+  provider: Component["provider"];
+}
+
+/**
+ * The MCP servers the tracked files define at each side. A server is identified by its file and
+ * name, so moving it to another file is a removal and an addition. `beforeUnresolved` and
+ * `afterUnresolved` count files whose servers could not be read; their servers are not counted.
+ */
+export interface McpComparison {
+  beforeServers: number;
+  afterServers: number;
+  deltaServers: number;
+  beforeUnresolved: number;
+  afterUnresolved: number;
+  added: McpServerRef[];
+  removed: McpServerRef[];
+}
+
 export interface Comparison {
   beforeTokens: number;
   afterTokens: number;
@@ -57,6 +79,8 @@ export interface Comparison {
   byProvider: ComparisonDelta[];
   byCategory: ComparisonDelta[];
   skillListing: ListingComparison;
+  /** Present when either side has a component with `mcp`: an MCP file, or settings that mention MCP servers. */
+  mcp?: McpComparison;
   components: ComponentDelta[];
 }
 
@@ -140,6 +164,30 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
     }
     return { tokens, manifests, unresolved };
   };
+  const servers = (revision: ComparedRevision) => {
+    const refs = new Map<string, McpServerRef>();
+    let files = 0;
+    let unresolved = 0;
+    for (const component of revision.components) {
+      if (!component.mcp) continue;
+      files += 1;
+      if (component.mcp.status === "unresolved") {
+        unresolved += 1;
+        continue;
+      }
+      for (const server of component.mcp.servers) {
+        refs.set(`${component.path}\0${server.name}`, {
+          name: server.name,
+          path: component.path,
+          provider: component.provider,
+        });
+      }
+    }
+    return { refs, files, unresolved };
+  };
+  const serversBefore = servers(baseline);
+  const serversAfter = servers(target);
+  const byServer = (a: McpServerRef, b: McpServerRef) => a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
   const listedBefore = listing(baseline);
   const listedAfter = listing(target);
   const deltaTokens = target.estimatedTokens - baseline.estimatedTokens;
@@ -162,6 +210,23 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
       beforeUnresolved: listedBefore.unresolved,
       afterUnresolved: listedAfter.unresolved,
     },
+    ...(serversBefore.files || serversAfter.files
+      ? {
+          mcp: {
+            beforeServers: serversBefore.refs.size,
+            afterServers: serversAfter.refs.size,
+            deltaServers: serversAfter.refs.size - serversBefore.refs.size,
+            beforeUnresolved: serversBefore.unresolved,
+            afterUnresolved: serversAfter.unresolved,
+            added: [...serversAfter.refs]
+              .flatMap(([key, ref]) => (serversBefore.refs.has(key) ? [] : [ref]))
+              .sort(byServer),
+            removed: [...serversBefore.refs]
+              .flatMap(([key, ref]) => (serversAfter.refs.has(key) ? [] : [ref]))
+              .sort(byServer),
+          },
+        }
+      : {}),
     components,
   };
 }

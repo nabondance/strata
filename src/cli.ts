@@ -93,7 +93,7 @@ Output:
   -f, --format <format>      html, json, svg, or badge (default: html)
       --minimal              With --format svg, draw only the layers: no text, axes, or legend
       --open                 Open the HTML report or SVG image with the default application
-      --shareable            Replace repository names, paths, commit IDs, and blob IDs with aliases
+      --shareable            Replace repository names, paths, commit IDs, blob IDs, and MCP server names with aliases
   -q, --quiet                Print only the report path
 
 ${measurementHelp}

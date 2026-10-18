@@ -1,7 +1,7 @@
 import { type Classification, categories, classify, type UpFront } from "./adapters.js";
 import { blobSizes, readBlobs } from "./git.js";
 import type { Measurer } from "./measurement.js";
-import type { CategoryTotals, ClaudeImport, Component, Revision } from "./model.js";
+import type { CategoryTotals, ClaudeImport, Component, McpServers, Revision } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
 
 export interface TrackedFile {
@@ -76,6 +76,7 @@ export function toComponent(
   listing?: SkillListing,
   imports?: ClaudeImport[],
   ruleUpFront?: UpFront,
+  mcp?: McpServers,
 ): Component {
   const { classification } = file;
   const upFront = classification.upFront ?? ruleUpFront;
@@ -102,6 +103,7 @@ export function toComponent(
           },
         }
       : {}),
+    ...(mcp ? { mcp } : {}),
   };
 }
 

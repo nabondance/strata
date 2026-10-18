@@ -1,5 +1,11 @@
 import { treeImports } from "./claude-imports.js";
-import { type ComparedRevision, type Comparison, type ComponentDelta, compareRevisions } from "./compare.js";
+import {
+  type ComparedRevision,
+  type Comparison,
+  type ComponentDelta,
+  compareRevisions,
+  type McpServerRef,
+} from "./compare.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, listTree } from "./git.js";
 import {
@@ -11,6 +17,7 @@ import {
   trackedFile,
   versionKey,
 } from "./inventory.js";
+import { mcpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
 import {
@@ -70,7 +77,7 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 10;
+  schemaVersion: 11;
   base: string;
   head: string;
   measurement: Measurement;
@@ -96,6 +103,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
   const measured = measureBlobs(repo, files.flat(), measurer);
   const listings = skillListings(repo, files.flat(), measured, measurer);
   const rules = rulesUpFront(repo, files.flat(), measured);
+  const mcp = mcpServerLists(repo, files.flat(), measured);
   const configured = geminiSettings(repo, files.flat(), measured);
   const snapshots = files.map((snapshot) => {
     const settings = snapshot.find((file) => file.path === geminiSettingsPath);
@@ -112,6 +120,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
           listings.get(key),
           imports.get(key),
           rules.get(key),
+          mcp.get(key),
         );
       })
       .sort(byPath);
@@ -133,7 +142,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 10,
+    schemaVersion: 11,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
@@ -206,7 +215,7 @@ function cell(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/[\r\n\t]/g, " ")
+    .replace(/\p{Cc}/gu, " ")
     .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/([`*_[\]])/g, "\\$1");
@@ -285,6 +294,32 @@ function upFrontLines(delta: PullRequestDelta): string[] {
   return lines;
 }
 
+/**
+ * The MCP servers tracked files define at each commit, and the names added or removed, when either
+ * commit has a file that can define them. A file that cannot be read is counted on its own.
+ */
+function mcpLines(delta: PullRequestDelta): string[] {
+  const mcp = delta.comparison.mcp;
+  if (!mcp) return [];
+  const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
+  const names = (refs: McpServerRef[]) => {
+    const shown = refs.slice(0, 10).map((ref) => `${cell(ref.name)} (${cell(ref.path)})`);
+    return shown.join(", ") + (refs.length > 10 ? `, and ${refs.length - 10} more` : "");
+  };
+  const parts = [
+    `MCP servers the tracked files define: **${signed(mcp.deltaServers)}** (${mcp.beforeServers} → ${mcp.afterServers}).`,
+  ];
+  if (mcp.added.length) parts.push(`Added: ${names(mcp.added)}.`);
+  if (mcp.removed.length) parts.push(`Removed: ${names(mcp.removed)}.`);
+  if (mcp.beforeUnresolved || mcp.afterUnresolved) {
+    parts.push(`Files whose servers could not be read, not counted: ${mcp.beforeUnresolved} → ${mcp.afterUnresolved}.`);
+  }
+  parts.push(
+    "Defined is not loaded: some tools ask before starting a project server and others start it once the folder is trusted, and the tool definitions a server sends are not measured.",
+  );
+  return [parts.join(" "), ""];
+}
+
 export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const comparison = delta.comparison;
   const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
@@ -317,6 +352,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     `Method: ${cell(delta.measurement.method)}. ${cell(delta.measurement.limitations)}`,
     "",
     ...listingLine,
+    ...mcpLines(delta),
     ...upFrontLines(delta),
     ...providerLines(delta),
     "| Category | Δ files | Δ tokens |",

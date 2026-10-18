@@ -57,7 +57,7 @@ The default `--tokenizer estimate` needs no network access. `--tokenizer openai-
 
 ### Who can see the report
 
-HTML and JSON reports contain file paths, commit IDs, dates, and measurements, never file contents. Anyone with read access to the repository can download workflow artifacts; for a public repository, that includes any signed-in GitHub user. Add `--shareable` to the `analyze` commands to replace repository names, paths, commit IDs, and blob IDs with aliases, and set `retention-days` on `upload-artifact` if the default retention is too long.
+HTML and JSON reports contain file paths, commit IDs, dates, measurements, and the names of the MCP servers tracked files define, never other file contents. Anyone with read access to the repository can download workflow artifacts; for a public repository, that includes any signed-in GitHub user. Add `--shareable` to the `analyze` commands to replace repository names, paths, commit IDs, blob IDs, and MCP server names with aliases, and set `retention-days` on `upload-artifact` if the default retention is too long.
 
 ## README image
 
