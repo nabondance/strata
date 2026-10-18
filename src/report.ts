@@ -581,7 +581,7 @@ export function renderHtml(report: Report): string {
           ? 'Files that more than one tool reads. Each also appears in the view of every provider that reads it.'
           : activeView === 'unknown'
             ? 'Files not assigned to a supported provider; source-only unless recognized.'
-            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
+            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : activeView === 'cursor' ? '. Cursor also reads AGENTS.md, .agents/skills, and .claude/skills, which it includes only at revisions that track Cursor configuration' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
       $('view-note').hidden = activeView === 'all';
     }
     for (const category of categories) {
@@ -781,7 +781,7 @@ export function renderHtml(report: Report): string {
       $('skill-count').textContent = fmt(groups.length) + ' · ' + fmt(listedTokens) + ' listed' + listingKind() + ' · ' + fmt(manifestTokens) + ' manifest tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Manifest tokens here are ' + providerNames[activeMeasure] + ' counts, but listed tokens use the ' + listingKind().slice(2, -1) + ' of the whole report, so the two are not comparable. ') +
         'Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used. They mostly repeat text the manifest tokens already count, so never add the two; a Claude skill without a name is listed by its directory name, which is not in the file. Hidden skills are left out of the listing by their frontmatter; unresolved ones have frontmatter Strata could not read and are not counted.' +
-        (activeView === 'cursor' && groups.some((group) => group.provider === 'shared') ? " Shared skills keep one listing, by Claude Code's rules for .claude/skills and by Codex and Gemini CLI's for .agents/skills; Cursor needs a name and description and honors disable-model-invocation, so its own listing of them can differ." : '');
+        (activeView === 'cursor' && groups.some((group) => group.provider !== 'cursor') ? " Skills Cursor reads from .claude/skills or .agents/skills keep the listing measured by Claude Code's or Codex and Gemini CLI's rules; Cursor needs a name and description and honors disable-model-invocation, so its own listing of them can differ." : '');
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;
       toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';

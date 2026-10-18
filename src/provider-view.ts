@@ -6,27 +6,32 @@ export type ProviderView = "all" | Provider;
 type Readable = Pick<Component, "provider" | "readers" | "contextFile">;
 
 /**
- * Whether a provider reads a file at a revision: its own files and shared files that list it as a
- * reader, except that Gemini CLI reads `AGENTS.md` and `GEMINI.md` only while a revision's
- * `geminiContextFiles` names them (`GEMINI.md` alone by default). Labels decide this, not paths, so
- * a shareable report gives the same answer. The HTML report embeds this function's source, so it
- * must stay self-contained.
+ * Whether a provider reads a file at a revision: its own files and files that list it as a reader,
+ * with two conditions. Gemini CLI reads `AGENTS.md` and `GEMINI.md` only while a revision's
+ * `geminiContextFiles` names them (`GEMINI.md` alone by default). Cursor reads files it does not own,
+ * such as `AGENTS.md` or `.claude/skills`, only at a revision that tracks Cursor configuration
+ * (`cursorConfigured`). Labels decide this, not paths, so a shareable report gives the same answer.
+ * The HTML report embeds this function's source, so it must stay self-contained.
  */
 export function providerReads(
   entry: Readable,
   provider: Provider,
   geminiContextFiles?: readonly ContextFile[] | null,
+  cursorConfigured?: boolean,
 ): boolean {
   if (provider === "gemini" && entry.contextFile)
     return (geminiContextFiles ?? ["gemini-md"]).includes(entry.contextFile);
-  return entry.provider === provider || !!entry.readers?.includes(provider);
+  if (entry.provider === provider) return true;
+  if (provider === "cursor" && !cursorConfigured) return false;
+  return !!entry.readers?.includes(provider);
 }
 
 /**
  * Project a revision for display. A file appears in the view of each provider that reads it, by
  * `providerReads`, and once in All. A settings change can bring a Gemini context file into or out
- * of the Gemini view without changing the file; given the report's `table`, such a file is listed
- * as added or removed. The HTML report embeds this function's source, so it may use only its
+ * of the Gemini view without changing the file, and adding or removing the last Cursor file brings
+ * `AGENTS.md` and other files Cursor reads for compatibility into or out of the Cursor view; given
+ * the report's `table`, such a file is listed as added or removed. The HTML report embeds this function's source, so it may use only its
  * arguments, `categories`, and `providerReads`.
  */
 export function viewRevision(
@@ -36,10 +41,15 @@ export function viewRevision(
   table?: readonly Component[],
 ): RevisionSnapshot {
   if (view === "all") return revision;
+  // A revision tracks Cursor configuration when it holds any file labeled Cursor.
+  const cursorAt = (at: RevisionSnapshot | undefined) =>
+    !!at?.components.some((component) => component.provider === "cursor");
+  const cursorNow = cursorAt(revision);
+  const cursorBefore = cursorAt(previous);
   const includes = (entry: Readable, at: RevisionSnapshot | undefined) =>
     view === "shared" || view === "unknown"
       ? entry.provider === view
-      : providerReads(entry, view, at?.geminiContextFiles);
+      : providerReads(entry, view, at?.geminiContextFiles, at === revision ? cursorNow : cursorBefore);
   const components = revision.components.filter((component) => includes(component, revision));
   const before = new Map(previous?.components.map((component) => [component.path, component]));
   const after = new Map(revision.components.map((component) => [component.path, component]));
@@ -104,7 +114,8 @@ export function viewRevision(
 
   /** Unchanged files whose visibility a settings change flipped, as edits for the mapping above. */
   function flips(): RevisionSnapshot["changes"] {
-    if (!previous || !table || previous.geminiContextFiles === revision.geminiContextFiles) return [];
+    if (!previous || !table) return [];
+    if (previous.geminiContextFiles === revision.geminiContextFiles && cursorBefore === cursorNow) return [];
     const touched = new Set(revision.changes.flatMap((change) => [change.path, change.previousPath]));
     return revision.components.flatMap((component) =>
       before.get(component.path) === component &&

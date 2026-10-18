@@ -13,9 +13,9 @@ test("provider views count shared files once and split cross-provider moves", ()
     estimatedTokens: 10,
   };
   const claudeFile = {
-    path: ".claude/agents/example.md",
+    path: ".claude/skills/example/SKILL.md",
     provider: "claude",
-    category: "agents",
+    category: "skills",
     blob: "c",
     bytes: 80,
     estimatedTokens: 20,
@@ -24,8 +24,7 @@ test("provider views count shared files once and split cross-provider moves", ()
     ...claudeFile,
     path: ".agents/skills/example/SKILL.md",
     provider: "shared",
-    readers: ["codex", "cursor", "gemini"],
-    category: "skills",
+    readers: ["codex", "gemini"],
   };
   const first = {
     id: "first",

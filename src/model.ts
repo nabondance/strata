@@ -9,7 +9,10 @@ export type CountedProvider = ProviderTextCount["provider"];
 export interface Component {
   path: string;
   provider: Provider;
-  /** On a shared component, the providers documented as reading its path. */
+  /**
+   * The providers documented as reading its path: on a shared component, and on another tool's file
+   * Cursor reads, only in a history with Cursor configuration. See `providerReads` for conditions.
+   */
   readers?: Provider[];
   /** On `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`): Gemini CLI reads it only while `context.fileName` names it. */
   contextFile?: ContextFile;

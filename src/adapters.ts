@@ -23,8 +23,10 @@ export interface Classification {
   category: Category;
   instructionalText: boolean;
   /**
-   * For a shared file, the providers documented as reading its path. A reader may still depend on
-   * a runtime condition Strata does not resolve, such as Claude Code reading `AGENTS.md`.
+   * The providers documented as reading the path, on a shared file or on another tool's file Cursor
+   * reads for compatibility. A reader may still depend on a runtime condition Strata does not
+   * resolve, such as Claude Code reading `AGENTS.md`. Cursor reads a file it does not own only at a
+   * revision that tracks Cursor configuration, and is left out of `readers` when no revision does.
    */
   readers?: Provider[];
   /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
@@ -38,13 +40,13 @@ export interface Classification {
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
 // Codex, Cursor, and Gemini CLI all discover project skills under `.agents/skills`. Cursor also
-// loads `.claude/skills` and `.codex/skills` for compatibility; Codex itself documents only `.agents/skills`.
+// loads `.claude/skills` for compatibility; those skills stay Claude's, with Cursor as a conditional
+// reader (see `providerReads`).
 const skillDirectories: Array<[directory: string, provider: Provider, readers?: Provider[]]> = [
   [".agents", "shared", ["codex", "cursor", "gemini"]],
-  [".claude", "shared", ["claude", "cursor"]],
+  [".claude", "claude", ["claude", "cursor"]],
   [".gemini", "gemini"],
   [".cursor", "cursor"],
-  [".codex", "cursor"],
 ];
 
 function skill(_path: string, parts: string[]): Classification | null {
@@ -138,10 +140,6 @@ function codex(_path: string, parts: string[]): Classification | null {
   const index = parts.indexOf(".codex");
   if (index < 0) return null;
   const within = parts.slice(index + 1);
-  // Only Cursor documents reading `.codex/skills`; the skill adapter takes its skill directories.
-  if (within[0] === "skills") {
-    return candidateExtension(filename) ? { provider: "cursor", category: "other", instructionalText: false } : null;
-  }
   if (within.length === 1 && filename === "config.toml") {
     return { provider: "codex", category: "settings", instructionalText: false };
   }
@@ -170,6 +168,7 @@ function shared(_path: string, parts: string[]): Classification | null {
 function cursor(path: string, parts: string[]): Classification | null {
   // Cursor still reads a root `.cursorrules`, but documents `.cursor/rules` as its replacement.
   if (path === ".cursorrules") return { provider: "cursor", category: "rules", instructionalText: true, legacy: true };
+  if (path === ".cursorignore") return { provider: "cursor", category: "settings", instructionalText: false };
   const index = parts.indexOf(".cursor");
   if (index < 0) return null;
   const within = parts.slice(index + 1);
@@ -206,4 +205,15 @@ export function classify(path: string): Classification | null {
     if (classification) return classification;
   }
   return null;
+}
+
+/**
+ * Drop Cursor from `readers` in a history with no Cursor configuration, so a repository that does not
+ * use Cursor is described without it. A file left with only its own provider loses `readers`.
+ */
+export function withoutCursorReader(classification: Classification): void {
+  if (!classification.readers?.includes("cursor")) return;
+  const readers = classification.readers.filter((reader) => reader !== "cursor");
+  if (readers.length === 1 && readers[0] === classification.provider) delete classification.readers;
+  else classification.readers = readers;
 }

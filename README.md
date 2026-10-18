@@ -181,12 +181,14 @@ Configuration tracked in the repository, at the root or in nested project direct
 
 | | Claude Code | Codex | Gemini CLI | Cursor |
 | --- | --- | --- | --- | --- |
-| Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared) |
-| Skills | `.claude/skills/*/SKILL.md` (shared) + resources | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources | `.cursor/skills/*/SKILL.md`, `.codex/skills/*/SKILL.md`, and the shared `.agents/skills` and `.claude/skills` + resources |
+| Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared)\* |
+| Skills | `.claude/skills/*/SKILL.md` + resources | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources | `.cursor/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\* |
 | Agents | `.claude/agents/**/*.md` | `.codex/agents/*.toml` | `.gemini/agents/*.md` | |
 | Rules | `.claude/rules/**/*.md` | `.codex/rules/**/*.rules` | | `.cursor/rules/**/*.mdc`, `.cursorrules` (legacy) |
 | Commands | `.claude/commands/**/*.md` | | `.gemini/commands/**/*.toml` | `.cursor/commands/*.md` |
-| Settings and tools | `.claude/settings*.json`, `.mcp.json` | `.codex/config.toml` | `.gemini/settings.json` | `.cursor/mcp.json` |
+| Settings and tools | `.claude/settings*.json`, `.mcp.json` | `.codex/config.toml` | `.gemini/settings.json` | `.cursor/mcp.json`, `.cursorignore` |
+
+\* Cursor reads these other tools' files too, but Strata counts them in the Cursor view only at revisions that track Cursor configuration. A repository without Cursor files is reported without Cursor.
 
 [The analysis scope](docs/analysis-scope.md) lists every pattern, its measurement, and the provider documentation it follows. Provider additions are welcome as pull requests; [the Cursor adapter study](docs/next-adapter.md) shows the evidence one needs.
 

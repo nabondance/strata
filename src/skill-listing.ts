@@ -250,10 +250,8 @@ export function skillListings(
   const listings = new Map<string, SkillListing>();
   for (const [key, file] of manifests) {
     const text = texts.get(file.blob);
-    const { provider, readers, skillRoot = "" } = file.classification;
-    // A `.claude/skills` manifest is shared with Cursor but listed by Claude Code's rules.
-    const lister = readers?.includes("claude") ? "claude" : provider;
-    const listed = text == null ? null : safeListingText(text, lister, skillRoot.split("/").at(-1) ?? "");
+    const { provider, skillRoot = "" } = file.classification;
+    const listed = text == null ? null : safeListingText(text, provider, skillRoot.split("/").at(-1) ?? "");
     listings.set(
       key,
       listed === null
