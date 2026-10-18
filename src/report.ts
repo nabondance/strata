@@ -12,6 +12,7 @@ import { textRecipients } from "./provider-count.js";
 import { providerReads, viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
 import { layoutTreemap } from "./treemap.js";
+import { sessionProviderNames, upFrontContext } from "./up-front.js";
 
 let embeddedD3: string | undefined;
 
@@ -40,6 +41,7 @@ export function renderHtml(report: Report): string {
   const readsSource = providerReads.toString();
   const timelineSource = timelineBuckets.toString();
   const importsSource = importLinks.toString();
+  const upFrontSource = upFrontContext.toString();
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
   const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
@@ -245,16 +247,23 @@ export function renderHtml(report: Report): string {
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-hover" id="treemap-hover" aria-live="polite"></p>
     </section>
+    <details class="panel" id="upfront-panel" hidden>
+      <summary><h2>At session start</h2><span class="summary-count" id="upfront-count"></span></summary>
+      <p class="muted">What each agent reads as soon as a session opens at the repository root, and what it reads only when needed. Token estimates of the files, not the agent's exact usage.</p>
+      <div class="table-wrap"><table><thead><tr><th>Agent</th><th class="num" title="Files read when the session opens">Files</th><th class="num" title="Root instructions, always-on rules, and the files they import">Instructions</th><th class="num" title="Each skill's name and description; the rest of a skill is read when it is used">Skill summaries</th><th class="num">At start</th><th class="num" title="Skills, scoped rules, commands, agents, and instructions in subfolders">When needed</th></tr></thead><tbody id="upfront-rows"></tbody></table></div>
+      <p class="muted" id="upfront-note" style="white-space: pre-line"></p>
+      <div class="table-wrap" id="upfront-files-wrap" hidden><table><thead><tr><th>Read at start</th><th>Kind</th><th class="num">Tokens</th></tr></thead><tbody id="upfront-files"></tbody></table></div>
+    </details>
     <details class="panel" id="skills-panel">
       <summary><h2>Skill bundles</h2><span class="summary-count" id="skill-count"></span></summary>
-      <div class="table-wrap"><table><thead><tr><th>Skill directory</th><th>Provider</th><th>Manifest</th><th class="num">Manifest tokens</th><th class="num">Listed tokens</th><th class="num">Resources</th><th class="num">Resource bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Skill</th><th>Provider</th><th>Main file</th><th class="num" title="Tokens in SKILL.md, read when the skill is used">Full text</th><th class="num" title="Name and description, seen before the skill is used">Summary</th><th class="num">Extra files</th><th class="num">Extra bytes</th></tr></thead><tbody id="skill-groups"></tbody></table></div>
       <p class="muted" id="listing-note"></p>
       <button class="skill-toggle" id="skill-toggle" type="button" aria-expanded="false" hidden></button>
     </details>
     <details class="panel" id="imports-panel" hidden>
       <summary><h2>Claude imports</h2><span class="summary-count" id="imports-count"></span></summary>
-      <p class="muted">Claude Code expands @path imports in CLAUDE.md, CLAUDE.local.md, and AGENTS.md when it loads them, and imports in the files they import, up to four hops. Imported files no path rule recognizes appear among the tracked components marked imported: Markdown as Claude instructions, anything else as source-only. Unresolved imports are listed first. An import is a link between stored files, not proof that a session loaded them.</p>
-      <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num">Hop</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
+      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep. Broken imports come first.</p>
+      <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num" title="1 means imported directly by the starting file">Depth</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
       <button class="more" id="imports-more" type="button" hidden></button>
     </details>
     <section class="panel" aria-labelledby="compare-heading">
@@ -267,13 +276,13 @@ export function renderHtml(report: Report): string {
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
-        <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Listed skill tokens</span><strong id="compare-listing"></strong></span>
+        <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Skill summary tokens</span><strong id="compare-listing"></strong></span>
       </div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
       </div>
-      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ listed</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
+      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ summary</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
     </section>
     <details class="panel" id="files-panel"${report.providerMeasurements ? " open" : ""}>
       <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
@@ -298,6 +307,8 @@ export function renderHtml(report: Report): string {
     const viewRevision = ${viewSource};
     const timelineBuckets = ${timelineSource};
     const importLinks = ${importsSource};
+    const upFrontContext = ${upFrontSource};
+    const agentNames = ${JSON.stringify(sessionProviderNames)};
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
@@ -875,11 +886,11 @@ export function renderHtml(report: Report): string {
       const manifestTokens = groups.reduce((sum, group) => sum + (group.manifestPath ? group.manifestEstimatedTokens : 0), 0);
       const listedTokens = groups.reduce((sum, group) => sum + (group.listing?.tokens ?? 0), 0);
       const unresolved = groups.filter((group) => group.listing?.status === 'unresolved').length;
-      $('skill-count').textContent = fmt(groups.length) + ' · ' + fmt(listedTokens) + ' listed' + listingKind() + ' · ' + fmt(manifestTokens) + ' manifest tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
-      $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Manifest tokens here are ' + providerNames[activeMeasure] + ' counts, but listed tokens use the ' + listingKind().slice(2, -1) + ' of the whole report, so the two are not comparable. ') +
-        'Listed tokens measure the frontmatter name and description an agent keeps in context before a skill is used. They mostly repeat text the manifest tokens already count, so never add the two; a Claude skill without a name is listed by its directory name, which is not in the file. Hidden skills are left out of the listing by their frontmatter; unresolved ones have frontmatter Strata could not read and are not counted.' +
-        (activeView === 'cursor' && groups.some((group) => group.provider !== 'cursor') ? " Skills Cursor reads from .claude/skills or .agents/skills keep the listing measured by Claude Code's or Codex and Gemini CLI's rules; Cursor needs a name and description and honors disable-model-invocation, so its own listing of them can differ." : '') +
-        (activeView === 'copilot' && groups.some((group) => group.provider !== 'copilot') ? " Skills Copilot reads from .claude/skills or .agents/skills keep the listing measured by Claude Code's or Codex and Gemini CLI's rules; Copilot needs a name and description, so its own listing of them can differ." : '');
+      $('skill-count').textContent = fmt(groups.length) + (groups.length === 1 ? ' skill' : ' skills') + ' · summaries ' + fmt(listedTokens) + listingKind() + ' · full text ' + fmt(manifestTokens) + ' tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      const borrowed = (activeView === 'cursor' || activeView === 'copilot') && groups.some((group) => group.provider !== activeView);
+      $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Full text uses ' + providerNames[activeMeasure] + ' counts and summaries the ' + listingKind().slice(2, -1) + ', so do not compare them. ') +
+        'Summary: the name and description an agent sees before using a skill. It is part of the full text, so do not add the two. Hidden skills have no summary; unresolved ones could not be read and are not counted.' +
+        (borrowed ? ' ' + activeView[0].toUpperCase() + activeView.slice(1) + ' may summarize skills from .claude/skills or .agents/skills differently.' : '');
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;
       toggle.textContent = showAllSkills ? 'Show first 8 skill bundles' : 'Show all ' + fmt(groups.length) + ' skill bundles';
@@ -899,7 +910,7 @@ export function renderHtml(report: Report): string {
     }
 
     // Imports are links between stored files, so they follow the whole inventory whatever the view.
-    const importStatus = { resolved: 'resolved', missing: 'missing', external: 'outside the repository', 'depth-limit': 'beyond four hops' };
+    const importStatus = { resolved: 'resolved', missing: 'missing', external: 'outside the repository', 'depth-limit': 'too deep' };
     const unresolvedFirst = { missing: 0, external: 1, 'depth-limit': 2, resolved: 3 };
     function renderImports() {
       const components = revisions[selected].components;
@@ -936,14 +947,14 @@ export function renderHtml(report: Report): string {
     function listingLabel(component) {
       const listing = component.skill?.listing;
       if (!listing) return '';
-      if (listing.status === 'listed') return ' · ' + fmt(listing.tokens) + ' listed before use' + listingKind();
-      return listing.status === 'hidden' ? ' · hidden from the listing' : ' · listing unresolved';
+      if (listing.status === 'listed') return ' · ' + fmt(listing.tokens) + ' in its summary' + listingKind();
+      return listing.status === 'hidden' ? ' · no summary (hidden)' : ' · summary unresolved';
     }
     function listingCell(listing) {
       if (!listing) return text('td', '—', 'num');
       if (listing.status === 'listed') return text('td', fmt(listing.tokens), 'num');
       const cell = text('td', listing.status, 'num kind');
-      cell.title = listing.status === 'hidden' ? 'disable-model-invocation keeps this skill out of the listing until it is invoked' : 'Strata could not read the listed name and description from this frontmatter';
+      cell.title = listing.status === 'hidden' ? 'Hidden until invoked (disable-model-invocation)' : 'Strata could not read the name and description';
       return cell;
     }
 
@@ -953,6 +964,44 @@ export function renderHtml(report: Report): string {
       const side = (entry) => !entry ? 'none' : entry.status === 'listed' ? fmt(entry.tokens) : entry.status;
       if (listing.before?.status === 'listed' && listing.after?.status === 'listed') return text('td', signed(listing.deltaTokens), 'num ' + tone(listing.deltaTokens));
       return text('td', side(listing.before) + ' → ' + side(listing.after), 'num');
+    }
+
+    // Up-front text follows the whole inventory under the report's own measurement, whatever the view counts with.
+    function renderUpFront() {
+      const revision = revisions[selected];
+      drawn.upFront = revision.components;
+      const single = Object.hasOwn(agentNames, activeView);
+      const entries = (single ? [activeView] : Object.keys(agentNames))
+        .map((provider) => upFrontContext(revision.components, provider, revision.geminiContextFiles))
+        .filter((entry) => entry.tokens || entry.onDemandTokens || entry.files.length || entry.skipped || entry.listingUnresolved || entry.unresolved);
+      $('upfront-panel').hidden = !entries.length;
+      $('upfront-count').textContent = entries.map((entry) => agentNames[entry.provider] + ' ' + fmt(entry.tokens)).join(' · ');
+      const body = $('upfront-rows');
+      body.replaceChildren();
+      for (const entry of entries) {
+        const row = document.createElement('tr');
+        row.append(text('td', agentNames[entry.provider]), text('td', fmt(entry.files.length), 'num'), text('td', fmt(entry.fileTokens), 'num'), text('td', fmt(entry.listingTokens), 'num'), text('td', fmt(entry.tokens), 'num'), text('td', fmt(entry.onDemandTokens), 'num'));
+        body.append(row);
+      }
+      const notes = [];
+      const fileCount = (count) => fmt(count) + (count === 1 ? ' file' : ' files');
+      const unsure = entries.filter((entry) => entry.unresolved);
+      if (unsure.length) notes.push('Maybe read at start, counted as when needed: ' + unsure.map((entry) => agentNames[entry.provider] + ' ' + fileCount(entry.unresolved)).join(', ') + '.');
+      for (const entry of entries.filter((item) => item.skipped)) notes.push(agentNames[entry.provider] + ' skips AGENTS.md because ' + (entry.provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.override.md') + ' exists (' + fmt(entry.skippedTokens) + ' tokens, left out).');
+      const unreadable = entries.filter((entry) => entry.listingUnresolved);
+      if (unreadable.length) notes.push('Skills with unreadable descriptions, not counted: ' + unreadable.map((entry) => agentNames[entry.provider] + ' ' + fmt(entry.listingUnresolved)).join(', ') + '.');
+      if (activeMeasure !== 'estimate') notes.push('Uses the report\u2019s ' + listingKind().slice(2, -1) + ', not ' + providerNames[activeMeasure] + ' counts.');
+      notes.push('Personal and global settings outside the repository are not included.');
+      $('upfront-note').textContent = notes.join('\\n');
+      const files = single && entries.length ? entries[0].files : [];
+      $('upfront-files-wrap').hidden = !files.length;
+      const fileBody = $('upfront-files');
+      fileBody.replaceChildren();
+      for (const component of files) {
+        const row = document.createElement('tr');
+        row.append(text('td', component.path, 'path'), text('td', categoryLabel(component)), text('td', component.estimatedTokens === null ? 'source only' : fmt(component.estimatedTokens), 'num'));
+        fileBody.append(row);
+      }
     }
 
     function renderComparison() {
@@ -967,7 +1016,7 @@ export function renderHtml(report: Report): string {
       $('compare-files').className = tone(comparison.deltaFiles);
       const skills = comparison.skillListing;
       $('compare-listing-wrap').hidden = !skills.beforeManifests && !skills.afterManifests;
-      $('compare-listing-label').textContent = 'Listed skill tokens' + listingKind();
+      $('compare-listing-label').textContent = 'Skill summary tokens' + listingKind();
       $('compare-listing').textContent = signed(skills.deltaTokens) + ' (' + fmt(skills.beforeTokens) + ' → ' + fmt(skills.afterTokens) + ')' +
         (skills.beforeUnresolved || skills.afterUnresolved ? ' · unresolved ' + fmt(skills.beforeUnresolved) + ' → ' + fmt(skills.afterUnresolved) : '');
       $('compare-listing').className = tone(skills.deltaTokens);
@@ -1021,6 +1070,7 @@ export function renderHtml(report: Report): string {
       $('revision').textContent = (index + 1) + ' / ' + revisions.length + ' · ' + revision.id.slice(0, 10);
 
       if (drawn.skills !== revision.skillGroups) renderSkills();
+      if (drawn.upFront !== revisions[index].components) renderUpFront();
 
       if (drawn.treemap !== revision.components || drawn.outlined || revision.changes.length) renderTreemap();
       clearTimeout(settleTimer);

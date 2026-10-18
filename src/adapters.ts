@@ -40,7 +40,32 @@ export interface Classification {
   importRoot?: true;
   /** Set on files recognized only because a Claude `@path` import reaches them; never by `classify`. */
   imported?: boolean;
+  /**
+   * Set on an instruction file at the repository root that its readers load when a session starts
+   * there: `listed`, or `unresolved` when the provider's documentation does not say. Root rules
+   * get theirs from their frontmatter instead; see `src/rule-loading.ts`.
+   */
+  upFront?: UpFront;
 }
+
+/** Whether a file is stored text an agent keeps from the start of a session at the repository root. */
+export type UpFront = "listed" | "unresolved";
+
+/**
+ * Root instruction files that sessions started at the repository root load. `REVIEW.md` is left
+ * out, because only code review reads it, and `.gemini/system.md`, which needs `GEMINI_SYSTEM_MD`.
+ * Cursor's documentation no longer says when the legacy `.cursorrules` applies.
+ */
+const upFrontPaths: Record<string, UpFront> = {
+  "CLAUDE.md": "listed",
+  ".claude/CLAUDE.md": "listed",
+  "CLAUDE.local.md": "listed",
+  "AGENTS.md": "listed",
+  "AGENTS.override.md": "listed",
+  "GEMINI.md": "listed",
+  ".github/copilot-instructions.md": "listed",
+  ".cursorrules": "unresolved",
+};
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
@@ -288,8 +313,23 @@ export function classify(path: string): Classification | null {
   const parts = path.split("/");
   for (const adapter of adapters) {
     const classification = adapter(path, parts);
-    if (classification) return classification;
+    if (!classification) continue;
+    const upFront = Object.hasOwn(upFrontPaths, path) ? upFrontPaths[path] : undefined;
+    return upFront && classification.instructionalText ? { ...classification, upFront } : classification;
   }
+  return null;
+}
+
+/**
+ * Whether a path is a rule whose frontmatter decides if it loads at the start of a session at the
+ * repository root: a Claude rule in the root `.claude/rules` (unless it sets `paths`) or a Cursor
+ * rule in the root `.cursor/rules` (when it sets `alwaysApply: true`). Rules in nested folders
+ * load only for work there.
+ */
+export function rootRuleProvider(path: string, classification: Classification): "claude" | "cursor" | null {
+  if (classification.category !== "rules" || !classification.instructionalText) return null;
+  if (classification.provider === "claude" && path.startsWith(".claude/rules/")) return "claude";
+  if (classification.provider === "cursor" && path.startsWith(".cursor/rules/")) return "cursor";
   return null;
 }
 

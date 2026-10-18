@@ -21,6 +21,8 @@ export const claudeDescriptionLimit = 1536;
 interface Frontmatter {
   /** Top-level fields; a value that is not a scalar Strata reads maps to null. */
   fields: Map<string, string | null>;
+  /** Each field's source: the text after its key, and the lines that continue it. */
+  sources: Map<string, { first: string; rest: string[] }>;
   body: string;
 }
 
@@ -39,11 +41,12 @@ const comment = /[ \t]+#.*$/;
  */
 export function readFrontmatter(text: string): Frontmatter | null {
   const lines = text.replace(/^﻿/, "").split(/\r?\n/);
-  if (lines[0]?.trimEnd() !== "---") return { fields: new Map(), body: lines.join("\n") };
+  if (lines[0]?.trimEnd() !== "---") return { fields: new Map(), sources: new Map(), body: lines.join("\n") };
   const end = lines.findIndex((line, index) => index > 0 && line.trimEnd() === "---");
   if (end < 0) return null;
   const block = lines.slice(1, end);
   const fields = new Map<string, string | null>();
+  const sources = new Map<string, { first: string; rest: string[] }>();
   for (let index = 0; index < block.length; ) {
     const line = block[index]!;
     if (!line.trim() || /^#/.test(line)) {
@@ -54,10 +57,12 @@ export function readFrontmatter(text: string): Frontmatter | null {
     if (!match || fields.has(match[1]!)) return null;
     let next = index + 1;
     while (next < block.length && continuation.test(block[next]!)) next += 1;
-    fields.set(match[1]!, scalar(match[2]?.trimEnd() ?? "", block.slice(index + 1, next)));
+    const source = { first: match[2]?.trimEnd() ?? "", rest: block.slice(index + 1, next) };
+    fields.set(match[1]!, scalar(source.first, source.rest));
+    sources.set(match[1]!, source);
     index = next;
   }
-  return { fields, body: lines.slice(end + 1).join("\n") };
+  return { fields, sources, body: lines.slice(end + 1).join("\n") };
 }
 
 /** A scalar from its first-line text and continuation lines, or null if it is not one Strata reads. */

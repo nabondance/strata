@@ -26,9 +26,11 @@ type Importing = Pick<Component, "path" | "contextFile" | "importRoot" | "import
  * `AGENTS.md` (`agents-md` context file) those chains did not reach. A file reached in four hops is
  * loaded, but its own imports are not: those are `depth-limit`. An import of a path no file in the
  * inventory has is `missing`; one outside the repository is `external`. Labels decide the roots,
- * not paths, so a shareable report gives the same edges. The HTML report embeds this function's source, so it must stay self-contained.
+ * not paths, so a shareable report gives the same edges. Given `roots`, expansion starts only at
+ * those of them that are import roots, in the same order. The HTML report embeds this function's
+ * source, so it must stay self-contained.
  */
-export function importLinks(components: readonly Importing[]): ImportLink[] {
+export function importLinks(components: readonly Importing[], roots?: readonly Importing[]): ImportLink[] {
   const maxHops = 4;
   const byPath = new Map(components.map((component) => [component.path, component]));
   const hops = new Map<string, number>();
@@ -58,7 +60,8 @@ export function importLinks(components: readonly Importing[]): ImportLink[] {
     }
   };
   // `AGENTS.md` starts a chain only when no `CLAUDE.md` chain reaches it; one that is imported is a hop on that chain.
-  expand(components.filter((component) => component.importRoot && component.contextFile !== "agents-md"));
-  expand(components.filter((component) => component.importRoot && component.contextFile === "agents-md"));
+  const starts = roots ?? components;
+  expand(starts.filter((component) => component.importRoot && component.contextFile !== "agents-md"));
+  expand(starts.filter((component) => component.importRoot && component.contextFile === "agents-md"));
   return links;
 }

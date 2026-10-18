@@ -21,7 +21,17 @@ import {
 } from "./provider-count.js";
 import { countProviderBlobs, geminiSettings, providerName } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
+import { rulesUpFront } from "./rule-loading.js";
 import { type SkillListing, skillListings } from "./skill-listing.js";
+import {
+  hasUpFront,
+  type SessionProvider,
+  sessionProviderNames,
+  sessionProviders,
+  type UpFrontTotals,
+  upFrontContext,
+  upFrontTotals,
+} from "./up-front.js";
 
 type ComparedListing = NonNullable<ComponentDelta["listing"]>;
 
@@ -50,12 +60,23 @@ export interface ProviderTotalDelta {
   deltaTokens: number;
 }
 
+/** A provider's stored text listed up front at both commits, apart from what it reads on demand. */
+export interface UpFrontDelta {
+  provider: SessionProvider;
+  before: UpFrontTotals;
+  after: UpFrontTotals;
+  deltaTokens: number;
+  deltaOnDemandTokens: number;
+}
+
 export interface PullRequestDelta {
-  schemaVersion: 9;
+  schemaVersion: 10;
   base: string;
   head: string;
   measurement: Measurement;
   comparison: Comparison;
+  /** Per provider that reads stored text at either commit, for a session started at the repository root. */
+  upFront: UpFrontDelta[];
   /** With `--precise`: how each provider was counted, and its totals at both commits. */
   providerMeasurements?: ProviderMeasurementMetadata[];
   providerTotals?: ProviderTotalDelta[];
@@ -74,23 +95,52 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
   const files = ids.map((id) => trackedFiles(repo, id, imports));
   const measured = measureBlobs(repo, files.flat(), measurer);
   const listings = skillListings(repo, files.flat(), measured, measurer);
+  const rules = rulesUpFront(repo, files.flat(), measured);
+  const configured = geminiSettings(repo, files.flat(), measured);
+  const snapshots = files.map((snapshot) => {
+    const settings = snapshot.find((file) => file.path === geminiSettingsPath);
+    return { snapshot, names: settings ? (configured.get(settings.blob) ?? null) : null };
+  });
   const [before, after] = files.map((snapshot): ComparedRevision => {
     const components = snapshot
       .map((file) => {
         const key = versionKey(file.path, file.blob);
-        return toComponent(file, measured.get(file.blob)!, undefined, listings.get(key), imports.get(key));
+        return toComponent(
+          file,
+          measured.get(file.blob)!,
+          undefined,
+          listings.get(key),
+          imports.get(key),
+          rules.get(key),
+        );
       })
       .sort(byPath);
     return { components, estimatedTokens: summarize(components).estimatedTokens };
   });
+  const upFront = sessionProviders.flatMap((provider): UpFrontDelta[] => {
+    const at = (side: ComparedRevision, index: number) =>
+      upFrontTotals(upFrontContext(side.components, provider, snapshots[index]!.names));
+    const totals = [at(before!, 0), at(after!, 1)] as const;
+    if (!totals.some(hasUpFront)) return [];
+    return [
+      {
+        provider,
+        before: totals[0],
+        after: totals[1],
+        deltaTokens: totals[1].tokens - totals[0].tokens,
+        deltaOnDemandTokens: totals[1].onDemandTokens - totals[0].onDemandTokens,
+      },
+    ];
+  });
   const delta: PullRequestDelta = {
-    schemaVersion: 9,
+    schemaVersion: 10,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
     comparison: compareRevisions(before!, after!),
+    upFront,
   };
-  return { delta, files, measured };
+  return { delta, files, measured, snapshots };
 }
 
 /** Compare two Git commits without checking them out or writing into the target repository. */
@@ -113,14 +163,8 @@ export async function compareGitCommitsPrecise(
   head: string,
   options: CompareOptions & { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void },
 ): Promise<PullRequestDelta> {
-  const { delta, files, measured } = readCommits(repo, base, head, options);
+  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options);
   const all = files.flat();
-  const configured = geminiSettings(repo, all, measured);
-  const snapshots = files.map((snapshot) => {
-    const settings = snapshot.find((file) => file.path === geminiSettingsPath);
-    const names = settings ? (configured.get(settings.blob) ?? null) : null;
-    return { snapshot, names };
-  });
   const geminiBlobs = new Set(
     snapshots.flatMap(({ snapshot, names }) =>
       snapshot.filter((file) => providerReads(file.classification, "gemini", names)).map((file) => file.blob),
@@ -200,6 +244,47 @@ function listed(listing: SkillListing | null): string {
   return !listing ? "none" : listing.status === "listed" ? String(listing.tokens) : listing.status;
 }
 
+/**
+ * What each agent lists up front, for the providers whose up-front or on-demand text changed, or a
+ * line saying neither did. The unresolved counts follow, so a fixed frontmatter is not read as growth.
+ */
+function upFrontLines(delta: PullRequestDelta): string[] {
+  if (!delta.upFront.length) return [];
+  const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
+  const intro =
+    "Listed up front, the stored text an agent keeps from the start of a session at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions), apart from the rest it reads on demand; both are stored text, not loaded context or billing tokens";
+  const changed = delta.upFront.filter((entry) => entry.deltaTokens || entry.deltaOnDemandTokens);
+  if (!changed.length) return [`${intro}: unchanged.`, ""];
+  const lines = [
+    `${intro}:`,
+    "",
+    "| Agent | Up front | Δ up front | On demand | Δ on demand |",
+    "| --- | ---: | ---: | ---: | ---: |",
+    ...changed.map(
+      ({ provider, before, after, deltaTokens, deltaOnDemandTokens }) =>
+        `| ${sessionProviderNames[provider]} | ${before.tokens} → ${after.tokens} | ${signed(deltaTokens)} | ${before.onDemandTokens} → ${after.onDemandTokens} | ${signed(deltaOnDemandTokens)} |`,
+    ),
+    "",
+  ];
+  const unresolved = changed.filter(
+    ({ before, after }) => before.unresolved || after.unresolved || before.listingUnresolved || after.listingUnresolved,
+  );
+  if (unresolved.length) {
+    lines.push(
+      `Not counted up front because Strata could not tell whether they load: ${unresolved
+        .map(
+          ({ provider, before, after }) =>
+            `${sessionProviderNames[provider]} ${before.unresolved + before.listingUnresolved} → ${after.unresolved + after.listingUnresolved}`,
+        )
+        .join(
+          ", ",
+        )} (root rules or skill manifests whose frontmatter it could not read, and the legacy \`.cursorrules\`).`,
+      "",
+    );
+  }
+  return lines;
+}
+
 export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const comparison = delta.comparison;
   const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
@@ -232,6 +317,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     `Method: ${cell(delta.measurement.method)}. ${cell(delta.measurement.limitations)}`,
     "",
     ...listingLine,
+    ...upFrontLines(delta),
     ...providerLines(delta),
     "| Category | Δ files | Δ tokens |",
     "| --- | ---: | ---: |",

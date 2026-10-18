@@ -1,4 +1,4 @@
-import type { Category, ContextFile, Provider } from "./adapters.js";
+import type { Category, ContextFile, Provider, UpFront } from "./adapters.js";
 import type { Measurement } from "./measurement.js";
 import type { ProviderMeasurementMetadata, ProviderTextCount } from "./provider-count.js";
 import type { SkillListing } from "./skill-listing.js";
@@ -47,6 +47,12 @@ export interface Component {
   imports?: ClaudeImport[];
   /** On a `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md` with `imports`: Claude Code starts expanding imports here. */
   importRoot?: true;
+  /**
+   * On a root instruction file, or a root rule whose frontmatter loads it at launch: its readers keep
+   * it from the start of a session at the repository root (`listed`), or may (`unresolved`). Which
+   * reader does is decided per revision by `upFrontContext`.
+   */
+  upFront?: UpFront;
   /** On a skill manifest, `listing` measures the frontmatter text an agent lists before the skill is used. */
   skill?: { root: string; role: "manifest" | "resource"; listing?: SkillListing };
 }
@@ -123,7 +129,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 16;
+  schemaVersion: 17;
   repository: string;
   branch: string;
   shallow: boolean;

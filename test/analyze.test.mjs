@@ -392,7 +392,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 16);
+    assert.equal(providerApiReport.schemaVersion, 17);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -476,7 +476,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 9);
+    assert.equal(prDelta.schemaVersion, 10);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -493,7 +493,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 16);
+    assert.equal(report.schemaVersion, 17);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -862,7 +862,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 16);
+    assert.equal(openAiReport.schemaVersion, 17);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -913,7 +913,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 16],
+      ["gpt-4o", "o200k_base", 17],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
@@ -1390,7 +1390,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
         },
       },
     });
-    assert.equal(report.schemaVersion, 16);
+    assert.equal(report.schemaVersion, 17);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -1520,7 +1520,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     // `strata diff` uses the same labels; a .claude/skills change stays in Claude's row.
     const delta = compareGitCommits(repo, added, migrated);
-    assert.equal(delta.schemaVersion, 9);
+    assert.equal(delta.schemaVersion, 10);
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");
@@ -1569,7 +1569,10 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
     get("target").value = "1";
     get("target").listeners.change();
     assert.ok(paths("files").includes("AGENTS.md"));
-    assert.match(get("listing-note").textContent, /Skills Cursor reads from \.claude\/skills or \.agents\/skills/);
+    assert.match(
+      get("listing-note").textContent,
+      /Cursor may summarize skills from \.claude\/skills or \.agents\/skills differently/,
+    );
     assert.ok(get("files").children.some((row) => row.children[2]?.textContent === "rules (legacy)"));
     // The comparison that migrates the file names it legacy too.
     get("target").value = "2";
@@ -1714,7 +1717,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
         },
       },
     });
-    assert.equal(report.schemaVersion, 16);
+    assert.equal(report.schemaVersion, 17);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -1862,7 +1865,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
 
     // `strata diff` uses the same labels; a CLAUDE.md change stays in Claude's row.
     const delta = compareGitCommits(repo, adopted, migrated);
-    assert.equal(delta.schemaVersion, 9);
+    assert.equal(delta.schemaVersion, 10);
     const chatmode = delta.comparison.components.find((c) => c.path === ".github/agents/legacy.chatmode.md");
     assert.deepEqual([chatmode.kind, chatmode.provider, chatmode.legacy], ["removed", "copilot", true]);
     const row = (key) => delta.comparison.byProvider.find((group) => group.key === key);
@@ -1906,7 +1909,10 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     get("target").listeners.change();
     assert.ok(paths("files").includes("CLAUDE.md"));
     assert.match(get("view-note").textContent, /Copilot also reads AGENTS\.md, CLAUDE\.md, REVIEW\.md, GEMINI\.md/);
-    assert.match(get("listing-note").textContent, /Skills Copilot reads from \.claude\/skills or \.agents\/skills/);
+    assert.match(
+      get("listing-note").textContent,
+      /Copilot may summarize skills from \.claude\/skills or \.agents\/skills differently/,
+    );
     assert.ok(get("files").children.some((row) => row.children[2]?.textContent === "agents (legacy)"));
     get("target").value = "3";
     get("target").listeners.change();
@@ -2143,7 +2149,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     commit("Import a rule that imports a doc");
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 16);
+    assert.equal(report.schemaVersion, 17);
     const revisions = expandRevisions(report);
     assert.equal(revisions.length, 8);
 
