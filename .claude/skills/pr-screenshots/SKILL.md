@@ -32,21 +32,21 @@ For the SVG image, use `--format svg` and `.svg` output names instead.
 
 ## 3. Capture at the same size and state
 
-For a view that shows on load, use headless Chrome with the same window size for both:
+For a view that shows on load, use headless Chrome or Chromium with the same window size for both. Set `CHROME` to the browser binary if it is not found on `PATH`; on macOS it is inside the app bundle, `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
 
 ```sh
-CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+CHROME="${CHROME:-$(command -v google-chrome || command -v chromium)}"
 for v in before after; do
   "$CHROME" --headless=new --hide-scrollbars --window-size=1440,1000 \
     --screenshot=/tmp/strata-shots/$v.png file:///tmp/strata-shots/$v.html
 done
 ```
 
-On macOS, Chrome prints `task_policy_set` errors here; they are harmless.
+Chrome may print `task_policy_set` or GPU errors here; they are harmless if the PNG is written.
 
 For a state that needs interaction (a selected revision, an open panel, a hover), use browser automation, which `AGENTS.md` allows for visual checks. Reach the same state in both reports and use the same window size.
 
-Crop to the changed area when the full page buries it (`sips --cropToHeightWidth <h> <w>` on macOS, applied identically to both). Open each image and check it shows the change before posting.
+Crop to the changed area when the full page buries it (with any image tool, such as ImageMagick's `magick in.png -crop <w>x<h>+<x>+<y> out.png`, applied identically to both). Open each image and check it shows the change before posting.
 
 If the view is new and has no "before", post only the "after" image and say there was nothing to compare.
 
