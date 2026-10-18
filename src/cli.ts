@@ -68,6 +68,7 @@ Usage:
 
 Commands:
   analyze [repository]   Write an offline report of tracked agent configuration over time
+                         (analyse is an alias)
   diff [repository]      Compare tracked agent configuration at two commits
   skill                  Print the bundled skill for interpreting JSON reports
   help [command]         Show help for a command
@@ -85,6 +86,7 @@ first-parent history. It never modifies the repository and sends nothing over th
 
 Analyze the first-parent history of the checked-out branch. The repository defaults to the
 current directory. Without --output, the report goes to a private temporary directory.
+strata analyse is an alias for strata analyze.
 
 Output:
   -o, --output <file>        Write the report to a file, or - for standard output
@@ -143,7 +145,7 @@ Options:
 
 type Command = Exclude<keyof typeof help, "main">;
 
-/** Alternate spellings accepted on the command line but not listed in help. */
+/** Alternate spellings accepted on the command line. */
 const aliases: Record<string, Command> = { analyse: "analyze" };
 
 function resolveAlias(value: string | undefined): string | undefined {

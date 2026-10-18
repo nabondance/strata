@@ -166,7 +166,8 @@ test("command line follows common conventions", () => {
       assert.equal(strata(["help", command]).stdout, commandHelp.stdout);
       assert.equal(commandHelp.stderr, "");
     }
-    // The British spelling runs the same command.
+    // The British spelling runs the same command, and help says so.
+    assert.match(mainHelp.stdout, /analyse is an alias/);
     assert.equal(strata(["analyse", "--help"]).stdout, strata(["analyze", "--help"]).stdout);
     assert.equal(strata(["help", "analyse"]).stdout, strata(["analyze", "--help"]).stdout);
     const version = JSON.parse(readFileSync("package.json", "utf8")).version;
