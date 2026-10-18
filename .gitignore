@@ -3,3 +3,4 @@ dist/
 .strata-output/
 *.tsbuildinfo
 .DS_Store
+.claude/worktrees/

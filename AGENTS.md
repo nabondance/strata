@@ -2,6 +2,10 @@
 
 Strata shows how Git-tracked AI-agent configuration changes through time. It analyzes a local repository and writes an offline report. Read [brief.md](brief.md) for product intent, [docs/analysis-scope.md](docs/analysis-scope.md) for recognized inputs, and [docs/decisions.md](docs/decisions.md) for measurement and report contracts when those topics matter to a change.
 
+## Where to work
+
+Unless the user says otherwise, work in a new Git worktree on a new branch created from an up-to-date `main`, not in the main checkout: `git fetch origin`, then `git worktree add .claude/worktrees/<name> -b <type>/<name> origin/main`, then `pnpm install` inside it. Leave the main checkout on `main` and untouched. Remove the worktree once its branch is merged or abandoned.
+
 ## Code map
 
 - `src/adapters.ts` recognizes provider paths and assigns provider/category labels.
@@ -28,5 +32,5 @@ Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm lint`, `pnpm ty
 ## External tools and services
 
 - Prefer service APIs, MCP integrations, and command-line tools such as `gh` for reading or changing external project data. Check CLI authentication and use the supported API before considering browser automation.
-- To show a screenshot in a pull-request description or comment, upload it with `gh`'s `--attach` flag (`gh pr create`, `gh pr edit`, `gh pr comment`), for example `gh pr comment 16 --attach './report.png#The timeline after the change'`. Do not commit an image or link to a branch file only to display it in a pull request.
+- When a pull request changes anything visible (the HTML report, the SVG image, README or brand images), put before and after screenshots in its description, captured at the same size and state, each with a caption that says what changed and where to look. Upload them with `gh`'s `--attach` flag (`gh pr create`, `gh pr edit`, `gh pr comment`), for example `gh pr comment 16 --attach './after.png#After: the legend groups files by category'`. Do not commit an image or link to a branch file only to display it in a pull request. The `pr-screenshots` skill (`.agents/skills/pr-screenshots`) has the full steps.
 - Use browser automation for visual/UI checks or as a last resort when no suitable API or CLI is available. Never use it as the default way to inspect or manage project boards, issues, pull requests, or repository settings.
