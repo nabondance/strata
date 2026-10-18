@@ -23,8 +23,8 @@
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/claude-dark.svg"><img src="docs/brand/providers/claude.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Claude Code&nbsp;&nbsp;&nbsp;
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/codex-dark.svg"><img src="docs/brand/providers/codex.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Codex&nbsp;&nbsp;&nbsp;
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/gemini-cli-dark.svg"><img src="docs/brand/providers/gemini-cli.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Gemini CLI&nbsp;&nbsp;&nbsp;
-  Cursor&nbsp;&nbsp;&nbsp;
-  GitHub Copilot
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/github-copilot-dark.svg"><img src="docs/brand/providers/github-copilot.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;GitHub Copilot&nbsp;&nbsp;&nbsp;
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/cursor-dark.svg"><img src="docs/brand/providers/cursor.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Cursor
 </p>
 
 Your `CLAUDE.md`, `AGENTS.md`, skills, rules, and agent definitions started small. Then every incident, convention, and "always remember to…" got appended. Strata replays your Git history and shows what that configuration weighs today, when it grew, and which files drove it.
@@ -81,7 +81,7 @@ Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4
 
 And `strata analyze --format svg` draws the history as a static image for a README. This one is rendered from `main` by [this repository's own workflow](.github/workflows/strata-image.yml) on every push:
 
-![Strata's own agent configuration through time, as the SVG image the CLI produces](https://raw.githubusercontent.com/nabondance/strata/strata-image/strata.svg)
+![Strata's own agent configuration through time, as the SVG image the CLI produces](https://github.com/nabondance/strata/raw/strata-image/strata.svg)
 
 ## Is it for you?
 

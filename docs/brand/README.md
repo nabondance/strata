@@ -52,4 +52,4 @@ base64 < instance.woff2
 
 ## Provider marks
 
-`providers/` holds the Claude, OpenAI, and Google Gemini marks the README uses to say which tools Strata recognizes, in a light (`#1d2622`) and a dark (`#efeadb`) variant. The paths come from [Simple Icons](https://simpleicons.org) (CC0). The marks remain trademarks of their owners and are used only to identify the products; they are not part of Strata's identity and must not be recolored into the Strata palette or combined with the Strata logo.
+`providers/` holds the Claude, OpenAI, Google Gemini, GitHub Copilot, and Cursor marks the README uses to say which tools Strata recognizes, in a light (`#1d2622`) and a dark (`#efeadb`) variant. The paths come from [Simple Icons](https://simpleicons.org) (CC0). The marks remain trademarks of their owners and are used only to identify the products; they are not part of Strata's identity and must not be recolored into the Strata palette or combined with the Strata logo.
