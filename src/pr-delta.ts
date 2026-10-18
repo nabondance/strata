@@ -1,8 +1,18 @@
+import { treeImports } from "./claude-imports.js";
 import { type ComparedRevision, type Comparison, type ComponentDelta, compareRevisions } from "./compare.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, listTree } from "./git.js";
-import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
+import {
+  byPath,
+  measureBlobs,
+  summarize,
+  type TrackedFile,
+  toComponent,
+  trackedFile,
+  versionKey,
+} from "./inventory.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
+import type { ClaudeImport } from "./model.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -26,8 +36,11 @@ function commitId(repo: string, id: string): string {
   }
 }
 
-function trackedFiles(repo: string, id: string): TrackedFile[] {
-  return listTree(repo, id).flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
+/** The recognized files in a commit's tree, followed by the files Claude imports there that no path rule recognizes. */
+function trackedFiles(repo: string, id: string, imports: Map<string, ClaudeImport[]>): TrackedFile[] {
+  const tree = listTree(repo, id);
+  const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
+  return [...recognized, ...treeImports(repo, tree, recognized, imports)];
 }
 
 export interface ProviderTotalDelta {
@@ -38,7 +51,7 @@ export interface ProviderTotalDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 8;
+  schemaVersion: 9;
   base: string;
   head: string;
   measurement: Measurement;
@@ -57,17 +70,21 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
   const measurer = createMeasurer(options.mode ?? "estimate", options.model ?? null);
   git(repo, ["rev-parse", "--git-dir"]);
   const ids = [commitId(repo, base), commitId(repo, head)] as const;
-  const files = ids.map((id) => trackedFiles(repo, id));
+  const imports = new Map<string, ClaudeImport[]>();
+  const files = ids.map((id) => trackedFiles(repo, id, imports));
   const measured = measureBlobs(repo, files.flat(), measurer);
   const listings = skillListings(repo, files.flat(), measured, measurer);
   const [before, after] = files.map((snapshot): ComparedRevision => {
     const components = snapshot
-      .map((file) => toComponent(file, measured.get(file.blob)!, undefined, listings.get(`${file.path}\0${file.blob}`)))
+      .map((file) => {
+        const key = versionKey(file.path, file.blob);
+        return toComponent(file, measured.get(file.blob)!, undefined, listings.get(key), imports.get(key));
+      })
       .sort(byPath);
     return { components, estimatedTokens: summarize(components).estimatedTokens };
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 8,
+    schemaVersion: 9,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
@@ -228,7 +245,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
       .slice(0, 25)
       .map(
         (component) =>
-          `| ${cell(component.path)} | ${component.kind} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
+          `| ${cell(component.path)} | ${component.kind}${component.imported ? " (imported)" : ""} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
       ),
   ];
   if (comparison.components.length > 25)

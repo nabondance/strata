@@ -178,7 +178,7 @@ The skill explains the revision and component tables, what the token estimates d
 
 ## What Strata recognizes
 
-Configuration tracked in the repository, at the root or in nested project directories. Instruction files get a token estimate; structured configuration and bundled resources are measured in bytes rather than given an invented token count.
+Configuration tracked in the repository, at the root or in nested project directories. Instruction files get a token estimate; structured configuration and bundled resources are measured in bytes rather than given an invented token count. Files that Claude instruction files import with `@path` are resolved at each revision and included too, and imports that do not resolve are listed.
 
 | | Claude Code | Codex | Gemini CLI | Cursor | GitHub Copilot |
 | --- | --- | --- | --- | --- | --- |

@@ -5,6 +5,20 @@ import type { SkillListing } from "./skill-listing.js";
 
 export type CountedProvider = ProviderTextCount["provider"];
 
+/** A `@path` import in a Claude instruction file, or in Markdown an import reaches. */
+export interface ClaudeImport {
+  /** 1-based line of the import. */
+  line: number;
+  /**
+   * The repository path it names, resolved against the importing file's directory. Null when it
+   * points outside the repository (`external`), or names a path no regular file has anywhere in the
+   * analyzed history, whose text is then not stored.
+   */
+  target: string | null;
+  /** Set when the import names a home-directory or absolute path, or climbs above the repository root. */
+  external?: true;
+}
+
 /** One version of one tracked file: a path together with the blob stored there. */
 export interface Component {
   path: string;
@@ -24,6 +38,15 @@ export interface Component {
   bytes: number;
   estimatedTokens: number | null;
   providerTokenCounts?: Partial<Record<CountedProvider, ProviderTextCount>>;
+  /**
+   * Present only on files no path rule recognizes, which are in an inventory because a Claude
+   * `@path` import reaches them there. Markdown is measured as instructions; anything else is source-only.
+   */
+  imported?: true;
+  /** The `@path` imports in this version of a file whose imports Claude Code can expand, in source order. */
+  imports?: ClaudeImport[];
+  /** On a `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md` with `imports`: Claude Code starts expanding imports here. */
+  importRoot?: true;
   /** On a skill manifest, `listing` measures the frontmatter text an agent lists before the skill is used. */
   skill?: { root: string; role: "manifest" | "resource"; listing?: SkillListing };
 }
@@ -100,7 +123,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 15;
+  schemaVersion: 16;
   repository: string;
   branch: string;
   shallow: boolean;

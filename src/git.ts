@@ -14,7 +14,10 @@ function failure(args: string[], stderr: string, error?: unknown): Error {
       .split("\n")
       .find((line) => line.trim())
       ?.replace(/^(?:fatal|error): /, "") ?? (error instanceof Error ? error.message : "unknown error");
-  return new Error(`Git failed (${args[0]}): ${detail}`);
+  // Name the subcommand, after any leading `-c name=value` options.
+  let command = 0;
+  while (args[command] === "-c") command += 2;
+  return new Error(`Git failed (${args[command] ?? args[0]}): ${detail}`);
 }
 
 /** Run a read-only Git command in a repository and return its raw output. */

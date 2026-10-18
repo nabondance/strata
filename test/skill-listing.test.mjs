@@ -94,7 +94,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     const renamed = commit("Rename a skill");
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 15);
+    assert.equal(report.schemaVersion, 16);
     const listing = (path) => report.components.find((component) => component.path === path)?.skill?.listing;
     const reviewListing = { status: "listed", tokens: estimate("review\nReview this project carefully.") };
     assert.deepEqual(listing(".claude/skills/review/SKILL.md"), reviewListing);
@@ -182,7 +182,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     put(".claude/skills/broken/SKILL.md", `---\ndescription: Fixed\n---\n${body}`);
     const edited = commit("Edit two descriptions");
     const delta = compareGitCommits(repo, renamed, edited);
-    assert.equal(delta.schemaVersion, 8);
+    assert.equal(delta.schemaVersion, 9);
     assert.deepEqual(delta.comparison.skillListing, {
       beforeTokens: latest.skillListingTokens,
       afterTokens:

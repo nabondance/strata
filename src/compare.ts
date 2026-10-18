@@ -20,6 +20,8 @@ export interface ComponentDelta {
   category: Component["category"];
   /** Set when the file is a superseded format its provider still reads, such as `.cursorrules` or a Copilot `.chatmode.md`. */
   legacy?: true;
+  /** Set when the file is in the inventory only because a Claude `@path` import reaches it. */
+  imported?: true;
   kind: "added" | "removed" | "edited";
   beforeTokens: number | null;
   afterTokens: number | null;
@@ -105,6 +107,7 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
       provider: component.provider,
       category: component.category,
       ...(component.legacy ? { legacy: true as const } : {}),
+      ...(component.imported ? { imported: true as const } : {}),
       kind: !oldComponent ? "added" : !newComponent ? "removed" : "edited",
       beforeTokens: oldComponent?.estimatedTokens ?? null,
       afterTokens: newComponent?.estimatedTokens ?? null,

@@ -1,9 +1,18 @@
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
+import { addImportedFiles } from "./claude-imports.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, gitText, gitTokens } from "./git.js";
-import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
+import {
+  byPath,
+  measureBlobs,
+  summarize,
+  type TrackedFile,
+  toComponent,
+  trackedFile,
+  versionKey,
+} from "./inventory.js";
 import { createMeasurer, type MeasurementMode } from "./measurement.js";
 import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
 import {
@@ -239,6 +248,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     onProgress?.({ completed, total: Math.max(total, completed) }),
   );
   if (!deltas.length) throw new Error("The repository has no commits to analyze");
+  // Files Claude imports join the deltas here, so every later step treats them as components.
+  const imports = await addImportedFiles(root, deltas);
 
   const written = deltas.flatMap((delta) => delta.written);
   for (const reader of conditionalReaders) {
@@ -256,7 +267,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const table: Component[] = [];
   const tableIndex = new Map<string, number>();
   const intern = (file: TrackedFile): number => {
-    const key = `${file.path}\0${file.blob}`;
+    const key = versionKey(file.path, file.blob);
     let index = tableIndex.get(key);
     if (index === undefined) {
       const providerTokenCounts: NonNullable<Component["providerTokenCounts"]> = {};
@@ -265,7 +276,10 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
           providerTokenCounts[provider] = provided.counts.get(`${provider}\0${file.blob}`)!;
         }
       }
-      index = table.push(toComponent(file, measured.get(file.blob)!, providerTokenCounts, listings.get(key))) - 1;
+      index =
+        table.push(
+          toComponent(file, measured.get(file.blob)!, providerTokenCounts, listings.get(key), imports.get(key)),
+        ) - 1;
       tableIndex.set(key, index);
     }
     return index;
@@ -324,7 +338,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 15,
+    schemaVersion: 16,
     repository: basename(root),
     branch,
     shallow,

@@ -36,6 +36,10 @@ export interface Classification {
   legacy?: true;
   skillRoot?: string;
   skillRole?: "manifest" | "resource";
+  /** Set on `CLAUDE.md`, `CLAUDE.local.md`, and `AGENTS.md`, where Claude Code starts expanding `@path` imports. */
+  importRoot?: true;
+  /** Set on files recognized only because a Claude `@path` import reaches them; never by `classify`. */
+  imported?: boolean;
 }
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
@@ -116,10 +120,16 @@ function claude(path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
   // Copilot reads `CLAUDE.md` and the root `.mcp.json` too, but not `CLAUDE.local.md`.
   if (filename === "CLAUDE.md") {
-    return { provider: "claude", readers: ["claude", "copilot"], category: "instructions", instructionalText: true };
+    return {
+      provider: "claude",
+      readers: ["claude", "copilot"],
+      category: "instructions",
+      instructionalText: true,
+      importRoot: true,
+    };
   }
   if (filename === "CLAUDE.local.md") {
-    return { provider: "claude", category: "instructions", instructionalText: true };
+    return { provider: "claude", category: "instructions", instructionalText: true, importRoot: true };
   }
   // Claude Code's Code Review service reads `REVIEW.md` at the root and in subfolders; Copilot code
   // review reads it too, alongside `CLAUDE.md`.
@@ -183,6 +193,7 @@ function shared(_path: string, parts: string[]): Classification | null {
         instructionalText: true,
         readers: ["claude", "codex", "copilot", "cursor"],
         contextFile: "agents-md",
+        importRoot: true,
       }
     : null;
 }

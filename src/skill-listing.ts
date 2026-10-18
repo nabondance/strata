@@ -1,6 +1,6 @@
 import type { Provider } from "./adapters.js";
 import { readBlobs } from "./git.js";
-import type { BlobMeasurement, TrackedFile } from "./inventory.js";
+import { type BlobMeasurement, type TrackedFile, versionKey } from "./inventory.js";
 import type { Measurer } from "./measurement.js";
 
 /**
@@ -235,7 +235,7 @@ export function skillListings(
 ): Map<string, SkillListing> {
   const manifests = new Map<string, TrackedFile>();
   for (const file of files) {
-    if (file.classification.skillRole === "manifest") manifests.set(`${file.path}\0${file.blob}`, file);
+    if (file.classification.skillRole === "manifest") manifests.set(versionKey(file.path, file.blob), file);
   }
   const blobs = [...new Set([...manifests.values()].map((file) => file.blob))];
   const decoder = new TextDecoder("utf-8", { fatal: true });
