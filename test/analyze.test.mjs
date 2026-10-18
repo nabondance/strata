@@ -1694,3 +1694,53 @@ test("names submodules that hold agent configuration it did not analyze", async 
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+test("treemap frame keeps category gaps, seams, and headers in drawn units", () => {
+  const component = (path, category, estimatedTokens) => ({
+    path,
+    provider: "shared",
+    category,
+    blob: path,
+    bytes: estimatedTokens * 4,
+    estimatedTokens,
+  });
+  const components = [
+    ...Array.from({ length: 12 }, (_, index) => component(`skills/s${index}/SKILL.md`, "skills", 400 + index * 50)),
+    ...Array.from({ length: 8 }, (_, index) => component(`agents/a${index}.md`, "agents", 300 + index * 40)),
+    component("CLAUDE.md", "instructions", 60),
+  ];
+  const frame = { width: 1150, height: 390, gap: 4, seam: 1, header: 22, wide: 2 };
+  const layout = layoutTreemap(components, frame);
+  const inside = (inner, outer) =>
+    inner.x >= outer.x - 1e-6 &&
+    inner.y >= outer.y - 1e-6 &&
+    inner.x + inner.width <= outer.x + outer.width + 1e-6 &&
+    inner.y + inner.height <= outer.y + outer.height + 1e-6;
+  for (const group of layout.groups) {
+    assert.ok(inside(group, { x: 0, y: 0, width: frame.width, height: frame.height }));
+    for (const leaf of group.leaves) {
+      assert.ok(inside(leaf, group));
+      // A headed category keeps its band clear of files.
+      if (group.headed) assert.ok(leaf.y >= group.y + frame.header - 1e-6);
+    }
+  }
+  // Large categories are named; one too small to spare the band is not.
+  assert.equal(layout.groups.find((group) => group.category === "skills").headed, true);
+  assert.equal(layout.groups.find((group) => group.category === "instructions").headed, false);
+  // Categories never touch: each pair is at least the gap apart on one axis.
+  const [first, second] = layout.groups;
+  const apart = (a, b) =>
+    Math.max(b.x - (a.x + a.width), a.x - (b.x + b.width), b.y - (a.y + a.height), a.y - (b.y + b.height));
+  assert.ok(apart(first, second) >= frame.gap - 1e-6);
+  // Without a frame the layout is unchanged: areas are exact shares of a 100 by 100 square.
+  const plain = layoutTreemap(components);
+  for (const leaf of plain.groups.flatMap((group) => group.leaves)) {
+    assert.ok(Math.abs((leaf.width * leaf.height) / 10000 - leaf.estimatedTokens / plain.totalTokens) < 1e-9);
+  }
+  assert.ok(plain.groups.every((group) => !group.headed));
+  // Wide tiles leave room for a file name on one line.
+  const wideLeaves = layout.groups.flatMap((group) => group.leaves);
+  const squareLeaves = layoutTreemap(components, { ...frame, wide: 1 }).groups.flatMap((group) => group.leaves);
+  const meanAspect = (leaves) => leaves.reduce((sum, leaf) => sum + leaf.width / leaf.height, 0) / leaves.length;
+  assert.ok(meanAspect(wideLeaves) > meanAspect(squareLeaves));
+});

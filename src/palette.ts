@@ -1,4 +1,5 @@
 import type { Category } from "./adapters.js";
+import { brandColors } from "./brand.js";
 
 /**
  * Category colors shared by the HTML report and the SVG image, so both read the same way.
@@ -26,11 +27,37 @@ const luminance = (hex: string) => {
 };
 const darkInk = "#10140f";
 
+const inkOn = (color: string) => {
+  const onWhite = 1.05 / (luminance(color) + 0.05);
+  const onDark = (luminance(color) + 0.05) / (luminance(darkInk) + 0.05);
+  return onWhite >= onDark ? "#ffffff" : darkInk;
+};
+
 /** The label color to set on each category color: white or near-black, whichever contrasts more. */
 export const categoryInk = Object.fromEntries(
-  Object.entries(categoryColors).map(([category, color]) => {
-    const onWhite = 1.05 / (luminance(color) + 0.05);
-    const onDark = (luminance(color) + 0.05) / (luminance(darkInk) + 0.05);
-    return [category, onWhite >= onDark ? "#ffffff" : darkInk];
-  }),
+  Object.entries(categoryColors).map(([category, color]) => [category, inkOn(color)]),
+) as Record<Category, string>;
+
+const mix = (hex: string, toward: string, share: number) =>
+  `#${[1, 3, 5]
+    .map((start) => {
+      const from = Number.parseInt(hex.slice(start, start + 2), 16);
+      const to = Number.parseInt(toward.slice(start, start + 2), 16);
+      return Math.round(from + (to - from) * share)
+        .toString(16)
+        .padStart(2, "0");
+    })
+    .join("")}`;
+
+/**
+ * Each category color pressed toward the brand's bedrock. The treemap fills a category's block with it,
+ * so it shows as the band holding the category's name and the seams between its files.
+ */
+export const categoryShade = Object.fromEntries(
+  Object.entries(categoryColors).map(([category, color]) => [category, mix(color, brandColors.bedrock, 0.38)]),
+) as Record<Category, string>;
+
+/** The label color for each category shade. */
+export const categoryShadeInk = Object.fromEntries(
+  Object.entries(categoryShade).map(([category, color]) => [category, inkOn(color)]),
 ) as Record<Category, string>;
