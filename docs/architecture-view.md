@@ -5,7 +5,7 @@ Evaluated 2026-10-08. The report already has a category-grouped composition tree
 | Candidate relationship | Evidence available from Git | Safe label | Current decision |
 | --- | --- | --- | --- |
 | Directory contains a file | Exact tracked path at the selected revision | `contains` | Suitable for a first hierarchy view. |
-| Markdown links to another tracked file | Link text plus a resolved path at the same revision | `links to` | Possible only after path resolution and a clear treatment of anchors, imports, and broken links. Not a runtime edge. |
+| Markdown links to another tracked file | Link text plus a resolved path at the same revision | `links to` | Claude `@path` imports are resolved per revision (schema version 14; see [Claude imports](decisions.md#claude-imports)): `importLinks` derives each edge with its source, target, line, hop count, and status, and lists unresolved imports separately. Ordinary Markdown links are not resolved. Not a runtime edge. |
 | A rule mentions a skill or agent by name | Free-form prose, possibly ambiguous | `mentions` | Do not turn into a dependency. If explored, preserve the quoted evidence locally and report uncertainty. |
 | A skill resource sits beside `SKILL.md` | Shared skill directory | `bundled with` | Already represented by each component's `skill.root`; not proof that the resource was read. |
 | Rule frontmatter or glob targets files | Conditional configuration plus path patterns | `configured for` | Provider-specific parsing and referenced-file evidence needed. Not equivalent to session loading. |

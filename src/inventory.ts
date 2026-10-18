@@ -1,7 +1,7 @@
 import { type Classification, categories, classify } from "./adapters.js";
 import { blobSizes, readBlobs } from "./git.js";
 import type { Measurer } from "./measurement.js";
-import type { CategoryTotals, Component, Revision } from "./model.js";
+import type { CategoryTotals, ClaudeImport, Component, Revision } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
 
 export interface TrackedFile {
@@ -71,6 +71,7 @@ export function toComponent(
   measured: BlobMeasurement,
   providerTokenCounts?: Component["providerTokenCounts"],
   listing?: SkillListing,
+  imports?: ClaudeImport[],
 ): Component {
   const { classification } = file;
   return {
@@ -81,6 +82,8 @@ export function toComponent(
     ...(classification.contextFile ? { contextFile: classification.contextFile } : {}),
     category: classification.category,
     ...(classification.legacy ? { legacy: true as const } : {}),
+    ...(classification.imported ? { imported: true as const } : {}),
+    ...(imports?.length ? { imports, ...(classification.importRoot ? { importRoot: true as const } : {}) } : {}),
     bytes: measured.bytes,
     estimatedTokens: classification.instructionalText ? measured.tokens : null,
     ...(providerTokenCounts && Object.keys(providerTokenCounts).length ? { providerTokenCounts } : {}),

@@ -5,6 +5,7 @@ import { categories } from "./adapters.js";
 import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } from "./brand.js";
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
+import { importLinks } from "./import-links.js";
 import type { Report } from "./model.js";
 import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "./palette.js";
 import { textRecipients } from "./provider-count.js";
@@ -38,6 +39,7 @@ export function renderHtml(report: Report): string {
   const viewSource = viewRevision.toString();
   const readsSource = providerReads.toString();
   const timelineSource = timelineBuckets.toString();
+  const importsSource = importLinks.toString();
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
   const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
@@ -249,6 +251,12 @@ export function renderHtml(report: Report): string {
       <p class="muted" id="listing-note"></p>
       <button class="skill-toggle" id="skill-toggle" type="button" aria-expanded="false" hidden></button>
     </details>
+    <details class="panel" id="imports-panel" hidden>
+      <summary><h2>Claude imports</h2><span class="summary-count" id="imports-count"></span></summary>
+      <p class="muted">Claude Code expands @path imports in CLAUDE.md, CLAUDE.local.md, and AGENTS.md when it loads them, and imports in the files they import, up to four hops. Imported files no path rule recognizes appear among the tracked components marked imported: Markdown as Claude instructions, anything else as source-only. Unresolved imports are listed first. An import is a link between stored files, not proof that a session loaded them.</p>
+      <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num">Hop</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
+      <button class="more" id="imports-more" type="button" hidden></button>
+    </details>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
       <p class="muted">A moved file can appear as a removal plus an addition.</p>
@@ -289,6 +297,7 @@ export function renderHtml(report: Report): string {
     const providerReads = ${readsSource};
     const viewRevision = ${viewSource};
     const timelineBuckets = ${timelineSource};
+    const importLinks = ${importsSource};
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
@@ -889,6 +898,26 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // Imports are links between stored files, so they follow the whole inventory whatever the view.
+    const importStatus = { resolved: 'resolved', missing: 'missing', external: 'outside the repository', 'depth-limit': 'beyond four hops' };
+    const unresolvedFirst = { missing: 0, external: 1, 'depth-limit': 2, resolved: 3 };
+    function renderImports() {
+      const components = revisions[selected].components;
+      drawn.imports = components;
+      const links = importLinks(components);
+      $('imports-panel').hidden = !links.length;
+      const unresolved = links.filter((link) => link.status !== 'resolved').length;
+      $('imports-count').textContent = fmt(links.length) + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      const body = $('imports');
+      body.replaceChildren();
+      const sorted = [...links].sort((a, b) => unresolvedFirst[a.status] - unresolvedFirst[b.status] || a.source.localeCompare(b.source) || a.line - b.line);
+      for (const link of capped('imports', sorted, 25, renderImports)) {
+        const row = document.createElement('tr');
+        row.append(text('td', link.source, 'path'), text('td', fmt(link.line), 'num'), text('td', link.target ?? (link.status === 'external' ? '—' : 'not a tracked path'), 'path'), text('td', fmt(link.hop), 'num'), text('td', importStatus[link.status], 'kind'));
+        body.append(row);
+      }
+    }
+
     // Listings always use the report's own measurement, never a provider's counts, so measured views say which.
     function listingKind() {
       if (activeMeasure === 'estimate') return '';
@@ -901,7 +930,7 @@ export function renderHtml(report: Report): string {
       return found.length ? ' (' + found.join(', ') + ')' : '';
     }
     function categoryLabel(component) {
-      return component.category + (component.legacy ? ' (legacy)' : '');
+      return component.category + (component.legacy ? ' (legacy)' : '') + (component.imported ? ' (imported)' : '');
     }
     // How a skill manifest is listed before use, as a clause after its stored-text tokens.
     function listingLabel(component) {
@@ -1002,6 +1031,7 @@ export function renderHtml(report: Report): string {
     function renderTables() {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
+      if (drawn.imports !== revisions[selected].components) renderImports();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
     if (typeof ResizeObserver !== 'undefined') {

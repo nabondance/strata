@@ -392,7 +392,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 15);
+    assert.equal(providerApiReport.schemaVersion, 16);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -476,7 +476,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 8);
+    assert.equal(prDelta.schemaVersion, 9);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -493,7 +493,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 15);
+    assert.equal(report.schemaVersion, 16);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -862,7 +862,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 15);
+    assert.equal(openAiReport.schemaVersion, 16);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -913,7 +913,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 15],
+      ["gpt-4o", "o200k_base", 16],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
@@ -1390,7 +1390,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
         },
       },
     });
-    assert.equal(report.schemaVersion, 15);
+    assert.equal(report.schemaVersion, 16);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -1520,7 +1520,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     // `strata diff` uses the same labels; a .claude/skills change stays in Claude's row.
     const delta = compareGitCommits(repo, added, migrated);
-    assert.equal(delta.schemaVersion, 8);
+    assert.equal(delta.schemaVersion, 9);
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");
@@ -1714,7 +1714,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
         },
       },
     });
-    assert.equal(report.schemaVersion, 15);
+    assert.equal(report.schemaVersion, 16);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -1862,7 +1862,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
 
     // `strata diff` uses the same labels; a CLAUDE.md change stays in Claude's row.
     const delta = compareGitCommits(repo, adopted, migrated);
-    assert.equal(delta.schemaVersion, 8);
+    assert.equal(delta.schemaVersion, 9);
     const chatmode = delta.comparison.components.find((c) => c.path === ".github/agents/legacy.chatmode.md");
     assert.deepEqual([chatmode.kind, chatmode.provider, chatmode.legacy], ["removed", "copilot", true]);
     const row = (key) => delta.comparison.byProvider.find((group) => group.key === key);
@@ -2070,4 +2070,224 @@ test("treemap frame keeps category gaps, seams, and headers in drawn units", () 
   const squareLeaves = layoutTreemap(components, { ...frame, wide: 1 }).groups.flatMap((group) => group.leaves);
   const meanAspect = (leaves) => leaves.reduce((sum, leaf) => sum + leaf.width / leaf.height, 0) / leaves.length;
   assert.ok(meanAspect(wideLeaves) > meanAspect(squareLeaves));
+});
+
+test("resolves Claude @path imports per revision against the tracked tree", async () => {
+  const { treeImports } = await import("../dist/claude-imports.js");
+  const { listTree } = await import("../dist/git.js");
+  const { trackedFile } = await import("../dist/inventory.js");
+  const { importLinks } = await import("../dist/import-links.js");
+  const repo = mkdtempSync(join(tmpdir(), "strata-imports-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  const put = (path, content) => {
+    mkdirSync(join(repo, path, ".."), { recursive: true });
+    writeFileSync(join(repo, path), content);
+  };
+  const commit = (message) => {
+    git("add", "-A");
+    git("commit", "-q", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+  const at = (revision) =>
+    Object.fromEntries(revision.components.map((component) => [component.path, component.imported ? "imported" : ""]));
+  const links = (revision) =>
+    importLinks(revision.components).map(({ source, target, status }) => `${source} -> ${target} ${status}`);
+  try {
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Strata Test");
+    git("config", "user.email", "strata-test@example.invalid");
+    git("config", "commit.gpgsign", "false");
+    // With one path to follow, this setting would otherwise make Git report renames.
+    git("config", "log.follow", "true");
+    put("CLAUDE.md", "@AGENTS.md\n@docs/guide.md\n- personal @~/.claude/me.md\n@docs/missing.md\n`@docs/unused.md`\n");
+    put("AGENTS.md", "Shared.\n@docs/shared.md\n");
+    put(".claude/CLAUDE.md", "@../package.json\n");
+    put("docs/guide.md", "Guide.\n@nested/deep.md\n");
+    put("docs/nested/deep.md", "Deep.\n");
+    put("docs/shared.md", "Shared doc.\n");
+    put("docs/unused.md", "Never imported.\n");
+    put("package.json", "{}\n");
+    const first = commit("Import docs");
+    put("docs/guide.md", "Guide, longer now.\n@nested/deep.md\n");
+    put("docs/missing.md", "Here at last.\n");
+    const second = commit("Edit an imported file and add a missing one");
+    put("CLAUDE.md", "@AGENTS.md\n- personal @~/.claude/me.md\n@docs/missing.md\n");
+    const third = commit("Stop importing the guide");
+    git("checkout", "-q", "-b", "feature");
+    put("CLAUDE.md", "@AGENTS.md\n- personal @~/.claude/me.md\n@docs/missing.md\n@docs/feature.md\n");
+    put("docs/feature.md", "Feature notes.\n");
+    put("docs/missing.md", "Edited on the branch.\n");
+    commit("Import feature notes");
+    git("checkout", "-q", "main");
+    put("README.md", "Unrelated.\n");
+    commit("Unrelated change on main");
+    git("merge", "-q", "--no-ff", "feature", "-m", "Merge feature");
+    git("mv", "docs/shared.md", "docs/common.md");
+    put("AGENTS.md", "Shared.\n@docs/common.md\n");
+    commit("Rename the shared doc");
+    rmSync(join(repo, "docs/common.md"));
+    symlinkSync("../README.md", join(repo, "docs/common.md"));
+    commit("Replace the shared doc with a symlink");
+    put(
+      "CLAUDE.md",
+      "@AGENTS.md\n@docs/missing.md\n@docs/feature.md\n@.claude/rules/style.md\nAsk @alice, or see @docs and @.claude/\n",
+    );
+    put(".claude/rules/style.md", "Style.\n@../../docs/from-rule.md\n");
+    put("docs/from-rule.md", "Imported by a rule.\n@deep/one.md\n");
+    put("docs/deep/one.md", "@two.md\n");
+    put("docs/deep/two.md", "@three.md\n");
+    put("docs/deep/three.md", "Too deep.\n");
+    // Claude Code's Code Review reads REVIEW.md, but sessions do not load it, so its imports are not expanded.
+    put("REVIEW.md", "@docs/review-only.md\n");
+    put("docs/review-only.md", "Review notes.\n");
+    commit("Import a rule that imports a doc");
+
+    const report = await analyzeRepository(repo);
+    assert.equal(report.schemaVersion, 16);
+    const revisions = expandRevisions(report);
+    assert.equal(revisions.length, 8);
+
+    // Imported files no path rule recognizes join the inventory; Markdown is measured, anything else is source-only.
+    assert.deepEqual(at(revisions[0]), {
+      ".claude/CLAUDE.md": "",
+      "AGENTS.md": "",
+      "CLAUDE.md": "",
+      "docs/guide.md": "imported",
+      "docs/nested/deep.md": "imported",
+      "docs/shared.md": "imported",
+      "package.json": "imported",
+    });
+    const guide = revisions[0].components.find((component) => component.path === "docs/guide.md");
+    assert.deepEqual(
+      [guide.provider, guide.category, guide.estimatedTokens, guide.imports],
+      [
+        "claude",
+        "instructions",
+        Math.ceil("Guide.\n@nested/deep.md\n".length / 4),
+        [{ line: 2, target: "docs/nested/deep.md" }],
+      ],
+    );
+    const manifest = revisions[0].components.find((component) => component.path === "package.json");
+    assert.deepEqual([manifest.category, manifest.estimatedTokens, manifest.imports], ["other", null, undefined]);
+    assert.deepEqual(revisions[0].components.find((component) => component.path === "CLAUDE.md").imports, [
+      { line: 1, target: "AGENTS.md" },
+      { line: 2, target: "docs/guide.md" },
+      { line: 3, target: null, external: true },
+      { line: 4, target: "docs/missing.md" },
+    ]);
+    // CLAUDE.md imports AGENTS.md, so AGENTS.md is a hop on its chain rather than a chain of its own.
+    assert.deepEqual(links(revisions[0]), [
+      ".claude/CLAUDE.md -> package.json resolved",
+      "CLAUDE.md -> AGENTS.md resolved",
+      "CLAUDE.md -> docs/guide.md resolved",
+      "CLAUDE.md -> null external",
+      "CLAUDE.md -> docs/missing.md missing",
+      "AGENTS.md -> docs/shared.md resolved",
+      "docs/guide.md -> docs/nested/deep.md resolved",
+    ]);
+    assert.equal(revisions[0].categoryTotals.instructions.count, 6);
+    assert.equal(revisions[0].categoryTotals.other.sourceOnlyCount, 1);
+
+    // An edit to an imported file is a modification; a file that appears where an import pointed is added.
+    const kinds = (revision) => revision.changes.map(({ kind, path }) => `${kind} ${path}`);
+    assert.deepEqual(kinds(revisions[1]), ["modified docs/guide.md", "added docs/missing.md"]);
+    assert.ok(links(revisions[1]).includes("CLAUDE.md -> docs/missing.md resolved"));
+    // Dropping an import removes the files it reached from the inventory, though they remain in Git.
+    assert.deepEqual(kinds(revisions[2]), [
+      "modified CLAUDE.md",
+      "removed docs/guide.md",
+      "removed docs/nested/deep.md",
+    ]);
+    // A branch's import arrives with the merge, compared with its first parent.
+    assert.deepEqual(kinds(revisions[3]), []);
+    assert.deepEqual(kinds(revisions[4]), ["modified CLAUDE.md", "added docs/feature.md", "modified docs/missing.md"]);
+    // A rename shows as a removal and an addition.
+    assert.deepEqual(kinds(revisions[5]), ["modified AGENTS.md", "added docs/common.md", "removed docs/shared.md"]);
+    // A symlink is not a tracked file, so the import no longer resolves.
+    assert.deepEqual(kinds(revisions[6]), ["removed docs/common.md"]);
+    assert.ok(links(revisions[6]).includes("AGENTS.md -> docs/common.md missing"));
+    // A recognized rule reached by an import passes its own imports on.
+    assert.equal(at(revisions[7])["docs/from-rule.md"], "imported");
+    assert.equal(at(revisions[7])[".claude/rules/style.md"], "");
+    assert.ok(links(revisions[7]).includes(".claude/rules/style.md -> docs/from-rule.md resolved"));
+    // `.claude/CLAUDE.md` resolves `../package.json` from its own directory.
+    assert.equal(at(revisions[7])["package.json"], "imported");
+    assert.equal(at(revisions[7])["docs/unused.md"], undefined);
+    // A chain stops after four hops; the file a fifth would reach stays out.
+    assert.equal(at(revisions[7])["docs/deep/two.md"], "imported");
+    assert.equal(at(revisions[7])["docs/deep/three.md"], undefined);
+    assert.ok(links(revisions[7]).includes("docs/deep/two.md -> docs/deep/three.md depth-limit"));
+    // A mention of a path no file has keeps its line but not its text; a directory names no file.
+    const last = revisions[7].components.find((component) => component.path === "CLAUDE.md");
+    assert.deepEqual(last.imports.slice(4), [
+      { line: 5, target: null },
+      { line: 5, target: null },
+      { line: 5, target: null },
+    ]);
+    assert.doesNotMatch(JSON.stringify(report), /alice/);
+    assert.equal(at(revisions[7])["docs/guide.md"], undefined);
+    assert.equal(at(revisions[7])["REVIEW.md"], "");
+    assert.equal(at(revisions[7])["docs/review-only.md"], undefined);
+    assert.ok(!links(revisions[7]).some((link) => link.startsWith("REVIEW.md")));
+
+    // Every revision's inventory matches resolving the imports of that commit's own tree.
+    for (const revision of revisions) {
+      const tree = listTree(repo, revision.id);
+      const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
+      const expected = [...recognized, ...treeImports(repo, tree, recognized, new Map())]
+        .map(({ path, blob }) => `${path} ${blob}`)
+        .sort();
+      assert.deepEqual(revision.components.map(({ path, blob }) => `${path} ${blob}`).sort(), expected);
+    }
+
+    // `strata diff` resolves imports in both trees the same way.
+    const delta = compareGitCommits(repo, second, third);
+    assert.deepEqual(delta.comparison.components.map(({ path, kind }) => `${kind} ${path}`).sort(), [
+      "edited CLAUDE.md",
+      "removed docs/guide.md",
+      "removed docs/nested/deep.md",
+    ]);
+    assert.ok(
+      compareGitCommits(repo, first, second).comparison.components.some(({ path }) => path === "docs/missing.md"),
+    );
+    assert.ok(delta.comparison.components.every((component) => component.path === "CLAUDE.md" || component.imported));
+    assert.match(renderPullRequestDelta(delta), /\| docs\/guide\.md \| removed \(imported\) \|/);
+
+    // A shareable report aliases import targets with the same aliases as paths, including targets no file has.
+    const shareable = redactReport(report);
+    assert.doesNotMatch(JSON.stringify(shareable), /docs\/|package\.json|\.claude\//);
+    const redacted = expandRevisions(shareable);
+    for (const [index, revision] of revisions.entries()) {
+      assert.deepEqual(
+        importLinks(redacted[index].components).map(({ status }) => status),
+        importLinks(revision.components).map(({ status }) => status),
+      );
+    }
+
+    // The HTML report lists the selected revision's imports, unresolved ones first.
+    const ui = loadReportUi(renderHtml(report));
+    assert.equal(ui.get("imports-panel").hidden, false);
+    assert.equal(ui.get("imports").children.length, importLinks(revisions[7].components).length);
+    assert.deepEqual(
+      ui.get("imports").children[0].children.map((cell) => cell.textContent),
+      ["AGENTS.md", "2", "docs/common.md", "2", "missing"],
+    );
+    assert.equal(ui.get("imports-count").textContent, "13 · 5 unresolved");
+    const importedRow = ui.get("files").children.find((row) => row.children[0].textContent === "docs/from-rule.md");
+    assert.equal(importedRow.children[2].textContent, "instructions (imported)");
+
+    // The command line counts unresolved imports at the last revision without naming paths.
+    const output = join(tmpdir(), `strata-imports-${process.pid}.json`);
+    const cli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--output", output, "--format", "json"], {
+      encoding: "utf8",
+    });
+    rmSync(output, { force: true });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(
+      cli.stderr,
+      /Note: 5 Claude @path imports are unresolved at the last revision \(4 missing, 1 beyond four hops\); the report lists them\./,
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });

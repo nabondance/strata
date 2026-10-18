@@ -9,8 +9,12 @@ function aliases(values: Iterable<string>, prefix: string): Map<string, string> 
 /** Return a redacted copy with identifiers replaced by aliases. The input report is left untouched. */
 export function redactReport(report: Report): Report {
   // Every path a change mentions belongs to some file version, so the component table has them all.
+  // An import can name a path no file version has, so import targets are aliased with the same map.
   const paths = aliases(
-    report.components.map((component) => component.path),
+    report.components.flatMap((component) => [
+      component.path,
+      ...(component.imports ?? []).flatMap(({ target }) => (target === null ? [] : [target])),
+    ]),
     "file",
   );
   const skillRoots = aliases(
@@ -47,6 +51,14 @@ export function redactReport(report: Report): Report {
       path: paths.get(component.path)!,
       blob: blobs.get(component.blob)!,
       ...(component.skill ? { skill: { ...component.skill, root: skillRoots.get(component.skill.root)! } } : {}),
+      ...(component.imports
+        ? {
+            imports: component.imports.map((entry) => ({
+              ...entry,
+              target: entry.target === null ? null : paths.get(entry.target)!,
+            })),
+          }
+        : {}),
     })),
     revisions: report.revisions.map((revision) => ({
       ...revision,
