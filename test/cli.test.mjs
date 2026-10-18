@@ -166,6 +166,9 @@ test("command line follows common conventions", () => {
       assert.equal(strata(["help", command]).stdout, commandHelp.stdout);
       assert.equal(commandHelp.stderr, "");
     }
+    // The British spelling runs the same command.
+    assert.equal(strata(["analyse", "--help"]).stdout, strata(["analyze", "--help"]).stdout);
+    assert.equal(strata(["help", "analyse"]).stdout, strata(["analyze", "--help"]).stdout);
     const version = JSON.parse(readFileSync("package.json", "utf8")).version;
     assert.equal(strata(["--version"]).stdout, `${version}\n`);
     assert.equal(strata(["-V"]).stdout, `${version}\n`);
@@ -213,6 +216,9 @@ test("command line follows common conventions", () => {
     const silent = strata(["analyze", "-q", "-f", "json", "-o", "-"], { cwd: repo });
     assert.equal(silent.stderr, "");
     assert.deepEqual(JSON.parse(silent.stdout), report);
+    const britishSpelling = strata(["analyse", "-q", "-f", "json", "-o", "-"], { cwd: repo });
+    assert.equal(britishSpelling.status, 0);
+    assert.deepEqual(JSON.parse(britishSpelling.stdout).revisions, JSON.parse(silent.stdout).revisions);
     const html = strata(["analyze", repo, "--output", "-"]);
     assert.match(html.stdout, /^<!doctype html>/);
     const svg = strata(["analyze", repo, "-f", "svg", "-o", "-"]);
