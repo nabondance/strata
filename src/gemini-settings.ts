@@ -9,7 +9,7 @@ const contextFiles = new Map<string, ContextFile>([
 export const geminiSettingsPath = ".gemini/settings.json";
 
 /** Remove `//` and `/* *\/` comments outside strings, as Gemini CLI does before parsing its settings. */
-function stripComments(text: string): string {
+export function stripComments(text: string): string {
   let output = "";
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index]!;

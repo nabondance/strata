@@ -21,6 +21,12 @@ export function redactReport(report: Report): Report {
     report.components.flatMap((component) => (component.skill ? [component.skill.root] : [])),
     "skill",
   );
+  const servers = aliases(
+    report.components.flatMap((component) =>
+      component.mcp?.status === "listed" ? component.mcp.servers.map((server) => server.name) : [],
+    ),
+    "server",
+  );
   const blobs = aliases(
     report.components.map((component) => component.blob),
     "blob",
@@ -51,6 +57,14 @@ export function redactReport(report: Report): Report {
       path: paths.get(component.path)!,
       blob: blobs.get(component.blob)!,
       ...(component.skill ? { skill: { ...component.skill, root: skillRoots.get(component.skill.root)! } } : {}),
+      ...(component.mcp?.status === "listed"
+        ? {
+            mcp: {
+              ...component.mcp,
+              servers: component.mcp.servers.map((server) => ({ ...server, name: servers.get(server.name)! })),
+            },
+          }
+        : {}),
       ...(component.imports
         ? {
             imports: component.imports.map((entry) => ({

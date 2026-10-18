@@ -13,6 +13,7 @@ import {
   trackedFile,
   versionKey,
 } from "./inventory.js";
+import { mcpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type MeasurementMode } from "./measurement.js";
 import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
 import {
@@ -261,6 +262,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const configured = geminiSettings(root, written, measured);
   const listings = skillListings(root, written, measured, measurer);
   const rules = rulesUpFront(root, written, measured);
+  const mcp = mcpServerLists(root, written, measured);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
@@ -287,6 +289,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
             listings.get(key),
             imports.get(key),
             rules.get(key),
+            mcp.get(key),
           ),
         ) - 1;
       tableIndex.set(key, index);
@@ -347,7 +350,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 17,
+    schemaVersion: 18,
     repository: basename(root),
     branch,
     shallow,

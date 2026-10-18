@@ -19,6 +19,23 @@ export interface ClaudeImport {
   external?: true;
 }
 
+/** An MCP server a tracked file defines, by name. Its command, URL, arguments, and environment are never stored. */
+export interface McpServer {
+  name: string;
+  /** `local` starts a process on the developer's machine; `remote` connects to a URL. */
+  transport: "local" | "remote" | "unknown";
+  /** Set when the file turns the server off, as Codex's `enabled = false` does. */
+  disabled?: true;
+}
+
+/**
+ * The MCP servers one version of a file defines: `listed` when Strata could read them, which may be
+ * none, or `unresolved` when the file does not parse in its tool's format. Defined is not loaded:
+ * some tools ask before starting a project server, others start it once the folder is trusted, and
+ * user configuration is outside Git.
+ */
+export type McpServers = { status: "listed"; servers: McpServer[] } | { status: "unresolved" };
+
 /** One version of one tracked file: a path together with the blob stored there. */
 export interface Component {
   path: string;
@@ -55,6 +72,8 @@ export interface Component {
   upFront?: UpFront;
   /** On a skill manifest, `listing` measures the frontmatter text an agent lists before the skill is used. */
   skill?: { root: string; role: "manifest" | "resource"; listing?: SkillListing };
+  /** On an MCP configuration file, or a Gemini CLI or Codex settings file that mentions MCP servers. */
+  mcp?: McpServers;
 }
 
 export interface SkillGroup {
@@ -129,7 +148,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 17;
+  schemaVersion: 18;
   repository: string;
   branch: string;
   shallow: boolean;

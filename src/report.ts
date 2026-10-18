@@ -271,6 +271,12 @@ export function renderHtml(report: Report): string {
       <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num" title="1 means imported directly by the starting file">Depth</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
       <button class="more" id="imports-more" type="button" hidden></button>
     </details>
+    <details class="panel" id="mcp-panel" hidden>
+      <summary><h2>MCP servers</h2><span class="summary-count" id="mcp-count"></span></summary>
+      <p class="muted">Servers the tracked MCP and settings files define, by name. Defined is not loaded: some tools ask before starting a project server and others start it once the folder is trusted, and user configuration is outside Git. Strata never starts a server, so the tool definitions a server sends are not measured.</p>
+      <div class="table-wrap"><table><thead><tr><th>Server</th><th title="Local starts a process on your machine; remote connects to a URL">Runs</th><th>Defined in</th><th>Provider</th></tr></thead><tbody id="mcp-servers"></tbody></table></div>
+      <button class="more" id="mcp-servers-more" type="button" hidden></button>
+    </details>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
       <p class="muted">A moved file can appear as a removal plus an addition.</p>
@@ -281,8 +287,10 @@ export function renderHtml(report: Report): string {
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
+        <span id="compare-mcp-wrap" hidden>MCP servers<strong id="compare-mcp"></strong></span>
         <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Skill summary tokens</span><strong id="compare-listing"></strong></span>
       </div>
+      <p class="muted" id="compare-mcp-names" hidden></p>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
@@ -948,6 +956,37 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // MCP servers follow the provider view, like the files that define them.
+    function renderMcp() {
+      const components = viewRevisions[selected].components.filter((component) => component.mcp);
+      drawn.mcp = viewRevisions[selected].components;
+      $('mcp-panel').hidden = !components.length;
+      const rows = components.flatMap((component) => component.mcp.status === 'listed'
+        ? component.mcp.servers.map((server) => ({ component, server }))
+        : [{ component, server: null }]);
+      const servers = rows.filter((row) => row.server).length;
+      const unresolved = rows.length - servers;
+      $('mcp-count').textContent = fmt(servers) + (servers === 1 ? ' server' : ' servers') + ' · ' + fmt(components.length) + (components.length === 1 ? ' file' : ' files') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      const body = $('mcp-servers');
+      body.replaceChildren();
+      if (!rows.length) {
+        const row = document.createElement('tr');
+        const cell = text('td', 'The tracked MCP files define no servers at this revision.', 'empty');
+        cell.colSpan = 4;
+        row.append(cell);
+        body.append(row);
+      }
+      // Unreadable files come first, so a parse failure is not mistaken for no servers.
+      const sorted = [...rows].sort((a, b) => Number(Boolean(a.server)) - Number(Boolean(b.server)) || a.component.path.localeCompare(b.component.path));
+      for (const { component, server } of capped('mcp-servers', sorted, 25, renderMcp)) {
+        const row = document.createElement('tr');
+        const runs = !server ? 'unresolved' : server.transport + (server.disabled ? ' (disabled)' : '');
+        const name = text('td', server ? server.name : 'Could not read this file', server ? 'path' : 'kind');
+        row.append(name, text('td', runs, 'kind'), text('td', component.path, 'path'), text('td', component.provider));
+        body.append(row);
+      }
+    }
+
     // Listings always use the report's own measurement, never a provider's counts, so measured views say which.
     function listingKind() {
       if (activeMeasure === 'estimate') return '';
@@ -1039,6 +1078,16 @@ export function renderHtml(report: Report): string {
       $('compare-listing').textContent = signed(skills.deltaTokens) + ' (' + fmt(skills.beforeTokens) + ' → ' + fmt(skills.afterTokens) + ')' +
         (skills.beforeUnresolved || skills.afterUnresolved ? ' · unresolved ' + fmt(skills.beforeUnresolved) + ' → ' + fmt(skills.afterUnresolved) : '');
       $('compare-listing').className = tone(skills.deltaTokens);
+      const mcp = comparison.mcp;
+      $('compare-mcp-wrap').hidden = !mcp;
+      if (mcp) {
+        $('compare-mcp').textContent = signed(mcp.deltaServers) + ' (' + fmt(mcp.beforeServers) + ' → ' + fmt(mcp.afterServers) + ')' +
+          (mcp.beforeUnresolved || mcp.afterUnresolved ? ' · unresolved ' + fmt(mcp.beforeUnresolved) + ' → ' + fmt(mcp.afterUnresolved) : '');
+        $('compare-mcp').className = tone(mcp.deltaServers);
+        const names = (refs) => refs.slice(0, 10).map((ref) => ref.name + ' (' + ref.path + ')').join(', ') + (refs.length > 10 ? ', and ' + fmt(refs.length - 10) + ' more' : '');
+        $('compare-mcp-names').textContent = [mcp.added.length ? 'MCP servers added: ' + names(mcp.added) + '.' : '', mcp.removed.length ? 'MCP servers removed: ' + names(mcp.removed) + '.' : ''].filter(Boolean).join(' ');
+      }
+      $('compare-mcp-names').hidden = !mcp || (!mcp.added.length && !mcp.removed.length);
       for (const [id, groups] of [['compare-providers', comparison.byProvider], ['compare-categories', comparison.byCategory]]) {
         const body = $(id);
         body.replaceChildren();
@@ -1108,6 +1157,7 @@ export function renderHtml(report: Report): string {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
       if (drawn.imports !== revisions[selected].components) renderImports();
+      if (drawn.mcp !== revision.components) renderMcp();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
     if (typeof ResizeObserver !== 'undefined') {
