@@ -10,7 +10,7 @@ None of them runs unless you add a workflow to the repository you want to analyz
 
 ## Full history report as an artifact
 
-The workflow runs the published npm package `context-strata` at a pinned version. Replace `0.2.1` with the version you have reviewed.
+The workflow runs the published npm package `context-strata` at a pinned version. Replace `0.4.0` with the version you have reviewed.
 
 ```yaml
 name: Agent context report
@@ -33,8 +33,8 @@ jobs:
           node-version: '22'
       - name: Analyze history
         run: |
-          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
-          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
+          npx --yes context-strata@0.4.0 analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
+          npx --yes context-strata@0.4.0 analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-report
@@ -91,8 +91,8 @@ jobs:
           node-version: '22'
       - name: Render image and badge
         run: |
-          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
-          npx --yes context-strata@0.2.1 analyze "$GITHUB_WORKSPACE" --format badge --output "$RUNNER_TEMP/strata-image/strata-badge.json" --quiet
+          npx --yes context-strata@0.4.0 analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
+          npx --yes context-strata@0.4.0 analyze "$GITHUB_WORKSPACE" --format badge --output "$RUNNER_TEMP/strata-image/strata-badge.json" --quiet
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: strata-image
