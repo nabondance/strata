@@ -259,3 +259,79 @@ test("Cursor reads other tools' files only at revisions that track Cursor config
     ],
   );
 });
+
+test("Copilot and Cursor each read other tools' files only where their own configuration is tracked", () => {
+  const component = (path, provider, category, readers, extra = {}) => ({
+    path,
+    provider,
+    ...(readers ? { readers } : {}),
+    category,
+    blob: path,
+    bytes: 8,
+    estimatedTokens: 2,
+    ...extra,
+  });
+  const agents = component("file-00001", "shared", "instructions", ["claude", "codex", "copilot", "cursor"], {
+    contextFile: "agents-md",
+  });
+  const gemini = component("file-00002", "gemini", "instructions", ["copilot", "gemini"], {
+    contextFile: "gemini-md",
+  });
+  const claudeSkill = component("file-00003", "claude", "skills", ["claude", "copilot", "cursor"]);
+  const claudeRule = component("file-00004", "claude", "rules", ["claude", "copilot"]);
+  const instructions = component("file-00005", "copilot", "instructions");
+  const table = [agents, gemini, claudeSkill, claudeRule, instructions];
+  const before = {
+    id: "before",
+    date: "2026-10-01",
+    firstParent: null,
+    components: [agents, gemini, claudeSkill, claudeRule],
+    skillGroups: [],
+    categoryTotals: {},
+    estimatedTokens: 8,
+    changes: [],
+  };
+  const after = {
+    ...before,
+    id: "after",
+    components: [...before.components, instructions],
+    changes: [
+      {
+        kind: "added",
+        path: instructions.path,
+        previousTokens: null,
+        estimatedTokens: 2,
+        deltaTokens: 2,
+        component: 4,
+      },
+    ],
+  };
+  assert.equal(providerReads(claudeRule, "copilot"), false);
+  assert.equal(providerReads(claudeRule, "copilot", null, true), true);
+  // Copilot reads GEMINI.md whatever Gemini's settings say; Gemini follows them.
+  assert.equal(providerReads(gemini, "copilot", ["agents-md"], true), true);
+  assert.equal(providerReads(gemini, "gemini", ["agents-md"]), false);
+
+  const paths = (revision, view) => viewRevision(revision, view).components.map((entry) => entry.path);
+  assert.deepEqual(paths(before, "copilot"), []);
+  assert.deepEqual(paths(after, "copilot"), [
+    agents.path,
+    gemini.path,
+    claudeSkill.path,
+    claudeRule.path,
+    instructions.path,
+  ]);
+  // A Copilot file does not make Cursor read anything.
+  assert.deepEqual(paths(after, "cursor"), []);
+  assert.deepEqual(
+    viewRevision(after, "copilot", before, table).changes.map((change) => [change.kind, change.path]),
+    [
+      ["added", instructions.path],
+      ["added", agents.path],
+      ["added", gemini.path],
+      ["added", claudeSkill.path],
+      ["added", claudeRule.path],
+    ],
+  );
+  assert.deepEqual(viewRevision(after, "claude", before, table).changes, []);
+});

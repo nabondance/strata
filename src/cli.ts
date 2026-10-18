@@ -74,8 +74,9 @@ Options:
   -h, --help             Show help
   -V, --version          Show the version
 
-Strata reads Git-tracked Claude, Codex, Gemini CLI, and Cursor configuration from first-parent history.
-It never modifies the repository and sends nothing over the network unless --precise is set.
+Strata reads Git-tracked Claude, Codex, Gemini CLI, Cursor, and GitHub Copilot configuration from
+first-parent history. It never modifies the repository and sends nothing over the network unless
+--precise is set.
 `,
   analyze: `Usage:
   strata analyze [repository] [options]

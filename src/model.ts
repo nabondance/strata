@@ -11,13 +11,14 @@ export interface Component {
   provider: Provider;
   /**
    * The providers documented as reading its path: on a shared component, and on another tool's file
-   * Cursor reads, only in a history with Cursor configuration. See `providerReads` for conditions.
+   * Cursor or Copilot reads, only in a history with that tool's configuration. See `providerReads`
+   * for conditions.
    */
   readers?: Provider[];
   /** On `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`): Gemini CLI reads it only while `context.fileName` names it. */
   contextFile?: ContextFile;
   category: Category;
-  /** On a format its provider documents as superseded but still reads: the root `.cursorrules`. */
+  /** On a format its provider documents as superseded but still reads: the root `.cursorrules` and Copilot's `.chatmode.md`. */
   legacy?: true;
   blob: string;
   bytes: number;
@@ -99,7 +100,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 14;
+  schemaVersion: 15;
   repository: string;
   branch: string;
   shallow: boolean;

@@ -8,31 +8,31 @@ type Readable = Pick<Component, "provider" | "readers" | "contextFile">;
 /**
  * Whether a provider reads a file at a revision: its own files and files that list it as a reader,
  * with two conditions. Gemini CLI reads `AGENTS.md` and `GEMINI.md` only while a revision's
- * `geminiContextFiles` names them (`GEMINI.md` alone by default). Cursor reads files it does not own,
- * such as `AGENTS.md` or `.claude/skills`, only at a revision that tracks Cursor configuration
- * (`cursorConfigured`). Labels decide this, not paths, so a shareable report gives the same answer.
- * The HTML report embeds this function's source, so it must stay self-contained.
+ * `geminiContextFiles` names them (`GEMINI.md` alone by default). Cursor and Copilot read files they
+ * do not own, such as `AGENTS.md` or `.claude/skills`, only at a revision that tracks their own
+ * configuration (`configured`). Labels decide this, not paths, so a shareable report gives the same
+ * answer. The HTML report embeds this function's source, so it must stay self-contained.
  */
 export function providerReads(
   entry: Readable,
   provider: Provider,
   geminiContextFiles?: readonly ContextFile[] | null,
-  cursorConfigured?: boolean,
+  configured?: boolean,
 ): boolean {
   if (provider === "gemini" && entry.contextFile)
     return (geminiContextFiles ?? ["gemini-md"]).includes(entry.contextFile);
   if (entry.provider === provider) return true;
-  if (provider === "cursor" && !cursorConfigured) return false;
+  if ((provider === "cursor" || provider === "copilot") && !configured) return false;
   return !!entry.readers?.includes(provider);
 }
 
 /**
  * Project a revision for display. A file appears in the view of each provider that reads it, by
  * `providerReads`, and once in All. A settings change can bring a Gemini context file into or out
- * of the Gemini view without changing the file, and adding or removing the last Cursor file brings
- * `AGENTS.md` and other files Cursor reads for compatibility into or out of the Cursor view; given
- * the report's `table`, such a file is listed as added or removed. The HTML report embeds this function's source, so it may use only its
- * arguments, `categories`, and `providerReads`.
+ * of the Gemini view without changing the file, and adding or removing the last Cursor or Copilot
+ * file brings `AGENTS.md` and other files that tool reads for compatibility into or out of its view;
+ * given the report's `table`, such a file is listed as added or removed. The HTML report embeds this
+ * function's source, so it may use only its arguments, `categories`, and `providerReads`.
  */
 export function viewRevision(
   revision: RevisionSnapshot,
@@ -41,15 +41,15 @@ export function viewRevision(
   table?: readonly Component[],
 ): RevisionSnapshot {
   if (view === "all") return revision;
-  // A revision tracks Cursor configuration when it holds any file labeled Cursor.
-  const cursorAt = (at: RevisionSnapshot | undefined) =>
-    !!at?.components.some((component) => component.provider === "cursor");
-  const cursorNow = cursorAt(revision);
-  const cursorBefore = cursorAt(previous);
+  // A revision tracks Cursor or Copilot configuration when it holds any file labeled with that tool.
+  const configuredAt = (at: RevisionSnapshot | undefined) =>
+    (view === "cursor" || view === "copilot") && !!at?.components.some((component) => component.provider === view);
+  const configuredNow = configuredAt(revision);
+  const configuredBefore = configuredAt(previous);
   const includes = (entry: Readable, at: RevisionSnapshot | undefined) =>
     view === "shared" || view === "unknown"
       ? entry.provider === view
-      : providerReads(entry, view, at?.geminiContextFiles, at === revision ? cursorNow : cursorBefore);
+      : providerReads(entry, view, at?.geminiContextFiles, at === revision ? configuredNow : configuredBefore);
   const components = revision.components.filter((component) => includes(component, revision));
   const before = new Map(previous?.components.map((component) => [component.path, component]));
   const after = new Map(revision.components.map((component) => [component.path, component]));
@@ -115,7 +115,7 @@ export function viewRevision(
   /** Unchanged files whose visibility a settings change flipped, as edits for the mapping above. */
   function flips(): RevisionSnapshot["changes"] {
     if (!previous || !table) return [];
-    if (previous.geminiContextFiles === revision.geminiContextFiles && cursorBefore === cursorNow) return [];
+    if (previous.geminiContextFiles === revision.geminiContextFiles && configuredBefore === configuredNow) return [];
     const touched = new Set(revision.changes.flatMap((change) => [change.path, change.previousPath]));
     return revision.components.flatMap((component) =>
       before.get(component.path) === component &&

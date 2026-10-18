@@ -11,7 +11,7 @@ export const categories = [
 ] as const;
 
 export type Category = (typeof categories)[number];
-export type Provider = "claude" | "codex" | "cursor" | "gemini" | "shared" | "unknown";
+export type Provider = "claude" | "codex" | "copilot" | "cursor" | "gemini" | "shared" | "unknown";
 /**
  * Context files whose Gemini CLI loading depends on `context.fileName`: `AGENTS.md` and `GEMINI.md`.
  * The labels are not the file names, so they cannot match a path a shareable report aliases.
@@ -24,9 +24,10 @@ export interface Classification {
   instructionalText: boolean;
   /**
    * The providers documented as reading the path, on a shared file or on another tool's file Cursor
-   * reads for compatibility. A reader may still depend on a runtime condition Strata does not
-   * resolve, such as Claude Code reading `AGENTS.md`. Cursor reads a file it does not own only at a
-   * revision that tracks Cursor configuration, and is left out of `readers` when no revision does.
+   * or Copilot reads for compatibility. A reader may still depend on a runtime condition Strata does
+   * not resolve, such as Claude Code reading `AGENTS.md`. Cursor and Copilot read a file they do not
+   * own only at a revision that tracks their own configuration, and each is left out of `readers`
+   * when no revision does.
    */
   readers?: Provider[];
   /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
@@ -39,14 +40,15 @@ export interface Classification {
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
-// Codex, Cursor, and Gemini CLI all discover project skills under `.agents/skills`. Cursor also
-// loads `.claude/skills` for compatibility; those skills stay Claude's, with Cursor as a conditional
-// reader (see `providerReads`).
+// Codex, Copilot, Cursor, and Gemini CLI all discover project skills under `.agents/skills`.
+// Copilot and Cursor also load `.claude/skills` for compatibility; those skills stay Claude's, with
+// Copilot and Cursor as conditional readers (see `providerReads`).
 const skillDirectories: Array<[directory: string, provider: Provider, readers?: Provider[]]> = [
-  [".agents", "shared", ["codex", "cursor", "gemini"]],
-  [".claude", "claude", ["claude", "cursor"]],
+  [".agents", "shared", ["codex", "copilot", "cursor", "gemini"]],
+  [".claude", "claude", ["claude", "copilot", "cursor"]],
   [".gemini", "gemini"],
   [".cursor", "cursor"],
+  [".github", "copilot"],
 ];
 
 function skill(_path: string, parts: string[]): Classification | null {
@@ -57,7 +59,7 @@ function skill(_path: string, parts: string[]): Classification | null {
     if (within[0] !== "skills") continue;
     const labels = { provider, ...(readers ? { readers: [...readers] } : {}) };
     // Gemini CLI also accepts a single skill whose manifest sits directly in its skill directory;
-    // Codex, Claude Code, and Cursor document only `<name>/SKILL.md`.
+    // Codex, Claude Code, Copilot, and Cursor document only `<name>/SKILL.md`.
     if ((directory === ".agents" || directory === ".gemini") && within.length === 2 && within[1] === "SKILL.md") {
       return {
         provider: "gemini",
@@ -83,7 +85,13 @@ function skill(_path: string, parts: string[]): Classification | null {
 function gemini(_path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
   if (filename === "GEMINI.md") {
-    return { provider: "gemini", category: "instructions", instructionalText: true, contextFile: "gemini-md" };
+    return {
+      provider: "gemini",
+      readers: ["copilot", "gemini"],
+      category: "instructions",
+      instructionalText: true,
+      contextFile: "gemini-md",
+    };
   }
   const index = parts.indexOf(".gemini");
   if (index < 0) return null;
@@ -106,11 +114,15 @@ function gemini(_path: string, parts: string[]): Classification | null {
 
 function claude(path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
-  if (filename === "CLAUDE.md" || filename === "CLAUDE.local.md") {
+  // Copilot reads `CLAUDE.md` and the root `.mcp.json` too, but not `CLAUDE.local.md`.
+  if (filename === "CLAUDE.md") {
+    return { provider: "claude", readers: ["claude", "copilot"], category: "instructions", instructionalText: true };
+  }
+  if (filename === "CLAUDE.local.md") {
     return { provider: "claude", category: "instructions", instructionalText: true };
   }
   if (path === ".mcp.json") {
-    return { provider: "claude", category: "tools", instructionalText: false };
+    return { provider: "claude", readers: ["claude", "copilot"], category: "tools", instructionalText: false };
   }
   const index = parts.indexOf(".claude");
   if (index < 0) return null;
@@ -119,8 +131,13 @@ function claude(path: string, parts: string[]): Classification | null {
     return { provider: "claude", category: "settings", instructionalText: false };
   }
   if (within.length >= 2 && filename?.endsWith(".md")) {
-    if (within[0] === "agents") return { provider: "claude", category: "agents", instructionalText: true };
-    if (within[0] === "rules") return { provider: "claude", category: "rules", instructionalText: true };
+    // VS Code's Copilot reads Claude agents and rules in their own format, and Copilot CLI reads agents.
+    if (within[0] === "agents") {
+      return { provider: "claude", readers: ["claude", "copilot"], category: "agents", instructionalText: true };
+    }
+    if (within[0] === "rules") {
+      return { provider: "claude", readers: ["claude", "copilot"], category: "rules", instructionalText: true };
+    }
     if (within[0] === "commands") return { provider: "claude", category: "commands", instructionalText: true };
     if ((within[0] === "agent-memory" || within[0] === "agent-memory-local") && within.length >= 3) {
       return { provider: "claude", category: "memory", instructionalText: true };
@@ -159,7 +176,7 @@ function shared(_path: string, parts: string[]): Classification | null {
         provider: "shared",
         category: "instructions",
         instructionalText: true,
-        readers: ["claude", "codex", "cursor"],
+        readers: ["claude", "codex", "copilot", "cursor"],
         contextFile: "agents-md",
       }
     : null;
@@ -192,11 +209,66 @@ function cursor(path: string, parts: string[]): Classification | null {
     : null;
 }
 
+/** Copilot's own folders under `.github`, the files Copilot code review and VS Code read, and nothing else in `.github`. */
+function copilot(path: string, parts: string[]): Classification | null {
+  const own = (category: Category, instructionalText: boolean, legacy = false): Classification => ({
+    provider: "copilot",
+    category,
+    instructionalText,
+    ...(legacy ? { legacy: true as const } : {}),
+  });
+  // Only Copilot code review reads `REVIEW.md`; its documentation gives no folder, so only the root counts.
+  if (path === "REVIEW.md") return own("instructions", true);
+  if (path === ".vscode/mcp.json") return own("tools", false);
+  const index = parts.indexOf(".github");
+  if (index < 0) return null;
+  const within = parts.slice(index + 1);
+  const filename = parts.at(-1) ?? "";
+  const markdown = filename.endsWith(".md");
+  if (within.length === 1) {
+    if (filename === "copilot-instructions.md") return own("instructions", true);
+    if (filename === "mcp.json") return own("tools", false);
+    return null;
+  }
+  // Hooks, CLI settings, and environment workflows are read from the repository root only.
+  const root = index === 0 && within.length === 2;
+  switch (within[0]) {
+    case "instructions":
+      if (filename.endsWith(".instructions.md")) return own("rules", true);
+      return markdown ? own("other", false) : null;
+    case "prompts":
+      // VS Code reads prompt files directly in the folder, not in subfolders.
+      if (within.length === 2 && filename.endsWith(".prompt.md")) return own("commands", true);
+      return markdown ? own("other", false) : null;
+    case "agents":
+      // VS Code skips `README.md` there; a `.chatmode.md` is the format custom agents replaced.
+      if (!markdown) return null;
+      if (filename === "README.md") return own("other", false);
+      return own("agents", true, filename.endsWith(".chatmode.md"));
+    case "chatmodes":
+      // VS Code no longer reads this folder unless a user setting adds it.
+      return markdown ? own("other", false) : null;
+    case "skills":
+      return candidateExtension(filename) ? own("other", false) : null;
+    case "hooks":
+      return root && filename.endsWith(".json") ? own("settings", false) : null;
+    case "copilot":
+      if (root && /^settings(?:\.local)?\.json$/.test(filename)) return own("settings", false);
+      return candidateExtension(filename) ? own("other", false) : null;
+    case "workflows":
+      return root && (filename === "copilot-setup-steps.yml" || filename === "copilot-code-review.yml")
+        ? own("settings", false)
+        : null;
+    default:
+      return null;
+  }
+}
+
 function candidateExtension(filename: string | undefined): boolean {
   return /\.(?:md|json|toml|rules)$/.test(filename ?? "");
 }
 
-const adapters: Adapter[] = [skill, shared, codex, claude, gemini, cursor];
+const adapters: Adapter[] = [skill, shared, codex, claude, gemini, cursor, copilot];
 
 export function classify(path: string): Classification | null {
   const parts = path.split("/");
@@ -208,12 +280,19 @@ export function classify(path: string): Classification | null {
 }
 
 /**
- * Drop Cursor from `readers` in a history with no Cursor configuration, so a repository that does not
- * use Cursor is described without it. A file left with only its own provider loses `readers`.
+ * Providers that need no repository file to run but read other tools' files, and so read those files
+ * only at revisions that track their own configuration.
  */
-export function withoutCursorReader(classification: Classification): void {
-  if (!classification.readers?.includes("cursor")) return;
-  const readers = classification.readers.filter((reader) => reader !== "cursor");
+export const conditionalReaders = ["copilot", "cursor"] as const satisfies readonly Provider[];
+
+/**
+ * Drop a conditional reader from `readers` in a history with none of its configuration, so a
+ * repository that does not use it is described without it. A file left with only its own provider
+ * loses `readers`.
+ */
+export function withoutReader(classification: Classification, reader: Provider): void {
+  if (!classification.readers?.includes(reader)) return;
+  const readers = classification.readers.filter((entry) => entry !== reader);
   if (readers.length === 1 && readers[0] === classification.provider) delete classification.readers;
   else classification.readers = readers;
 }
