@@ -1351,6 +1351,8 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
     assert.ok(!claudeOnlyUi("provider-tabs").children.some((tab) => tab.textContent.startsWith("Cursor")));
 
     for (const [path, content] of Object.entries(cursorFiles)) put(path, content);
+    // Editing AGENTS.md in the adoption commit takes the ordinary change path, not a settings flip.
+    put("AGENTS.md", "Shared project instructions, now for Cursor too.\n");
     const added = commit("Adopt Cursor");
 
     // Git detects both moves as renames; the second turns an ignored file into a counted rule.
@@ -1560,14 +1562,28 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
     const cursorTab = get("provider-tabs").children.find((child) => child.textContent === "Cursor + shared");
     assert.ok(cursorTab);
     cursorTab.listeners.click();
+    const paths = (id) => get(id).children.map((row) => row.children[0]?.textContent);
+    get("target").value = "0";
+    get("target").listeners.change();
+    assert.ok(!paths("files").includes("AGENTS.md"));
     get("target").value = "1";
     get("target").listeners.change();
+    assert.ok(paths("files").includes("AGENTS.md"));
     assert.match(get("listing-note").textContent, /Skills Cursor reads from \.claude\/skills or \.agents\/skills/);
     assert.ok(get("files").children.some((row) => row.children[2]?.textContent === "rules (legacy)"));
     // The comparison that migrates the file names it legacy too.
     get("target").value = "2";
     get("target").listeners.change();
     assert.ok(get("compare-components").children.some((row) => row.children[2]?.textContent === "rules (legacy)"));
+    // Removing the last Cursor file lists the files Cursor stops reading as removed.
+    get("target").value = "4";
+    get("target").listeners.change();
+    assert.ok(!paths("files").includes("AGENTS.md"));
+    assert.ok(
+      get("compare-components").children.some(
+        (row) => row.children[0]?.textContent === "AGENTS.md" && row.children[3]?.textContent === "removed",
+      ),
+    );
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

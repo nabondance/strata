@@ -137,3 +137,125 @@ test("the Gemini view follows each revision's context files, by label rather tha
     ],
   );
 });
+
+test("Cursor reads other tools' files only at revisions that track Cursor configuration", () => {
+  const agents = {
+    path: "file-00001",
+    provider: "shared",
+    readers: ["claude", "codex", "cursor"],
+    contextFile: "agents-md",
+    category: "instructions",
+    blob: "a",
+    bytes: 40,
+    estimatedTokens: 10,
+  };
+  const claudeSkill = {
+    path: "file-00002",
+    provider: "claude",
+    readers: ["claude", "cursor"],
+    category: "skills",
+    blob: "k",
+    bytes: 20,
+    estimatedTokens: 5,
+  };
+  const settings = {
+    path: "file-00003",
+    provider: "gemini",
+    category: "settings",
+    blob: "g1",
+    bytes: 2,
+    estimatedTokens: null,
+  };
+  const configuredSettings = { ...settings, blob: "g2" };
+  const cursorIgnore = {
+    path: "file-00004",
+    provider: "cursor",
+    category: "settings",
+    blob: "c",
+    bytes: 9,
+    estimatedTokens: null,
+  };
+  const table = [agents, claudeSkill, settings, configuredSettings, cursorIgnore];
+  const before = {
+    id: "before",
+    date: "2026-10-01",
+    firstParent: null,
+    components: [agents, claudeSkill, settings],
+    skillGroups: [],
+    categoryTotals: {},
+    estimatedTokens: 15,
+    changes: [],
+  };
+  // One revision both configures Gemini to read AGENTS.md and adds the first Cursor file.
+  const after = {
+    ...before,
+    id: "after",
+    components: [agents, claudeSkill, configuredSettings, cursorIgnore],
+    geminiContextFiles: ["agents-md"],
+    changes: [
+      {
+        kind: "modified",
+        path: settings.path,
+        previousTokens: null,
+        estimatedTokens: null,
+        deltaTokens: 0,
+        component: 3,
+      },
+      {
+        kind: "added",
+        path: cursorIgnore.path,
+        previousTokens: null,
+        estimatedTokens: null,
+        deltaTokens: 0,
+        component: 4,
+      },
+    ],
+  };
+  assert.equal(providerReads(claudeSkill, "cursor"), false);
+  assert.equal(providerReads(claudeSkill, "cursor", null, true), true);
+  assert.equal(providerReads(cursorIgnore, "cursor"), true);
+  assert.equal(providerReads(claudeSkill, "claude"), true);
+  assert.equal(providerReads(agents, "codex", null, false), true);
+
+  const changes = (view) =>
+    viewRevision(after, view, before, table).changes.map((change) => [change.kind, change.path]);
+  assert.deepEqual(viewRevision(before, "cursor").components, []);
+  assert.deepEqual(changes("cursor"), [
+    ["added", cursorIgnore.path],
+    ["added", agents.path],
+    ["added", claudeSkill.path],
+  ]);
+  assert.deepEqual(changes("gemini"), [
+    ["modified", settings.path],
+    ["added", agents.path],
+  ]);
+  assert.deepEqual(changes("claude"), []);
+  assert.deepEqual(
+    viewRevision(after, "shared").components.map((component) => component.path),
+    [agents.path],
+  );
+  // Removing the last Cursor file takes the borrowed files out of the Cursor view again.
+  const removed = {
+    ...after,
+    id: "removed",
+    components: [agents, claudeSkill, configuredSettings],
+    changes: [
+      {
+        kind: "removed",
+        path: cursorIgnore.path,
+        previousTokens: null,
+        estimatedTokens: null,
+        deltaTokens: 0,
+        component: null,
+      },
+    ],
+  };
+  assert.deepEqual(
+    viewRevision(removed, "cursor", after, table).changes.map((change) => [change.kind, change.path]),
+    [
+      ["removed", cursorIgnore.path],
+      ["removed", agents.path],
+      ["removed", claudeSkill.path],
+    ],
+  );
+});

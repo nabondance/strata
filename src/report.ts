@@ -578,7 +578,7 @@ export function renderHtml(report: Report): string {
       $('view-note').textContent = activeView === 'all'
         ? ''
         : activeView === 'shared'
-          ? 'Files that more than one tool reads. Each also appears in the view of every provider that reads it.'
+          ? 'Files labeled shared because more than one tool reads them by convention, such as AGENTS.md. Each also appears in the view of every provider that reads it. Files Cursor reads from .claude/skills stay labeled Claude.'
           : activeView === 'unknown'
             ? 'Files not assigned to a supported provider; source-only unless recognized.'
             : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : activeView === 'cursor' ? '. Cursor also reads AGENTS.md, .agents/skills, and .claude/skills, which it includes only at revisions that track Cursor configuration' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
