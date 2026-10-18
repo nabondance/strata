@@ -2,7 +2,15 @@ import { treeImports } from "./claude-imports.js";
 import { type ComparedRevision, type Comparison, type ComponentDelta, compareRevisions } from "./compare.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, listTree } from "./git.js";
-import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
+import {
+  byPath,
+  measureBlobs,
+  summarize,
+  type TrackedFile,
+  toComponent,
+  trackedFile,
+  versionKey,
+} from "./inventory.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
 import {
@@ -69,7 +77,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
   const [before, after] = files.map((snapshot): ComparedRevision => {
     const components = snapshot
       .map((file) => {
-        const key = `${file.path}\0${file.blob}`;
+        const key = versionKey(file.path, file.blob);
         return toComponent(file, measured.get(file.blob)!, undefined, listings.get(key), imports.get(key));
       })
       .sort(byPath);

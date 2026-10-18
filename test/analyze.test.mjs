@@ -2130,7 +2130,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     commit("Replace the shared doc with a symlink");
     put(
       "CLAUDE.md",
-      "@AGENTS.md\n@docs/missing.md\n@docs/feature.md\n@.claude/rules/style.md\nAsk @alice, or see @docs and @.claude/\n",
+      "@AGENTS.md\n@docs/missing.md\n@docs/feature.md\n@.claude/rules/style.md\nAsk @alice, or see @docs and @.claude/ or @.\n",
     );
     put(".claude/rules/style.md", "Style.\n@../../docs/from-rule.md\n");
     put("docs/from-rule.md", "Imported by a rule.\n@deep/one.md\n");
@@ -2223,6 +2223,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
       { line: 5, target: null },
       { line: 5, target: null },
       { line: 5, target: null },
+      { line: 5, target: null },
     ]);
     assert.doesNotMatch(JSON.stringify(report), /alice/);
     assert.equal(at(revisions[7])["docs/guide.md"], undefined);
@@ -2272,7 +2273,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
       ui.get("imports").children[0].children.map((cell) => cell.textContent),
       ["AGENTS.md", "2", "docs/common.md", "2", "missing"],
     );
-    assert.equal(ui.get("imports-count").textContent, "13 · 5 unresolved");
+    assert.equal(ui.get("imports-count").textContent, "14 · 6 unresolved");
     const importedRow = ui.get("files").children.find((row) => row.children[0].textContent === "docs/from-rule.md");
     assert.equal(importedRow.children[2].textContent, "instructions (imported)");
 
@@ -2285,7 +2286,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(cli.status, 0, cli.stderr);
     assert.match(
       cli.stderr,
-      /Note: 5 Claude @path imports are unresolved at the last revision \(4 missing, 1 beyond four hops\); the report lists them\./,
+      /Note: 6 Claude @path imports are unresolved at the last revision \(5 missing, 1 beyond four hops\); the report lists them\./,
     );
   } finally {
     rmSync(repo, { recursive: true, force: true });

@@ -17,6 +17,9 @@ export interface BlobMeasurement {
 
 const collator = new Intl.Collator();
 
+/** The key of one file version, a path and the blob stored there, as analysis maps measure them. */
+export const versionKey = (path: string, blob: string) => `${path}\0${blob}`;
+
 export function byPath<T extends { path: string }>(a: T, b: T): number {
   return collator.compare(a.path, b.path);
 }

@@ -9,7 +9,6 @@ import { type ParseArgsConfig, parseArgs } from "node:util";
 import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
-import { expandRevisions } from "./expand.js";
 import { importLinks } from "./import-links.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import type { Report, Submodule } from "./model.js";
@@ -417,8 +416,17 @@ async function analyze(args: string[]): Promise<void> {
 
 /** Count the Claude imports the last revision cannot resolve, by reason; paths stay in the report. */
 function unresolvedImportNote(report: Report): string | null {
-  const last = expandRevisions(report).at(-1);
-  const links = last ? importLinks(last.components).filter((link) => link.status !== "resolved") : [];
+  // Replay the changes into one inventory, as `expandRevisions` does, without building every revision's.
+  const inventory = new Map<string, number>();
+  for (const revision of report.revisions) {
+    for (const change of revision.changes) {
+      if (change.previousPath !== undefined) inventory.delete(change.previousPath);
+      if (change.component === null) inventory.delete(change.path);
+      else inventory.set(change.path, change.component);
+    }
+  }
+  const components = [...inventory.values()].map((index) => report.components[index]!);
+  const links = importLinks(components).filter((link) => link.status !== "resolved");
   if (!links.length) return null;
   const reasons = {
     missing: "missing",

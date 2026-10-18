@@ -2,7 +2,7 @@ import { posix } from "node:path";
 import { type Classification, classify } from "./adapters.js";
 import { blobSizes, gitTokens, readBlobs, type TreeEntry } from "./git.js";
 import { importLinks } from "./import-links.js";
-import type { TrackedFile } from "./inventory.js";
+import { type TrackedFile, versionKey } from "./inventory.js";
 import type { ClaudeImport } from "./model.js";
 
 /** Claude Code follows imports this many hops from a root file; the files at the last hop are loaded. */
@@ -15,14 +15,14 @@ const fence = /^[ \t]*(`{3,}|~{3,})(.*)$/;
 
 /** Blank fenced code blocks, HTML comments, and code spans, keeping line breaks so lines still count. */
 function visibleText(text: string): string[] {
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   let open: string | null = null;
-  // A comment that starts a line is an HTML block, which runs to the end of the line holding `-->`;
-  // one inside a line is inline, and the text after it is still text.
-  let comment: "block" | "inline" | null = null;
+  // A comment that starts a line is an HTML block, which runs to the end of the line holding `-->`,
+  // or to the end of the file. A comment inside a paragraph is inline; see `blankInline`.
+  let block = false;
   const visible = lines.map((line) => {
-    if (comment === "block") {
-      if (line.includes("-->")) comment = null;
+    if (block) {
+      if (line.includes("-->")) block = false;
       return "";
     }
     if (open !== null) {
@@ -30,42 +30,31 @@ function visibleText(text: string): string[] {
       if (close && close[1]![0] === open[0] && close[1]!.length >= open.length && !close[2]!.trim()) open = null;
       return "";
     }
-    const start = comment ? null : fence.exec(line);
+    const start = fence.exec(line);
     // A backtick fence's info string cannot contain a backtick.
     if (start && !(start[1]![0] === "`" && start[2]!.includes("`"))) {
       open = start[1]!;
       return "";
     }
-    if (!comment && /^ {0,3}<!--/.test(line)) {
-      if (!line.slice(line.indexOf("<!--") + 4).includes("-->")) comment = "block";
+    if (/^ {0,3}<!--/.test(line)) {
+      block = !line.slice(line.indexOf("<!--") + 4).includes("-->");
       return "";
     }
-    let output = "";
-    let rest = line;
-    for (;;) {
-      if (comment) {
-        const end = rest.indexOf("-->");
-        if (end < 0) return output;
-        rest = rest.slice(end + 3);
-        comment = null;
-      }
-      const begin = rest.indexOf("<!--");
-      if (begin < 0) return output + rest;
-      output += `${rest.slice(0, begin)} `;
-      rest = rest.slice(begin + 4);
-      comment = "inline";
-    }
+    return line;
   });
   const paragraphs = visible.join("\n").split(/(\n[ \t]*\n)/);
-  return paragraphs.map(blankCodeSpans).join("").split("\n");
+  return paragraphs.map(blankInline).join("").split("\n");
 }
 
 /**
- * Blank the code spans in a paragraph. A span opens with a run of backticks and closes at the next
- * run of the same length; a run with no match is literal text. Blanking with spaces lets an `@`
- * right after a span start an import, as it does after any other inline element.
+ * Blank the code spans and inline HTML comments in a paragraph, whichever opens first. A span opens
+ * with a run of backticks and closes at the next run of the same length; a comment closes at the
+ * next `-->`. One with no close in its paragraph is literal text, so a stray backtick or `<!--` hides
+ * nothing. Blanking with spaces lets an `@` right after either start an import, as it does after
+ * any other inline element.
  */
-function blankCodeSpans(paragraph: string): string {
+function blankInline(paragraph: string): string {
+  const blank = (text: string) => text.replace(/[^\n]/g, " ");
   const runEnd = (start: number) => {
     let end = start;
     while (paragraph[end] === "`") end += 1;
@@ -74,26 +63,38 @@ function blankCodeSpans(paragraph: string): string {
   let output = "";
   let index = 0;
   for (;;) {
-    const open = paragraph.indexOf("`", index);
-    if (open < 0) return output + paragraph.slice(index);
-    const length = runEnd(open) - open;
-    let close = -1;
-    for (let search = open + length; ; ) {
-      const next = paragraph.indexOf("`", search);
-      if (next < 0) break;
-      const end = runEnd(next);
-      if (end - next === length) {
-        close = end;
-        break;
-      }
-      search = end;
-    }
-    if (close < 0) {
-      output += paragraph.slice(index, open + length);
-      index = open + length;
+    const tick = paragraph.indexOf("`", index);
+    const comment = paragraph.indexOf("<!--", index);
+    if (tick < 0 && comment < 0) return output + paragraph.slice(index);
+    let start: number;
+    let end = -1;
+    let literal: number;
+    if (comment >= 0 && (tick < 0 || comment < tick)) {
+      start = comment;
+      literal = comment + 4;
+      const close = paragraph.indexOf("-->", literal);
+      if (close >= 0) end = close + 3;
     } else {
-      output += paragraph.slice(index, open) + paragraph.slice(open, close).replace(/[^\n]/g, " ");
-      index = close;
+      start = tick;
+      literal = runEnd(tick);
+      const length = literal - tick;
+      for (let search = literal; ; ) {
+        const next = paragraph.indexOf("`", search);
+        if (next < 0) break;
+        const after = runEnd(next);
+        if (after - next === length) {
+          end = after;
+          break;
+        }
+        search = after;
+      }
+    }
+    if (end < 0) {
+      output += paragraph.slice(index, literal);
+      index = literal;
+    } else {
+      output += paragraph.slice(index, start) + blank(paragraph.slice(start, end));
+      index = end;
     }
   }
 }
@@ -111,11 +112,9 @@ export function importPaths(text: string): Array<{ path: string; line: number }>
     for (const match of line.matchAll(importPattern)) {
       const hash = match[1]!.indexOf("#");
       const path = (hash < 0 ? match[1]! : match[1]!.slice(0, hash)).replace(/\\ /g, " ");
-      const valid =
-        path.startsWith("./") ||
-        path.startsWith("~/") ||
-        (path.startsWith("/") && path !== "/") ||
-        (!path.startsWith("@") && !/^[#%^&*()]+/.test(path) && /^[a-zA-Z0-9._-]/.test(path));
+      // Claude Code also accepts `./`, and rejects paths starting with `@` or one of `#%^&*()`; the
+      // first-character rule already decides those.
+      const valid = path.startsWith("~/") || (path.startsWith("/") && path !== "/") || /^[a-zA-Z0-9._-]/.test(path);
       if (valid) found.push({ path, line: index + 1 });
     }
   }
@@ -150,11 +149,6 @@ export function readImports(text: string, importer: string): ClaudeImport[] {
   return imports;
 }
 
-/** Whether Claude Code starts expanding imports at this file: `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md`. */
-export function importRoot(classification: Classification): boolean {
-  return !!classification.importRoot;
-}
-
 /** Imports are followed from Markdown files only. */
 export const markdown = (path: string) => path.endsWith(".md");
 
@@ -165,7 +159,13 @@ export function importedClassification(path: string): Classification {
     : { provider: "claude", category: "other", instructionalText: false, imported: true };
 }
 
-const key = (path: string, blob: string) => `${path}\0${blob}`;
+const key = versionKey;
+
+/**
+ * Whether a target can name a file. The repository root or a path ending in `/` cannot, and a
+ * pathspec for one would match every file under it, so its history is never read.
+ */
+const fileLike = (path: string) => path !== "." && !path.endsWith("/");
 
 /**
  * Parse the imports of file versions, keyed by path and blob. Each blob is read once; a file that
@@ -322,7 +322,7 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
       recognized.set(file.path, versions);
     }
   }
-  const roots = [...recognized.values()].flat().filter((file) => importRoot(file.classification));
+  const roots = [...recognized.values()].flat().filter((file) => file.classification.importRoot);
   parseVersions(repo, roots, parsed);
 
   const candidates = new Map<string, PathEvent[]>();
@@ -337,7 +337,7 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
       }
     }
     for (const target of found) targets.add(target);
-    const unrecognized = [...found].filter((path) => !classify(path)).sort();
+    const unrecognized = [...found].filter((path) => fileLike(path) && !classify(path)).sort();
     for (const [id, events] of await pathHistory(repo, unrecognized)) {
       const known = candidates.get(id);
       if (known) known.push(...events);
@@ -361,7 +361,7 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
   const beyond = new Set<string>();
   for (const { path, blob } of frontier) {
     for (const { target } of parsed.get(key(path, blob)) ?? []) {
-      if (target !== null && !targets.has(target) && !classify(target)) beyond.add(target);
+      if (target !== null && !targets.has(target) && fileLike(target) && !classify(target)) beyond.add(target);
     }
   }
   const trackedBeyond = new Set<string>();
@@ -379,7 +379,7 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
     let touched = false;
     for (const path of delta.removed) touched = files.delete(path) || touched;
     for (const file of delta.written) {
-      if (!importRoot(file.classification) && !targets.has(file.path)) continue;
+      if (!file.classification.importRoot && !targets.has(file.path)) continue;
       files.set(file.path, file);
       touched = true;
     }
@@ -428,7 +428,7 @@ export function treeImports(
   const imported: TrackedFile[] = [];
   parseVersions(
     repo,
-    recognized.filter((file) => importRoot(file.classification)),
+    recognized.filter((file) => file.classification.importRoot),
     parsed,
   );
   for (;;) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importPaths, readImports, resolveImport } from "../dist/claude-imports.js";
+import { importPaths, maxImportHops, readImports, resolveImport } from "../dist/claude-imports.js";
 import { importLinks } from "../dist/import-links.js";
 
 test("reads @path imports where Claude Code does, outside code and comments", () => {
@@ -39,6 +39,16 @@ test("reads @path imports where Claude Code does, outside code and comments", ()
   assert.deepEqual(importPaths("@before.md\n```\n@never.md\n"), [{ path: "before.md", line: 1 }]);
   // A code span does not cross a blank line, so a lone backtick there is literal.
   assert.deepEqual(importPaths("a ` b\n\n@next.md `"), [{ path: "next.md", line: 3 }]);
+  // A `<!--` with no `-->` in its paragraph, or inside a code span, is literal text and hides nothing.
+  assert.deepEqual(importPaths("Start a comment with `<!--`.\n\n@docs/a.md\n"), [{ path: "docs/a.md", line: 3 }]);
+  assert.deepEqual(importPaths("Use <!-- for comments\n\n@docs/a.md\n"), [{ path: "docs/a.md", line: 3 }]);
+  assert.deepEqual(importPaths("x <!-- y @after-open.md"), [{ path: "after-open.md", line: 1 }]);
+  // A comment inside a code span is code, and a code span inside a comment is comment.
+  assert.deepEqual(importPaths("`<!--` @a.md `-->` @b.md\nsee <!-- `x` @c.md --> @d.md"), [
+    { path: "a.md", line: 1 },
+    { path: "b.md", line: 1 },
+    { path: "d.md", line: 2 },
+  ]);
   assert.deepEqual(importPaths("﻿@bom.md\r\n@crlf.md\r\n"), [
     { path: "bom.md", line: 1 },
     { path: "crlf.md", line: 2 },
@@ -53,6 +63,9 @@ test("resolves imports against the importing file's directory, inside the reposi
   assert.equal(resolveImport("../../outside.md", "packages/CLAUDE.md"), null);
   assert.equal(resolveImport("~/.claude/personal.md", "CLAUDE.md"), null);
   assert.equal(resolveImport("/etc/absolute.md", "CLAUDE.md"), null);
+  // The repository root and directories are not files; analysis never reads their history.
+  assert.equal(resolveImport(".", "CLAUDE.md"), ".");
+  assert.equal(resolveImport("./", "docs/CLAUDE.md"), "docs/");
   // One entry per target, at its first line; each external import is kept.
   assert.deepEqual(readImports("@a.md\n@./a.md @~/x.md\n@~/y.md\n@../up.md", "docs/CLAUDE.md"), [
     { line: 1, target: "docs/a.md" },
@@ -80,7 +93,14 @@ test("follows imports from the roots by the shortest chain, up to four hops", ()
     { path: "c.md", ...imported, imports: [{ line: 3, target: "d.md" }] },
     { path: "d.md", ...imported, imports: [{ line: 1, target: "e.md" }] },
     { path: "e.md", ...imported, imports: [{ line: 1, target: "f.md" }] },
-    { path: "f.md", ...imported, imports: [{ line: 1, target: "g.md" }] },
+    {
+      path: "f.md",
+      ...imported,
+      imports: [
+        { line: 1, target: "g.md" },
+        { line: 2, target: null, external: true },
+      ],
+    },
     { path: "g.md", ...imported, imports: [{ line: 1, target: "CLAUDE.md" }] },
     // A rule is not a root, so its imports count only once something imports it.
     { path: ".claude/rules/r.md", provider: "claude", category: "rules", imports: [{ line: 1, target: "x.md" }] },
@@ -111,9 +131,14 @@ test("follows imports from the roots by the shortest chain, up to four hops", ()
       ["d.md", "e.md", 3, "resolved"],
       ["e.md", "f.md", 4, "resolved"],
       ["f.md", "g.md", 5, "depth-limit"],
+      // Claude Code does not expand a file past the limit, so its external import is past the limit too.
+      ["f.md", null, 5, "depth-limit"],
     ],
   );
   assert.ok(links.every((link) => link.kind === "links to" && link.evidence === "claude-import"));
+  // `importLinks` is embedded in the HTML report, so it keeps its own copy of the limit; they must agree.
+  assert.equal(maxImportHops, 4);
+  assert.ok(importLinks.toString().includes(`maxHops = ${maxImportHops}`));
 });
 
 test("starts at AGENTS.md only where no CLAUDE.md chain reaches it", () => {
