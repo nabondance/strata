@@ -14,7 +14,6 @@
   <img src="https://img.shields.io/badge/runs-offline-d9a441?style=flat-square&labelColor=1d2622" alt="runs offline">
   <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square" alt="stored agent context tokens on main"></a>
   <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="GitHub stars"></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-d9a441?style=flat-square&labelColor=1d2622" alt="pull requests welcome"></a>
 </p>
 
 **See how your agent context evolved across Git history.**
