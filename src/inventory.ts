@@ -1,4 +1,4 @@
-import { type Classification, categories, classify } from "./adapters.js";
+import { type Classification, categories, classify, type UpFront } from "./adapters.js";
 import { blobSizes, readBlobs } from "./git.js";
 import type { Measurer } from "./measurement.js";
 import type { CategoryTotals, ClaudeImport, Component, Revision } from "./model.js";
@@ -75,8 +75,10 @@ export function toComponent(
   providerTokenCounts?: Component["providerTokenCounts"],
   listing?: SkillListing,
   imports?: ClaudeImport[],
+  ruleUpFront?: UpFront,
 ): Component {
   const { classification } = file;
+  const upFront = classification.upFront ?? ruleUpFront;
   return {
     path: file.path,
     blob: file.blob,
@@ -87,6 +89,7 @@ export function toComponent(
     ...(classification.legacy ? { legacy: true as const } : {}),
     ...(classification.imported ? { imported: true as const } : {}),
     ...(imports?.length ? { imports, ...(classification.importRoot ? { importRoot: true as const } : {}) } : {}),
+    ...(upFront ? { upFront } : {}),
     bytes: measured.bytes,
     estimatedTokens: classification.instructionalText ? measured.tokens : null,
     ...(providerTokenCounts && Object.keys(providerTokenCounts).length ? { providerTokenCounts } : {}),

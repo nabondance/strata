@@ -11,7 +11,7 @@ import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { importLinks } from "./import-links.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
-import type { Report, Submodule } from "./model.js";
+import type { Component, Report, Submodule } from "./model.js";
 import {
   compareGitCommits,
   compareGitCommitsPrecise,
@@ -23,6 +23,7 @@ import { redactReport } from "./privacy.js";
 import type { CountedProvider, ProviderCountOptions, ProviderCountPlan } from "./provider-count.js";
 import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
+import { hasUpFront, sessionProviderNames, sessionProviders, upFrontContext, upFrontTotals } from "./up-front.js";
 
 const providerLabel: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
 
@@ -382,6 +383,8 @@ async function analyze(args: string[]): Promise<void> {
           : ""),
     );
   }
+  const upFront = upFrontNote(report);
+  if (upFront) say(upFront);
   for (const measured of report.providerMeasurements ?? []) {
     const total = latest?.providerTokenTotals?.[measured.provider] ?? 0;
     const how =
@@ -414,9 +417,8 @@ async function analyze(args: string[]): Promise<void> {
   if (unresolved) process.stderr.write(`Note: ${unresolved}\n`);
 }
 
-/** Count the Claude imports the last revision cannot resolve, by reason; paths stay in the report. */
-function unresolvedImportNote(report: Report): string | null {
-  // Replay the changes into one inventory, as `expandRevisions` does, without building every revision's.
+/** The last revision's inventory, replayed as `expandRevisions` does without building every revision's. */
+function latestComponents(report: Report): Component[] {
   const inventory = new Map<string, number>();
   for (const revision of report.revisions) {
     for (const change of revision.changes) {
@@ -425,7 +427,30 @@ function unresolvedImportNote(report: Report): string | null {
       else inventory.set(change.path, change.component);
     }
   }
-  const components = [...inventory.values()].map((index) => report.components[index]!);
+  return [...inventory.values()].sort((a, b) => a - b).map((index) => report.components[index]!);
+}
+
+/** Each agent's stored text listed up front at the last revision, beside what it reads on demand. */
+function upFrontNote(report: Report): string | null {
+  const components = latestComponents(report);
+  const geminiContextFiles = report.revisions.at(-1)?.geminiContextFiles;
+  const entries = sessionProviders.flatMap((provider) => {
+    const context = upFrontContext(components, provider, geminiContextFiles);
+    return hasUpFront(upFrontTotals(context)) ? [context] : [];
+  });
+  if (!entries.length) return null;
+  const unresolved = entries.reduce((sum, entry) => sum + entry.unresolved, 0);
+  return (
+    `At session start: ${entries.map((entry) => `${sessionProviderNames[entry.provider]} ${entry.tokens} tokens (${entry.onDemandTokens} more when needed)`).join(", ")}.` +
+    (unresolved
+      ? ` ${unresolved} rule${unresolved === 1 ? "" : "s"} Strata could not read ${unresolved === 1 ? "is" : "are"} counted as when needed.`
+      : "")
+  );
+}
+
+/** Count the Claude imports the last revision cannot resolve, by reason; paths stay in the report. */
+function unresolvedImportNote(report: Report): string | null {
+  const components = latestComponents(report);
   const links = importLinks(components).filter((link) => link.status !== "resolved");
   if (!links.length) return null;
   const reasons = {
