@@ -252,13 +252,13 @@ function upFrontLines(delta: PullRequestDelta): string[] {
   if (!delta.upFront.length) return [];
   const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
   const intro =
-    "Listed up front, the stored text an agent keeps from the start of a session at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions), apart from the rest it reads on demand; both are stored text, not loaded context or billing tokens";
+    "At session start: what each agent reads when a session opens at the repository root, and what it reads only when needed";
   const changed = delta.upFront.filter((entry) => entry.deltaTokens || entry.deltaOnDemandTokens);
   if (!changed.length) return [`${intro}: unchanged.`, ""];
   const lines = [
     `${intro}:`,
     "",
-    "| Agent | Up front | Δ up front | On demand | Δ on demand |",
+    "| Agent | At start | Δ at start | When needed | Δ when needed |",
     "| --- | ---: | ---: | ---: | ---: |",
     ...changed.map(
       ({ provider, before, after, deltaTokens, deltaOnDemandTokens }) =>
@@ -271,7 +271,7 @@ function upFrontLines(delta: PullRequestDelta): string[] {
   );
   if (unresolved.length) {
     lines.push(
-      `Not counted up front because Strata could not tell whether they load: ${unresolved
+      `Maybe read at start, counted as when needed: ${unresolved
         .map(
           ({ provider, before, after }) =>
             `${sessionProviderNames[provider]} ${before.unresolved + before.listingUnresolved} → ${after.unresolved + after.listingUnresolved}`,

@@ -441,10 +441,9 @@ function upFrontNote(report: Report): string | null {
   if (!entries.length) return null;
   const unresolved = entries.reduce((sum, entry) => sum + entry.unresolved, 0);
   return (
-    `Up front: ${entries.map((entry) => `${sessionProviderNames[entry.provider]} ${entry.tokens} tokens, ${entry.onDemandTokens} more on demand`).join("; ")}. ` +
-    "Stored text an agent keeps from the start of a session at the repository root (root instructions, rules that load at launch, Claude imports, skill names and descriptions), not loaded context." +
+    `At session start: ${entries.map((entry) => `${sessionProviderNames[entry.provider]} ${entry.tokens} tokens (${entry.onDemandTokens} more when needed)`).join(", ")}.` +
     (unresolved
-      ? ` ${unresolved} rule${unresolved === 1 ? "" : "s"} whose loading Strata could not tell ${unresolved === 1 ? "is" : "are"} counted on demand.`
+      ? ` ${unresolved} rule${unresolved === 1 ? "" : "s"} Strata could not read ${unresolved === 1 ? "is" : "are"} counted as when needed.`
       : "")
   );
 }

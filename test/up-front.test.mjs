@@ -175,13 +175,10 @@ test("separates what each agent lists up front from what it reads on demand", as
     assert.equal(entry("cursor").after.unresolved, 1);
     assert.equal(entry("codex").deltaTokens, at(3, "codex").tokens - at(0, "codex").tokens);
     const markdown = renderPullRequestDelta(delta);
-    assert.match(markdown, /\| Agent \| Up front \| Δ up front \| On demand \| Δ on demand \|/);
+    assert.match(markdown, /\| Agent \| At start \| Δ at start \| When needed \| Δ when needed \|/);
     assert.match(markdown, new RegExp(`\\| Cursor \\| 0 → ${cursor.tokens} \\| \\+${cursor.tokens} \\|`));
-    assert.match(
-      markdown,
-      /Not counted up front because Strata could not tell whether they load: Claude Code 1 → 1, Cursor 0 → 1/,
-    );
-    assert.match(renderPullRequestDelta(compareGitCommits(repo, last, last)), /billing tokens: unchanged\./);
+    assert.match(markdown, /Maybe read at start, counted as when needed: Claude Code 1 → 1, Cursor 0 → 1/);
+    assert.match(renderPullRequestDelta(compareGitCommits(repo, last, last)), /only when needed: unchanged\./);
 
     const cli = spawnSync(
       process.execPath,
@@ -194,10 +191,10 @@ test("separates what each agent lists up front from what it reads on demand", as
     assert.match(
       cli.stderr,
       new RegExp(
-        `Up front: Claude Code ${at(3, "claude").tokens} tokens, ${at(3, "claude").onDemandTokens} more on demand; Codex `,
+        `At session start: Claude Code ${at(3, "claude").tokens} tokens \\(${at(3, "claude").onDemandTokens} more when needed\\), Codex `,
       ),
     );
-    assert.match(cli.stderr, /2 rules whose loading Strata could not tell are counted on demand\./);
+    assert.match(cli.stderr, /2 rules Strata could not read are counted as when needed\./);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

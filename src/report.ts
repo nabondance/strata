@@ -249,7 +249,7 @@ export function renderHtml(report: Report): string {
     </section>
     <details class="panel" id="upfront-panel" hidden>
       <summary><h2>At session start</h2><span class="summary-count" id="upfront-count"></span></summary>
-      <p class="muted">What each agent reads as soon as a session opens at the repository root, and what it reads only when needed. Token estimates of the files, not the agent's exact usage.</p>
+      <p class="muted">What each agent reads as soon as a session opens at the repository root, and what it reads only when needed.</p>
       <div class="table-wrap"><table><thead><tr><th>Agent</th><th class="num" title="Files read when the session opens">Files</th><th class="num" title="Root instructions, always-on rules, and the files they import">Instructions</th><th class="num" title="Each skill's name and description; the rest of a skill is read when it is used">Skill summaries</th><th class="num">At start</th><th class="num" title="Skills, scoped rules, commands, agents, and instructions in subfolders">When needed</th></tr></thead><tbody id="upfront-rows"></tbody></table></div>
       <p class="muted" id="upfront-note" style="white-space: pre-line"></p>
       <div class="table-wrap" id="upfront-files-wrap" hidden><table><thead><tr><th>Read at start</th><th>Kind</th><th class="num">Tokens</th></tr></thead><tbody id="upfront-files"></tbody></table></div>
