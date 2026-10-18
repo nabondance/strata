@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/nabondance/strata/compare/v0.4.0...v0.4.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* clean up timeline selection, add arrow-key navigation, and fix the edited legend mark ([#38](https://github.com/nabondance/strata/issues/38)) ([4b6fdae](https://github.com/nabondance/strata/commit/4b6fdaeb75950ed0b86e5765a332af759d8aee69))
+
 ## [0.4.0](https://github.com/nabondance/strata/compare/v0.3.0...v0.4.0) (2026-10-18)
 
 
