@@ -127,10 +127,14 @@ export function renderHtml(report: Report): string {
     .legend-link:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .chart-scroll { padding: 4px 2px 6px; }
     .chart { display: grid; align-items: end; gap: 2px; height: 220px; width: 100%; border-bottom: 1px solid var(--edge); background: repeating-linear-gradient(to top, transparent 0, transparent 54px, var(--grid) 55px); }
-    .bar { border: 0; padding: 0; margin: 0; min-width: 0; background: transparent; display: flex; align-items: end; justify-content: center; height: 100%; cursor: pointer; }
-    .bar:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
-    .bar.selected .stack { outline: 2px solid var(--ink); outline-offset: 2px; }
-    .bar.baseline .stack { box-shadow: 0 0 0 2px var(--ochre); }
+    .bar { position: relative; border: 0; padding: 0; margin: 0; min-width: 0; background: transparent; display: flex; align-items: end; justify-content: center; height: 100%; cursor: pointer; }
+    /* A ring around a bar would cover its neighbors, so focus turns the mark under the axis clay and thickens it. */
+    .bar:focus-visible { outline: none; }
+    /* The selected column is tinted and marked under the axis, so nothing overlaps its neighbors. */
+    .bar.selected { background: color-mix(in srgb, var(--ink) 16%, transparent); }
+    .bar.selected::after, .bar.baseline::before { content: ""; position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; background: var(--ink); }
+    .bar.baseline::before { background: var(--ochre); }
+    .bar:focus-visible::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -7px; height: 5px; background: var(--clay); }
     .stack { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; min-height: 2px; }
     .segment { display: block; width: 100%; }
     input[type=range] { width: 100%; accent-color: var(--clay); margin-top: 17px; }
@@ -157,8 +161,9 @@ export function renderHtml(report: Report): string {
     .treemap-leaf.compact .leaf-name { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
     .treemap-leaf.changed::after { content: ""; position: absolute; inset: 2px; border: 2px solid currentColor; pointer-events: none; }
     .treemap-leaf.changed.edited::after { border-style: dashed; }
-    .ring { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--ink); }
-    .ring.dashed { border-style: dashed; }
+    .ring { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--ink); }
+    /* Browsers draw a dashed border this short as solid, so the dashes are painted: 3px on, 2px off, a dash at each corner. */
+    .ring.dashed { --dash: linear-gradient(90deg, var(--ink) 3px, transparent 0); --dash-v: linear-gradient(var(--ink) 3px, transparent 0); border: 0; background: var(--dash) top left / 5px 2px repeat-x, var(--dash) bottom left / 5px 2px repeat-x, var(--dash-v) top left / 2px 5px repeat-y, var(--dash-v) top right / 2px 5px repeat-y; }
     .treemap-group { position: absolute; z-index: 0; pointer-events: none; overflow: hidden; }
     .treemap-group .group-name { display: block; padding: 0 9px; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; text-overflow: ellipsis; white-space: nowrap; }
     .treemap-group .group-name b { margin-left: 8px; font-weight: 400; opacity: .72; }
@@ -250,7 +255,7 @@ export function renderHtml(report: Report): string {
     <details class="panel" id="upfront-panel" hidden>
       <summary><h2>At session start</h2><span class="summary-count" id="upfront-count"></span></summary>
       <p class="muted">What each agent reads as soon as a session opens at the repository root, and what it reads only when needed.</p>
-      <div class="table-wrap"><table><thead><tr><th>Agent</th><th class="num" title="Files read when the session opens">Files</th><th class="num" title="Root instructions, always-on rules, and the files they import">Instructions</th><th class="num" title="Each skill's name and description; the rest of a skill is read when it is used">Skill summaries</th><th class="num">At start</th><th class="num" title="Skills, scoped rules, commands, agents, and instructions in subfolders">When needed</th></tr></thead><tbody id="upfront-rows"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Agent</th><th class="num" title="Files read when the session opens">Files</th><th class="num" title="Root instructions, always-on rules, and the files they import">Instructions</th><th class="num" title="Each skill's name and description; the rest of a skill is read when it is used">Skill summaries</th><th class="num" title="Instructions plus skill summaries: everything read when the session opens">Total at start</th><th class="num" title="Skills, scoped rules, commands, agents, and instructions in subfolders">When needed</th></tr></thead><tbody id="upfront-rows"></tbody></table></div>
       <p class="muted" id="upfront-note" style="white-space: pre-line"></p>
       <div class="table-wrap" id="upfront-files-wrap" hidden><table><thead><tr><th>Read at start</th><th>Kind</th><th class="num">Tokens</th></tr></thead><tbody id="upfront-files"></tbody></table></div>
     </details>
@@ -530,7 +535,11 @@ export function renderHtml(report: Report): string {
           stack.append(segment);
         }
         button.append(stack);
-        button.addEventListener('click', () => render(bucket.end));
+        // Safari does not focus a clicked button, and arrow keys need the focus on a bar.
+        button.addEventListener('click', () => {
+          render(bucket.end);
+          button.focus();
+        });
         chart.append(button);
         chartBuckets.push({ ...bucket, button });
       }
@@ -562,6 +571,16 @@ export function renderHtml(report: Report): string {
     // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
     slider.addEventListener('input', () => render(Number(slider.value), true));
     slider.addEventListener('change', () => render(Number(slider.value)));
+    // The bars are one tab stop; arrow keys, Home, and End move the selection between them.
+    $('chart').addEventListener('keydown', (event) => {
+      const at = chartBuckets.findIndex((bucket) => bucket.button === event.target);
+      const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: chartBuckets.length - 1 }[event.key];
+      if (at < 0 || next === undefined) return;
+      event.preventDefault();
+      const bucket = chartBuckets[Math.max(0, Math.min(chartBuckets.length - 1, next))];
+      render(bucket.end);
+      bucket.button.focus();
+    });
     $('baseline').append(text('option', 'Previous revision'));
     $('baseline').children[0].value = 'previous';
     for (const [index, revision] of revisions.entries()) {
@@ -1061,7 +1080,14 @@ export function renderHtml(report: Report): string {
       slider.value = index;
       renderLegend();
       $('target').value = String(index);
-      chartBuckets.forEach((bucket) => bucket.button.classList.toggle('selected', bucket.start <= index && index <= bucket.end));
+      for (const bucket of chartBuckets) {
+        const isSelected = bucket.start <= index && index <= bucket.end;
+        bucket.button.classList.toggle('selected', isSelected);
+        bucket.button.tabIndex = isSelected ? 0 : -1;
+        bucket.button.setAttribute('aria-current', String(isSelected));
+      }
+      // A revision before the chart's first bar still leaves the chart reachable by Tab.
+      if (chartBuckets.length && !chartBuckets.some((bucket) => bucket.button.tabIndex === 0)) chartBuckets[0].button.tabIndex = 0;
       $('date').textContent = revision.date.slice(0, 10);
       $('tokens').textContent = fmt(revision.estimatedTokens);
       $('components').textContent = fmt(revision.components.length);
