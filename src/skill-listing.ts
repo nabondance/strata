@@ -177,7 +177,8 @@ function quoted(text: string): string | null {
  * out of the listing, or null when Strata cannot tell. Claude Code lists `name` (by default the
  * skill directory name) and `description` (by default the first non-empty body line) with
  * `when_to_use` appended, the two truncated together at 1,536 characters, and leaves out a skill
- * with `disable-model-invocation: true`. Codex, Cursor, and Gemini CLI require both `name` and `description`.
+ * with `disable-model-invocation: true`. Codex, Cursor, and Gemini CLI require both `name` and `description`;
+ * Cursor also leaves out a skill with `disable-model-invocation: true` until it is invoked by name.
  */
 export function listingText(text: string, provider: Provider, directoryName: string): string | null {
   const frontmatter = readFrontmatter(text);
@@ -185,6 +186,10 @@ export function listingText(text: string, provider: Provider, directoryName: str
   const { fields, body } = frontmatter;
   const field = (key: string) => fields.get(key)?.trim();
   if (provider !== "claude") {
+    if (provider === "cursor") {
+      if (fields.get("disable-model-invocation") === null) return null;
+      if (/^(?:true|True|TRUE)$/.test(field("disable-model-invocation") ?? "")) return "";
+    }
     const name = field("name");
     const description = field("description");
     return name && description ? `${name}\n${description}` : null;

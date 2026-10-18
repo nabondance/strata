@@ -138,6 +138,10 @@ function codex(_path: string, parts: string[]): Classification | null {
   const index = parts.indexOf(".codex");
   if (index < 0) return null;
   const within = parts.slice(index + 1);
+  // Only Cursor documents reading `.codex/skills`; the skill adapter takes its skill directories.
+  if (within[0] === "skills") {
+    return candidateExtension(filename) ? { provider: "cursor", category: "other", instructionalText: false } : null;
+  }
   if (within.length === 1 && filename === "config.toml") {
     return { provider: "codex", category: "settings", instructionalText: false };
   }

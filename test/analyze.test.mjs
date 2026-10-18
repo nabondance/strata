@@ -684,7 +684,8 @@ test("tracks configuration across first-parent history without reading untracked
       const root = `.claude/skills/zz-example-${index}`;
       const component = manySkills.components.push({
         path: `${root}/SKILL.md`,
-        provider: "claude",
+        provider: "shared",
+        readers: ["claude", "cursor"],
         category: "skills",
         blob: `example-${index}`,
         bytes: 40,
@@ -1332,11 +1333,21 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     put(".codex/skills/legacy/SKILL.md", "---\nname: legacy\ndescription: Read by Cursor only\n---\nBody.\n");
     put(".agents/skills/release/SKILL.md", "---\nname: release\ndescription: Cut a release\n---\nBody.\n");
     put(".claude/skills/review/SKILL.md", "Review the change.\n");
+    put(
+      ".cursor/skills/manual/SKILL.md",
+      "---\nname: manual\ndescription: Run only on request\ndisable-model-invocation: true\n---\nBody.\n",
+    );
+    // A manifest directly in a skill directory is not a skill for Claude Code, Codex, or Cursor.
+    put(".claude/skills/SKILL.md", "---\nname: loose\ndescription: Loose\n---\n");
+    put(".cursor/skills/SKILL.md", "---\nname: loose\ndescription: Loose\n---\n");
+    put(".codex/skills/SKILL.md", "---\nname: loose\ndescription: Loose\n---\n");
+    put(".codex/skills/README.md", "About these skills.\n");
     const added = commit("Add Cursor configuration");
 
     // Git detects both moves as renames; the second turns an ignored file into a counted rule.
     git("mv", ".cursorrules", ".cursor/rules/project.mdc");
     git("mv", ".cursor/rules/notes.md", ".cursor/rules/notes.mdc");
+    put(".claude/skills/review/SKILL.md", "Review the change and its tests.\n");
     put(".cursor/rules/testing.mdc", "---\ndescription: Tests\n---\nRun the suite before committing.\n");
     put(
       ".cursor/rules/style.mdc",
@@ -1374,6 +1385,10 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
       );
     assert.deepEqual(labels(revisions[0]), {
       ".agents/skills/release/SKILL.md": ["shared", "skills", "text"],
+      ".claude/skills/SKILL.md": ["claude", "other", "source"],
+      ".codex/skills/README.md": ["cursor", "other", "source"],
+      ".codex/skills/SKILL.md": ["cursor", "other", "source"],
+      ".cursor/skills/SKILL.md": ["cursor", "other", "source"],
       ".claude/skills/review/SKILL.md": ["shared", "skills", "text"],
       ".codex/skills/legacy/SKILL.md": ["cursor", "skills", "text"],
       ".cursor/commands/drafts/old.md": ["cursor", "other", "source"],
@@ -1383,6 +1398,7 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
       ".cursor/rules/notes.md": ["cursor", "other", "source"],
       ".cursor/rules/style.mdc": ["cursor", "rules", "text"],
       ".cursor/skills/draft/SKILL.md": ["cursor", "skills", "text"],
+      ".cursor/skills/manual/SKILL.md": ["cursor", "skills", "text"],
       ".cursor/skills/opam/SKILL.md": ["cursor", "skills", "text"],
       ".cursor/skills/opam/documentation.md": ["cursor", "skills", "source"],
       ".cursorrules": ["cursor", "rules", "text"],
@@ -1403,6 +1419,7 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
       tokens: Math.ceil(Buffer.byteLength("opam\nManage opam switches") / 4),
     });
     assert.equal(listing(".cursor/skills/draft/SKILL.md").status, "unresolved");
+    assert.deepEqual(listing(".cursor/skills/manual/SKILL.md"), { status: "hidden", tokens: 0 });
     assert.deepEqual(listing(".claude/skills/review/SKILL.md"), {
       status: "listed",
       tokens: Math.ceil(Buffer.byteLength("review\nReview the change.") / 4),
@@ -1414,30 +1431,42 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
         [".claude/skills/review", "shared", 0],
         [".codex/skills/legacy", "cursor", 0],
         [".cursor/skills/draft", "cursor", 0],
+        [".cursor/skills/manual", "cursor", 0],
         [".cursor/skills/opam", "cursor", 1],
       ],
     );
 
     // AGENTS.md is one component in All files and appears in the Cursor view without being counted twice.
     const cursorView = viewRevision(revisions[0], "cursor");
-    assert.equal(cursorView.components.length, revisions[0].components.length);
+    assert.deepEqual(
+      revisions[0].components.filter((component) => !cursorView.components.includes(component)).map((c) => c.path),
+      [".claude/skills/SKILL.md"],
+    );
     assert.equal(cursorView.estimatedTokens, revisions[0].estimatedTokens);
     assert.equal(revisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
     assert.deepEqual(
       viewRevision(revisions[0], "claude").components.map((component) => component.path),
-      [".claude/skills/review/SKILL.md", "AGENTS.md"],
+      [".claude/skills/review/SKILL.md", ".claude/skills/SKILL.md", "AGENTS.md"],
     );
     assert.deepEqual(
       viewRevision(revisions[0], "codex").components.map((component) => component.path),
       [".agents/skills/release/SKILL.md", "AGENTS.md"],
     );
     assert.equal(revisions[0].categoryTotals.rules.count, 3);
-    assert.equal(revisions[0].categoryTotals.skills.count, 6);
+    assert.equal(revisions[0].categoryTotals.skills.count, 7);
     assert.equal(revisions[0].categoryTotals.tools.sourceOnlyCount, 1);
-    assert.equal(revisions[0].categoryTotals.other.sourceOnlyCount, 3);
+    assert.equal(revisions[0].categoryTotals.other.sourceOnlyCount, 7);
+    // The Cursor view's listing totals cover every skill it reads, shared ones included.
+    const cursorSkills = revisions[0].components.filter((component) => component.skill?.role === "manifest");
+    assert.equal(
+      cursorView.skillListingTokens,
+      cursorSkills.reduce((sum, component) => sum + (component.skill.listing?.tokens ?? 0), 0),
+    );
+    assert.equal(cursorView.skillListingUnresolved, 1);
 
     assert.deepEqual(report.revisions[1].changes.map((change) => [change.kind, change.path]).sort(), [
       ["added", ".cursor/rules/testing.mdc"],
+      ["modified", ".claude/skills/review/SKILL.md"],
       ["modified", ".cursor/rules/style.mdc"],
       ["renamed", ".cursor/rules/notes.mdc"],
       ["renamed", ".cursor/rules/project.mdc"],
@@ -1455,7 +1484,7 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     );
     assert.equal(revisions[2].categoryTotals.commands.count, 0);
     assert.equal(revisions[2].categoryTotals.rules.count, 5);
-    assert.equal(revisions[2].categoryTotals.other.sourceOnlyCount, 2);
+    assert.equal(revisions[2].categoryTotals.other.sourceOnlyCount, 6);
 
     // `strata diff` uses the same labels; its comparison names the removed legacy file.
     const delta = compareGitCommits(repo, added, migrated);
@@ -1463,6 +1492,12 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     assert.ok(delta.comparison.byProvider.some((group) => group.key === "cursor"));
+    // A .claude/skills change now belongs to the shared row, not Claude's.
+    const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");
+    assert.equal(skillDelta.provider, "shared");
+    const row = (key) => delta.comparison.byProvider.find((group) => group.key === key);
+    assert.equal(row("shared").deltaTokens, skillDelta.deltaTokens);
+    assert.equal(row("claude").deltaTokens, 0);
 
     // Cursor has no count endpoint: its files keep the estimate and their text is never sent.
     // Gemini is counted only for the .agents/skills manifest it shares with Cursor.
@@ -1480,9 +1515,11 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     );
     const counted = report.components.filter((component) => component.providerTokenCounts);
     assert.deepEqual(
-      [...new Set(counted.map((component) => [component.path, Object.keys(component.providerTokenCounts).join()]))]
-        .map(String)
-        .sort(),
+      [
+        ...new Set(
+          counted.map((component) => `${component.path},${Object.keys(component.providerTokenCounts).join()}`),
+        ),
+      ].sort(),
       [".agents/skills/release/SKILL.md,gemini", ".claude/skills/review/SKILL.md,claude", "AGENTS.md,claude"],
     );
 
@@ -1495,6 +1532,7 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     const cursorTab = get("provider-tabs").children.find((child) => child.textContent === "Cursor + shared");
     assert.ok(cursorTab);
     cursorTab.listeners.click();
+    assert.match(get("listing-note").textContent, /Shared skills keep one listing/);
     get("target").value = "0";
     get("target").listeners.change();
     assert.ok(get("files").children.some((row) => row.children[2]?.textContent === "rules (legacy)"));
