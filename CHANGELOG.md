@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/nabondance/strata/compare/v0.3.0...v0.4.0) (2026-10-18)
+
+
+### Features
+
+* add a Cursor configuration adapter ([#30](https://github.com/nabondance/strata/issues/30)) ([0a82ab5](https://github.com/nabondance/strata/commit/0a82ab5c95b8ffaa2a5a2d48086537993adab027))
+* add a GitHub Copilot configuration adapter ([#32](https://github.com/nabondance/strata/issues/32)) ([38bedfa](https://github.com/nabondance/strata/commit/38bedfa3f481f261f01266633b7699155ce394c5))
+* draw the treemap as named category layers that move between revisions ([#33](https://github.com/nabondance/strata/issues/33)) ([42e5438](https://github.com/nabondance/strata/commit/42e5438fe8ec66b95c9420ea31ccf3bd1314ea47))
+* measure the skill name and description agents list before use ([#26](https://github.com/nabondance/strata/issues/26)) ([93f48ca](https://github.com/nabondance/strata/commit/93f48ca985b193918592579edb63e97b89f35bc3))
+* name submodules that hold agent configuration Strata did not analyze ([#27](https://github.com/nabondance/strata/issues/27)) ([049f47c](https://github.com/nabondance/strata/commit/049f47c086121282c65563d1de60af357bc4e563))
+* resolve Claude [@path](https://github.com/path) imports against the Git tree ([#31](https://github.com/nabondance/strata/issues/31)) ([75084d4](https://github.com/nabondance/strata/commit/75084d40d0e1b69403dec48ffac0bd51c4c84d60))
+* separate what each agent reads at session start from on-demand context ([#35](https://github.com/nabondance/strata/issues/35)) ([6f97670](https://github.com/nabondance/strata/commit/6f97670a6af44999b1c438c519611523799ca3eb))
+
 ## [0.3.0](https://github.com/nabondance/strata/compare/v0.2.2...v0.3.0) (2026-10-16)
 
 
