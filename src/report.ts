@@ -6,7 +6,7 @@ import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } fro
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import type { Report } from "./model.js";
-import { categoryColors, categoryInk } from "./palette.js";
+import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "./palette.js";
 import { textRecipients } from "./provider-count.js";
 import { providerReads, viewRevision } from "./provider-view.js";
 import { timelineBuckets } from "./timeline.js";
@@ -117,6 +117,10 @@ export function renderHtml(report: Report): string {
     .legend span { display: inline-flex; align-items: center; gap: 7px; }
     .legend b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
     .swatch { display: inline-block; width: 10px; height: 10px; }
+    .swatch.hollow { border: 2px solid; }
+    .legend-link { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+    .legend-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+    .legend-link:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .chart-scroll { padding: 4px 2px 6px; }
     .chart { display: grid; align-items: end; gap: 2px; height: 220px; width: 100%; border-bottom: 1px solid var(--edge); background: repeating-linear-gradient(to top, transparent 0, transparent 54px, var(--grid) 55px); }
     .bar { border: 0; padding: 0; margin: 0; min-width: 0; background: transparent; display: flex; align-items: end; justify-content: center; height: 100%; cursor: pointer; }
@@ -133,11 +137,16 @@ export function renderHtml(report: Report): string {
     .provider-tab:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     [hidden] { display: none !important; }
     .view-note { margin: 0 0 21px; color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .treemap { position: relative; height: 390px; background: var(--hover); overflow: hidden; }
-    .treemap-leaf { position: absolute; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 2px solid var(--sheet); padding: 9px; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
-    .treemap-leaf:hover, .treemap-leaf:focus-visible { outline: 3px solid var(--ink); outline-offset: -4px; z-index: 2; }
-    .treemap-leaf .leaf-name { display: block; flex-shrink: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 13px; line-height: 1.2; font-weight: 700; }
-    .treemap-leaf .leaf-size { flex-shrink: 0; margin-top: auto; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    .treemap { position: relative; height: 390px; background: var(--sheet); overflow: hidden; }
+    .treemap-leaf, .treemap-group { transition: left .32s ease, top .32s ease, width .32s ease, height .32s ease; }
+    .treemap-leaf { position: absolute; z-index: 1; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 5px; border: 0; padding: 8px 9px; overflow: hidden; text-align: left; cursor: pointer; font: inherit; }
+    /* A rectangle too small for a label has no padding, which would otherwise make it taller than its share. */
+    .treemap-leaf:empty { padding: 0; }
+    .treemap-leaf.entering { animation: treemap-in .32s ease both; }
+    @keyframes treemap-in { from { opacity: 0; } }
+    .treemap-leaf:hover, .treemap-leaf:focus-visible { outline: 3px solid var(--ink); outline-offset: -3px; z-index: 2; }
+    .treemap-leaf .leaf-name { display: block; flex-shrink: 0; max-width: 100%; overflow-wrap: normal; font-size: 13px; line-height: 1.2; font-weight: 700; }
+    .treemap-leaf .leaf-size { flex-shrink: 0; margin-top: auto; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; opacity: .78; }
     .treemap-leaf [hidden] { display: none; }
     .treemap-leaf.upright .leaf-name { writing-mode: vertical-rl; max-width: none; max-height: 100%; overflow: hidden; overflow-wrap: normal; white-space: nowrap; text-overflow: ellipsis; }
     .treemap-leaf.compact { padding: 3px 5px; }
@@ -146,7 +155,10 @@ export function renderHtml(report: Report): string {
     .treemap-leaf.changed.edited::after { border-style: dashed; }
     .ring { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--ink); }
     .ring.dashed { border-style: dashed; }
-    .treemap-group { position: absolute; border: 3px solid var(--sheet); pointer-events: none; z-index: 1; }
+    .treemap-group { position: absolute; z-index: 0; pointer-events: none; overflow: hidden; }
+    .treemap-group .group-name { display: block; padding: 0 9px; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; text-overflow: ellipsis; white-space: nowrap; }
+    .treemap-group .group-name b { margin-left: 8px; font-weight: 400; opacity: .72; }
+    @media (prefers-reduced-motion: reduce) { .treemap-leaf, .treemap-group { transition: none; } .treemap-leaf.entering { animation: none; } }
     .treemap-hover { min-height: 2.9em; margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .treemap-hover.detail { color: var(--ink); }
     .skill-toggle, .more { margin-top: 13px; border: 1px solid var(--edge); padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
@@ -283,6 +295,8 @@ export function renderHtml(report: Report): string {
     const providerColumns = (data.providerMeasurements ?? []).map((measured) => measured.provider);
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};
+    const shades = ${JSON.stringify(categoryShade)};
+    const shadeInks = ${JSON.stringify(categoryShadeInk)};
     const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);
@@ -435,14 +449,37 @@ export function renderHtml(report: Report): string {
       for (const category of categories) {
         if (!viewRevisions.some((revision) => revision.categoryTotals[category].count)) continue;
         const total = viewRevisions[selected].categoryTotals[category];
-        const label = text('span', category);
-        // Source-only categories have no tokens to show, so they give their file count.
-        label.append(text('b', total.count && total.count === total.sourceOnlyCount ? fmt(total.count) + (total.count === 1 ? ' file' : ' files') : fmt(total.estimatedTokens)));
-        const swatch = text('i', '', 'swatch');
-        swatch.style.background = colors[category];
+        const sourceOnly = total.count && total.count === total.sourceOnlyCount;
+        const files = fmt(total.count) + (total.count === 1 ? ' file' : ' files');
+        // Source-only categories have no tokens and no area in the chart or treemap, so they give their
+        // file count, draw a hollow swatch, and lead to their files instead.
+        const label = text(sourceOnly ? 'button' : 'span', category, sourceOnly ? 'legend-link' : '');
+        label.append(text('b', sourceOnly ? files : fmt(total.estimatedTokens)));
+        const swatch = text('i', '', sourceOnly ? 'swatch hollow' : 'swatch');
+        if (sourceOnly) {
+          label.type = 'button';
+          label.title = category + ': ' + files + ' measured in bytes, not tokens, so not drawn. Show in the file list.';
+          label.setAttribute('aria-label', label.title);
+          swatch.style.borderColor = colors[category];
+          label.addEventListener('click', () => showCategoryFiles(category));
+        } else {
+          swatch.style.background = colors[category];
+        }
         label.prepend(swatch);
         legend.append(label);
       }
+    }
+
+    function showCategoryFiles(category) {
+      providerFilter = '';
+      categoryFilter = category;
+      pathSearch = '';
+      $('provider-filter').value = '';
+      $('category-filter').value = category;
+      $('path-search').value = '';
+      $('files-panel').open = true;
+      renderInventory();
+      $('files-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
 
     function renderChart() {
@@ -648,25 +685,61 @@ export function renderHtml(report: Report): string {
       }
     }
 
-    function renderTreemap() {
-      const layout = layoutTreemap(viewRevisions[selected].components);
+    // Gaps and the category header are in pixels, so the layout is redone when the treemap is resized.
+    const treemapFrame = { gap: 4, seam: 1, header: 22, wide: 2 };
+    // What each rectangle was drawn for, so the next revision can move it rather than redraw it.
+    let treemapDrawn = new Map();
+
+    function renderTreemap(animate = true) {
+      const root = $('treemap');
+      const box = root.getBoundingClientRect();
+      const frame = box.width > 0 && box.height > 0 ? { ...treemapFrame, width: box.width, height: box.height } : undefined;
+      const layout = layoutTreemap(viewRevisions[selected].components, frame);
+      const toPercent = (rect) => ({ x: rect.x / (frame?.width ?? 100) * 100, y: rect.y / (frame?.height ?? 100) * 100, width: rect.width / (frame?.width ?? 100) * 100, height: rect.height / (frame?.height ?? 100) * 100 });
+      const place = (node, rect) => {
+        node.style.left = rect.x + '%';
+        node.style.top = rect.y + '%';
+        node.style.width = rect.width + '%';
+        node.style.height = rect.height + '%';
+      };
+      // Where each rectangle is on screen now, partway through a move included, to start the next move from.
+      const motion = frame && animate && treemapDrawn.size && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const before = new Map();
+      if (motion) {
+        for (const [key, node] of treemapDrawn) {
+          const at = node.getBoundingClientRect();
+          before.set(key, { x: (at.left - box.left) / box.width * 100, y: (at.top - box.top) / box.height * 100, width: at.width / box.width * 100, height: at.height / box.height * 100 });
+        }
+      }
+      const drawnNow = new Map();
       const changedHere = new Map(viewRevisions[selected].changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
       let outlined = 0;
-      const root = $('treemap');
       const treeLegend = $('treemap-legend');
       root.replaceChildren();
       treeLegend.replaceChildren();
       treemapLabels = [];
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
       for (const group of layout.groups) {
+        // The category's block shows through as the band holding its name and the seams between its files.
+        const block = text('div', '', 'treemap-group');
+        block.setAttribute('aria-hidden', 'true');
+        place(block, toPercent(group));
+        block.style.background = shades[group.category];
+        block.style.color = shadeInks[group.category];
+        if (group.headed) {
+          const name = text('span', group.category, 'group-name');
+          name.style.lineHeight = treemapFrame.header + 'px';
+          name.append(text('b', fmt(group.estimatedTokens)));
+          block.append(name);
+        }
+        root.append(block);
+        drawnNow.set('category:' + group.category, block);
         for (const leaf of group.leaves) {
           const component = viewRevisions[selected].components[leaf.componentIndex];
+          const share = toPercent(leaf);
           const button = text('button', '', 'treemap-leaf');
           button.type = 'button';
-          button.style.left = leaf.x + '%';
-          button.style.top = leaf.y + '%';
-          button.style.width = leaf.width + '%';
-          button.style.height = leaf.height + '%';
+          place(button, share);
           button.style.background = colors[component.category];
           button.style.color = inks[component.category];
           const change = changedHere.get(component.path);
@@ -679,13 +752,13 @@ export function renderHtml(report: Report): string {
             outlined += 1;
           }
           // Rectangles too small for even one short line stay unlabeled; fitTreemapLabels decides the rest.
-          if (leaf.width >= 3.5 && leaf.height >= 5.5) {
+          if (share.width >= 3.5 && share.height >= 5.5) {
             const label = component.skill?.role === 'manifest' ? component.skill.root.split('/').at(-1) : component.path.split('/').at(-1);
             const name = text('span', label, 'leaf-name');
             const size = text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size');
             button.append(name, size);
             treemapLabels.push({ button, name, size });
-            if (leaf.width >= 28 && leaf.height >= 22 && leaf.width * leaf.height >= 700) button.classList.add('large');
+            if (share.width >= 28 && share.height >= 22 && share.width * share.height >= 700) button.classList.add('large');
           }
           const showDetail = () => { $('treemap-hover').textContent = detail; $('treemap-hover').classList.add('detail'); };
           const clearDetail = () => { $('treemap-hover').textContent = treemapNote; $('treemap-hover').classList.remove('detail'); };
@@ -707,13 +780,8 @@ export function renderHtml(report: Report): string {
             row?.focus({ preventScroll: true });
           });
           root.append(button);
+          drawnNow.set('file:' + component.path, button);
         }
-        const outline = text('div', '', 'treemap-group');
-        outline.style.left = group.x + '%';
-        outline.style.top = group.y + '%';
-        outline.style.width = group.width + '%';
-        outline.style.height = group.height + '%';
-        root.append(outline);
       }
       treeLegend.hidden = !outlined;
       if (outlined) {
@@ -723,12 +791,31 @@ export function renderHtml(report: Report): string {
           treeLegend.append(entry);
         }
       }
-      treemapNote = (outlined ? fmt(outlined) + ' outlined files changed at this revision · ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized · ' + fmt(layout.sourceOnlyCount) + ' source-only · ' + fmt(layout.zeroTokenCount) + ' zero-token files';
+      treemapNote = (outlined ? fmt(outlined) + ' outlined files changed at this revision · ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized · ' + fmt(layout.sourceOnlyCount) + ' source-only' + sourceOnlyCategories() + ' · ' + fmt(layout.zeroTokenCount) + ' zero-token files';
       $('treemap-hover').textContent = treemapNote;
       $('treemap-hover').classList.remove('detail');
       drawn.treemap = viewRevisions[selected].components;
       drawn.outlined = outlined;
       fitTreemapLabels();
+      treemapDrawn = drawnNow;
+      if (!motion) return;
+      // Labels were fitted to where each rectangle ends up; now start each one from where it was and let it move.
+      const moving = [];
+      for (const [key, node] of drawnNow) {
+        const from = before.get(key);
+        if (!from) {
+          if (node.className === 'treemap-leaf') node.classList.add('entering');
+          continue;
+        }
+        moving.push([node, { left: node.style.left, top: node.style.top, width: node.style.width, height: node.style.height }]);
+        node.style.transition = 'none';
+        place(node, from);
+      }
+      root.getBoundingClientRect();
+      for (const [node, to] of moving) {
+        node.style.transition = '';
+        Object.assign(node.style, to);
+      }
     }
 
     function fitTreemapLabels() {
@@ -748,7 +835,8 @@ export function renderHtml(report: Report): string {
           return [box.bottom - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth), box.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth)];
         };
         let [bottom, right] = inner();
-        const nameFits = () => name.getBoundingClientRect().bottom <= bottom + 1 && name.scrollHeight <= name.clientHeight + 1;
+        // A name breaks only where it has a hyphen, so a part wider than the rectangle does not fit either.
+        const nameFits = () => name.getBoundingClientRect().bottom <= bottom + 1 && name.scrollHeight <= name.clientHeight + 1 && !(name.scrollWidth > name.clientWidth + 1);
         const nameBox = name.getBoundingClientRect();
         const sizeBox = size.getBoundingClientRect();
         if (!nameFits() || sizeBox.top < nameBox.bottom + 5 || sizeBox.bottom > bottom + 1 || sizeBox.right > right + 1) {
@@ -806,6 +894,11 @@ export function renderHtml(report: Report): string {
       return ' (' + (data.measurement.accuracy === 'estimate' ? 'byte estimate' : data.measurement.encoding + ' encoding') + ')';
     }
     // A superseded format, such as .cursorrules, keeps its category but says it is legacy.
+    // The categories of the selected revision's source-only files, as a clause after their count.
+    function sourceOnlyCategories() {
+      const found = [...new Set(viewRevisions[selected].components.filter((component) => component.estimatedTokens === null).map((component) => component.category))];
+      return found.length ? ' (' + found.join(', ') + ')' : '';
+    }
     function categoryLabel(component) {
       return component.category + (component.legacy ? ' (legacy)' : '');
     }
@@ -910,7 +1003,14 @@ export function renderHtml(report: Report): string {
       if (drawn.inventory !== revision.components) renderInventory();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
-    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fitTreemapLabels).observe($('treemap'));
+    if (typeof ResizeObserver !== 'undefined') {
+      let treemapWidth = 0;
+      new ResizeObserver(([entry]) => {
+        if (Math.abs(entry.contentRect.width - treemapWidth) < 1) return;
+        treemapWidth = entry.contentRect.width;
+        renderTreemap(false);
+      }).observe($('treemap'));
+    }
     render(selected);
   </script>
 </body>
