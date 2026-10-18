@@ -14,6 +14,8 @@ export interface Component {
   /** On `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`): Gemini CLI reads it only while `context.fileName` names it. */
   contextFile?: ContextFile;
   category: Category;
+  /** On a format its provider documents as superseded but still reads: the root `.cursorrules`. */
+  legacy?: true;
   blob: string;
   bytes: number;
   estimatedTokens: number | null;
@@ -94,7 +96,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 13;
+  schemaVersion: 14;
   repository: string;
   branch: string;
   shallow: boolean;

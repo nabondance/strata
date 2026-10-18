@@ -320,7 +320,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 13,
+    schemaVersion: 14,
     repository: basename(root),
     branch,
     shallow,

@@ -50,7 +50,7 @@ Schema version 12 adds `submodules`: one entry per submodule present at the last
 
 ```json
 {
-  "schemaVersion": 13,
+  "schemaVersion": 14,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -66,7 +66,7 @@ Schema version 12 adds `submodules`: one entry per submodule present at the last
     "implementation": "strata-v1"
   },
   "components": [{
-    "path": "AGENTS.md", "provider": "shared", "readers": ["claude", "codex"], "category": "instructions",
+    "path": "AGENTS.md", "provider": "shared", "readers": ["claude", "codex", "cursor"], "category": "instructions",
     "blob": "<Git blob ID>", "bytes": 8, "estimatedTokens": 2
   }],
   "revisions": [{
@@ -88,9 +88,11 @@ Schema version 12 adds `submodules`: one entry per submodule present at the last
 
 Schema version 13 adds a `listing` to the `skill` object of each skill manifest and `skillListingTokens` and `skillListingUnresolved` totals to each revision; see [Skill listings](#skill-listings). Revisions from earlier versions have neither.
 
+Schema version 14 adds the `cursor` provider for `.cursor/rules/**/*.mdc`, the root `.cursorrules`, `.cursor/commands/*.md`, `.cursor/mcp.json`, and other candidate files under `.cursor/`, and adds `cursor` to the `readers` of `AGENTS.md`, which stays one shared component counted once. A component may carry `legacy: true`, set only on the root `.cursorrules`: Cursor still reads it but documents `.cursor/rules` as its replacement, so the report keeps it in `rules` and labels it instead of hiding the difference. The label is not a path, so it survives `--shareable`, and it identifies the root `.cursorrules` behind its alias. Rule frontmatter (`alwaysApply`, `globs`, `description`) is stored text like any other and is not interpreted, so the report does not claim which rules were active. Cursor has no `--precise` count; its files keep the report's measurement. Reports from version 13 and earlier list `AGENTS.md` readers without Cursor and recognize no Cursor files. [The adapter study](next-adapter.md) records the evidence for each pattern.
+
 The actual `categoryTotals` has an entry for every category. Skill components have a `skill` object with directory root and `manifest` or `resource` role. The HTML report's skill-bundle table summarizes those same files, separating manifest token estimates from resource byte sizes; these summaries are not additional measurements. Default HTML and JSON contain commit IDs, dates, paths, provider/category labels, blob IDs, byte sizes, and estimates. They contain no source text. Paths and blob IDs can still disclose repository structure. HTML and JSON reports are local artifacts; the CLI writes them with mode `0600`. The HTML report carries a Content-Security-Policy that allows only its own inline style and script, so a browser will not load anything from the network on its behalf. The default measurement modes make no network request and upload no content. Explicit `--precise` (or deprecated `--provider-api`) mode sends recognized Claude and Gemini instructional text to the provider APIs it finds credentials for; reports store counts and measurement metadata, not submitted text, credentials, or the Google Cloud project.
 
-`--shareable` produces schema version 13 with `privacy.mode: "shareable"`. It replaces repository and branch names, commit and first-parent IDs, component and change paths, skill roots, submodule paths, and blob IDs with deterministic aliases local to that report. The alias maps are not embedded. Dates, category and provider labels, counts, byte sizes, estimates, change kinds, and timeline shape remain visible. The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect before publishing.
+`--shareable` produces schema version 14 with `privacy.mode: "shareable"`. It replaces repository and branch names, commit and first-parent IDs, component and change paths, skill roots, submodule paths, and blob IDs with deterministic aliases local to that report. The alias maps are not embedded. Dates, category and provider labels, `readers`, `contextFile`, and `legacy` labels, counts, byte sizes, estimates, change kinds, and timeline shape remain visible. Some labels narrow an alias to a well-known path: `legacy` is set only on the root `.cursorrules`, as Claude `tools` is only the root `.mcp.json`. The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect before publishing.
 
 ## Skill listings
 
@@ -142,4 +144,4 @@ The image contains the repository and branch names, the first and last charted d
 
 ## Pull-request comparison
 
-`strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and selected measurement mode as the history report. Its JSON has a separate schema version 6, whose compared components carry the report's provider labels (so `.agents/skills` files are `shared`); it has no provider views. Version 6 adds the comparison's `skillListing` totals, with the manifests at each side and the unresolved ones the totals leave out, and a `listing` on each changed skill manifest, measured as in [Skill listings](#skill-listings); the Markdown adds a listed-token line when either commit has a skill manifest and a `Δ listed` column when a manifest changed. With `--precise` it adds `providerMeasurements` and `providerTotals`, resolving each commit's Gemini settings to decide which context files Gemini reads; Markdown is intended for a local file or an opt-in GitHub Actions job summary. Paths and commit IDs are visible, but source text is not. The composite Action does not post comments or enforce a token budget.
+`strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and selected measurement mode as the history report. Its JSON has a separate schema version 7, whose compared components carry the report's provider labels (so `.agents/skills` files are `shared`); it has no provider views. Version 6 adds the comparison's `skillListing` totals, with the manifests at each side and the unresolved ones the totals leave out, and a `listing` on each changed skill manifest, measured as in [Skill listings](#skill-listings); the Markdown adds a listed-token line when either commit has a skill manifest and a `Δ listed` column when a manifest changed. Version 7 recognizes Cursor files, so compared components and `byProvider` can carry `cursor`, and a changed `.cursorrules` carries `legacy: true`; the same two commits can give larger totals than under version 6. With `--precise` it adds `providerMeasurements` and `providerTotals`, resolving each commit's Gemini settings to decide which context files Gemini reads; Markdown is intended for a local file or an opt-in GitHub Actions job summary. Paths and commit IDs are visible, but source text is not. The composite Action does not post comments or enforce a token budget.

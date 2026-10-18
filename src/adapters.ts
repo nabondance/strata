@@ -11,7 +11,7 @@ export const categories = [
 ] as const;
 
 export type Category = (typeof categories)[number];
-export type Provider = "claude" | "codex" | "gemini" | "shared" | "unknown";
+export type Provider = "claude" | "codex" | "cursor" | "gemini" | "shared" | "unknown";
 /**
  * Context files whose Gemini CLI loading depends on `context.fileName`: `AGENTS.md` and `GEMINI.md`.
  * The labels are not the file names, so they cannot match a path a shareable report aliases.
@@ -29,6 +29,8 @@ export interface Classification {
   readers?: Provider[];
   /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
   contextFile?: ContextFile;
+  /** Set on a format the provider still reads but documents as superseded, such as `.cursorrules`. */
+  legacy?: true;
   skillRoot?: string;
   skillRole?: "manifest" | "resource";
 }
@@ -152,9 +154,31 @@ function shared(_path: string, parts: string[]): Classification | null {
         provider: "shared",
         category: "instructions",
         instructionalText: true,
-        readers: ["claude", "codex"],
+        readers: ["claude", "codex", "cursor"],
         contextFile: "agents-md",
       }
+    : null;
+}
+
+function cursor(path: string, parts: string[]): Classification | null {
+  // Cursor still reads a root `.cursorrules`, but documents `.cursor/rules` as its replacement.
+  if (path === ".cursorrules") return { provider: "cursor", category: "rules", instructionalText: true, legacy: true };
+  const index = parts.indexOf(".cursor");
+  if (index < 0) return null;
+  const within = parts.slice(index + 1);
+  const filename = parts.at(-1) ?? "";
+  // Cursor ignores a rule file without the `.mdc` extension, so plain Markdown there stays `other`.
+  if (within[0] === "rules" && within.length >= 2 && filename.endsWith(".mdc")) {
+    return { provider: "cursor", category: "rules", instructionalText: true };
+  }
+  if (within[0] === "commands" && within.length === 2 && filename.endsWith(".md")) {
+    return { provider: "cursor", category: "commands", instructionalText: true };
+  }
+  if (within.length === 1 && filename === "mcp.json") {
+    return { provider: "cursor", category: "tools", instructionalText: false };
+  }
+  return /\.(?:md|mdc|json)$/.test(filename)
+    ? { provider: "cursor", category: "other", instructionalText: false }
     : null;
 }
 
@@ -162,7 +186,7 @@ function candidateExtension(filename: string | undefined): boolean {
   return /\.(?:md|json|toml|rules)$/.test(filename ?? "");
 }
 
-const adapters: Adapter[] = [skill, shared, codex, claude, gemini];
+const adapters: Adapter[] = [skill, shared, codex, claude, gemini, cursor];
 
 export function classify(path: string): Classification | null {
   const parts = path.split("/");

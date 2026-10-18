@@ -392,7 +392,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 13);
+    assert.equal(providerApiReport.schemaVersion, 14);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -476,7 +476,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 6);
+    assert.equal(prDelta.schemaVersion, 7);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -493,7 +493,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 13);
+    assert.equal(report.schemaVersion, 14);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -862,7 +862,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 13);
+    assert.equal(openAiReport.schemaVersion, 14);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -913,7 +913,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 13],
+      ["gpt-4o", "o200k_base", 14],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
@@ -1287,6 +1287,166 @@ test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's 
         [".gemini/skills", "gemini", ".gemini/skills/SKILL.md"],
       ],
     );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENTS.md with Cursor", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "strata-cursor-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  const put = (path, content) => {
+    const fullPath = join(repo, path);
+    mkdirSync(join(fullPath, ".."), { recursive: true });
+    writeFileSync(fullPath, content);
+  };
+  const commit = (message) => {
+    git("add", "-A");
+    git("commit", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+  try {
+    git("init", "-b", "main");
+    git("config", "user.name", "Strata Test");
+    git("config", "user.email", "strata-test@example.invalid");
+    put("AGENTS.md", "Shared project instructions.\n");
+    put(".cursorrules", "Legacy Cursor rules for the whole project.\n");
+    put("packages/web/.cursorrules", "Not read: only the root file is.\n");
+    put(".cursor/rules/style.mdc", "---\ndescription: Code style\nalwaysApply: true\n---\nUse two spaces.\n");
+    put(
+      "packages/web/.cursor/rules/react/components.mdc",
+      "---\nglobs: src/**/*.tsx\nalwaysApply: false\n---\nPrefer function components.\n",
+    );
+    put(".cursor/rules/notes.md", "Plain Markdown that Cursor ignores as a rule.\n");
+    put(".cursor/commands/review.md", "Review the staged changes.\n");
+    put(".cursor/commands/drafts/old.md", "Not a top-level command.\n");
+    put(".cursor/mcp.json", '{"mcpServers":{"docs":{"url":"https://example.invalid/mcp"}}}\n');
+    const added = commit("Add Cursor configuration");
+
+    // Git detects both moves as renames; the second turns an ignored file into a counted rule.
+    git("mv", ".cursorrules", ".cursor/rules/project.mdc");
+    git("mv", ".cursor/rules/notes.md", ".cursor/rules/notes.mdc");
+    put(".cursor/rules/testing.mdc", "---\ndescription: Tests\n---\nRun the suite before committing.\n");
+    put(
+      ".cursor/rules/style.mdc",
+      "---\ndescription: Code style\nalwaysApply: true\n---\nUse two spaces, never tabs.\n",
+    );
+    const migrated = commit("Move legacy rules into .cursor/rules");
+
+    rmSync(join(repo, ".cursor/commands/review.md"));
+    commit("Remove the review command");
+
+    const sentBodies = [];
+    const report = await analyzeRepository(repo, {
+      providerCounts: {
+        claudeModel: "claude-test-model",
+        geminiModel: "gemini-test-model",
+        anthropicApiKey: "anthropic-test-key",
+        geminiApiKey: "gemini-test-key",
+        fetchImpl: async (url, init) => {
+          sentBodies.push(init.body);
+          return new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      },
+    });
+    assert.equal(report.schemaVersion, 14);
+    const revisions = expandRevisions(report);
+    const labels = (revision) =>
+      Object.fromEntries(
+        revision.components.map((component) => [
+          component.path,
+          [component.provider, component.category, component.estimatedTokens === null ? "source" : "text"],
+        ]),
+      );
+    assert.deepEqual(labels(revisions[0]), {
+      ".cursor/commands/drafts/old.md": ["cursor", "other", "source"],
+      ".cursor/commands/review.md": ["cursor", "commands", "text"],
+      ".cursor/mcp.json": ["cursor", "tools", "source"],
+      ".cursor/rules/notes.md": ["cursor", "other", "source"],
+      ".cursor/rules/style.mdc": ["cursor", "rules", "text"],
+      ".cursorrules": ["cursor", "rules", "text"],
+      "AGENTS.md": ["shared", "instructions", "text"],
+      "packages/web/.cursor/rules/react/components.mdc": ["cursor", "rules", "text"],
+    });
+    const byPath = new Map(revisions[0].components.map((component) => [component.path, component]));
+    assert.equal(byPath.get(".cursorrules").legacy, true);
+    assert.ok(revisions[0].components.every((component) => component.path === ".cursorrules" || !component.legacy));
+    assert.deepEqual(byPath.get("AGENTS.md").readers, ["claude", "codex", "cursor"]);
+
+    // AGENTS.md is one component in All files and appears in the Cursor view without being counted twice.
+    const cursorView = viewRevision(revisions[0], "cursor");
+    assert.equal(cursorView.components.length, revisions[0].components.length);
+    assert.equal(cursorView.estimatedTokens, revisions[0].estimatedTokens);
+    assert.equal(revisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.deepEqual(
+      viewRevision(revisions[0], "claude").components.map((component) => component.path),
+      ["AGENTS.md"],
+    );
+    assert.equal(revisions[0].categoryTotals.rules.count, 3);
+    assert.equal(revisions[0].categoryTotals.tools.sourceOnlyCount, 1);
+    assert.equal(revisions[0].categoryTotals.other.sourceOnlyCount, 2);
+
+    assert.deepEqual(report.revisions[1].changes.map((change) => [change.kind, change.path]).sort(), [
+      ["added", ".cursor/rules/testing.mdc"],
+      ["modified", ".cursor/rules/style.mdc"],
+      ["renamed", ".cursor/rules/notes.mdc"],
+      ["renamed", ".cursor/rules/project.mdc"],
+    ]);
+    const renamed = new Map(report.revisions[1].changes.map((change) => [change.path, change]));
+    assert.equal(renamed.get(".cursor/rules/project.mdc").previousPath, ".cursorrules");
+    assert.equal(renamed.get(".cursor/rules/notes.mdc").previousTokens, null);
+    assert.ok(renamed.get(".cursor/rules/notes.mdc").estimatedTokens > 0);
+    const project = revisions[1].components.find((component) => component.path === ".cursor/rules/project.mdc");
+    assert.equal(project.blob, byPath.get(".cursorrules").blob);
+    assert.equal(project.legacy, undefined);
+    assert.deepEqual(
+      report.revisions[2].changes.map((change) => [change.kind, change.path]),
+      [["removed", ".cursor/commands/review.md"]],
+    );
+    assert.equal(revisions[2].categoryTotals.commands.count, 0);
+    assert.equal(revisions[2].categoryTotals.rules.count, 5);
+    assert.equal(revisions[2].categoryTotals.other.sourceOnlyCount, 1);
+
+    // `strata diff` uses the same labels; its comparison names the removed legacy file.
+    const delta = compareGitCommits(repo, added, migrated);
+    assert.equal(delta.schemaVersion, 7);
+    const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
+    assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
+    assert.ok(delta.comparison.byProvider.some((group) => group.key === "cursor"));
+
+    // Cursor has no count endpoint: its files keep the estimate and their text is never sent.
+    assert.deepEqual(
+      report.providerMeasurements.map((measured) => measured.provider),
+      ["claude"],
+    );
+    assert.ok(report.revisions.every((revision) => !("cursor" in (revision.providerTokenTotals ?? {}))));
+    assert.ok(sentBodies.some((body) => body.includes("Shared project instructions.")));
+    assert.ok(!sentBodies.some((body) => /two spaces|function components|Legacy Cursor|staged changes/.test(body)));
+    assert.ok(
+      report.components.every(
+        (component) => component.path === "AGENTS.md" || component.providerTokenCounts === undefined,
+      ),
+    );
+
+    // The legacy label is not a path, so a shareable report keeps it.
+    const shareable = redactReport(report);
+    assert.equal(shareable.components.filter((component) => component.legacy).length, 1);
+    assert.ok(!JSON.stringify(shareable).includes(".cursorrules"));
+
+    const { get } = loadReportUi(renderHtml(report));
+    const cursorTab = get("provider-tabs").children.find((child) => child.textContent === "Cursor + shared");
+    assert.ok(cursorTab);
+    cursorTab.listeners.click();
+    get("target").value = "0";
+    get("target").listeners.change();
+    assert.ok(get("files").children.some((row) => row.children[2]?.textContent === "rules (legacy)"));
+    // The comparison that migrates the file names it legacy too.
+    get("target").value = "1";
+    get("target").listeners.change();
+    assert.ok(get("compare-components").children.some((row) => row.children[2]?.textContent === "rules (legacy)"));
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

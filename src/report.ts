@@ -635,7 +635,7 @@ export function renderHtml(report: Report): string {
         row.tabIndex = -1;
         const tokensCell = text('td', component.estimatedTokens === null ? '—' : fmt(component.estimatedTokens), 'num');
         if (component.skill?.listing) tokensCell.title = listingLabel(component).slice(3);
-        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', component.category, 'kind'), tokensCell, text('td', fmt(component.bytes), 'num'));
+        row.append(text('td', component.path, 'path'), text('td', component.provider, 'kind'), text('td', categoryLabel(component), 'kind'), tokensCell, text('td', fmt(component.bytes), 'num'));
         for (const provider of providerColumns) {
           // A Gemini context file has a Gemini count only for revisions whose settings make Gemini read it.
           const count = providerReads(component, provider, revision.geminiContextFiles) ? component.providerTokenCounts?.[provider] : undefined;
@@ -671,7 +671,7 @@ export function renderHtml(report: Report): string {
           button.style.color = inks[component.category];
           const change = changedHere.get(component.path);
           const changeLabel = !change ? '' : change.kind === 'added' ? ' · added at this revision' : change.kind === 'renamed' ? ' · renamed at this revision from ' + change.previousPath : ' · edited at this revision';
-          const detail = component.path + ' · ' + component.provider + ' / ' + component.category + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + listingLabel(component) + changeLabel;
+          const detail = component.path + ' · ' + component.provider + ' / ' + categoryLabel(component) + ' · ' + fmt(leaf.estimatedTokens) + ' stored-text tokens' + listingLabel(component) + changeLabel;
           button.setAttribute('aria-label', detail);
           if (change) {
             button.classList.add('changed');
@@ -804,6 +804,10 @@ export function renderHtml(report: Report): string {
       if (activeMeasure === 'estimate') return '';
       return ' (' + (data.measurement.accuracy === 'estimate' ? 'byte estimate' : data.measurement.encoding + ' encoding') + ')';
     }
+    // A superseded format, such as .cursorrules, keeps its category but says it is legacy.
+    function categoryLabel(component) {
+      return component.category + (component.legacy ? ' (legacy)' : '');
+    }
     // How a skill manifest is listed before use, as a clause after its stored-text tokens.
     function listingLabel(component) {
       const listing = component.skill?.listing;
@@ -871,7 +875,7 @@ export function renderHtml(report: Report): string {
       }
       for (const component of capped('compare-components', comparison.components, 25, renderComparison)) {
         const row = document.createElement('tr');
-        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', component.category), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)), listingDeltaCell(component.listing));
+        row.append(text('td', component.path, 'path'), text('td', component.provider), text('td', categoryLabel(component)), text('td', component.kind), text('td', component.beforeTokens === null && component.afterTokens === null ? 'source only' : signed(component.deltaTokens), 'num ' + tone(component.deltaTokens)), listingDeltaCell(component.listing));
         body.append(row);
       }
     }

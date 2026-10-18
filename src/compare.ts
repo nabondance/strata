@@ -18,6 +18,8 @@ export interface ComponentDelta {
   path: string;
   provider: Component["provider"];
   category: Component["category"];
+  /** Set when the file is a superseded format its provider still reads, such as `.cursorrules`. */
+  legacy?: true;
   kind: "added" | "removed" | "edited";
   beforeTokens: number | null;
   afterTokens: number | null;
@@ -102,6 +104,7 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
       path: component.path,
       provider: component.provider,
       category: component.category,
+      ...(component.legacy ? { legacy: true as const } : {}),
       kind: !oldComponent ? "added" : !newComponent ? "removed" : "edited",
       beforeTokens: oldComponent?.estimatedTokens ?? null,
       afterTokens: newComponent?.estimatedTokens ?? null,
