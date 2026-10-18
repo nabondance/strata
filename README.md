@@ -7,13 +7,13 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/v/context-strata?style=flat-square" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
-  <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square" alt="license">
+  <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
+  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
+  <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs-offline-blue?style=flat-square" alt="runs offline">
   <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square&labelColor=555&color=blue" alt="stored agent context tokens on main"></a>
-  <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
 </p>
 
 **See how your agent context evolved across Git history.**
