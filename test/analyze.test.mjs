@@ -557,7 +557,7 @@ test("tracks configuration across first-parent history without reading untracked
       (component) => component.path === ".agents/skills/release/references/checklist.md",
     );
     assert.equal(checklist?.provider, "shared");
-    assert.deepEqual(checklist?.readers, ["codex", "gemini"]);
+    assert.deepEqual(checklist?.readers, ["codex", "cursor", "gemini"]);
     assert.equal(checklist?.category, "skills");
     assert.equal(checklist?.estimatedTokens, null);
     assert.deepEqual(checklist?.skill, { root: ".agents/skills/release", role: "resource" });
@@ -569,7 +569,7 @@ test("tracks configuration across first-parent history without reading untracked
       {
         root: ".agents/skills/release",
         provider: "shared",
-        readers: ["codex", "gemini"],
+        readers: ["codex", "cursor", "gemini"],
         manifestPath: ".agents/skills/release/SKILL.md",
         manifestEstimatedTokens: revisions[0].components.find(
           (component) => component.path === ".agents/skills/release/SKILL.md",
@@ -580,7 +580,8 @@ test("tracks configuration across first-parent history without reading untracked
       },
       {
         root: ".claude/skills/orphan",
-        provider: "claude",
+        provider: "shared",
+        readers: ["claude", "cursor"],
         manifestPath: null,
         manifestEstimatedTokens: 0,
         listing: null,
@@ -1321,6 +1322,16 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     put(".cursor/commands/review.md", "Review the staged changes.\n");
     put(".cursor/commands/drafts/old.md", "Not a top-level command.\n");
     put(".cursor/mcp.json", '{"mcpServers":{"docs":{"url":"https://example.invalid/mcp"}}}\n');
+    put(".cursor/hooks.json", '{"version":1,"hooks":{}}\n');
+    // Projects keep their own notes under .cursor/; they are not Cursor configuration.
+    put(".cursor/NOTES.md", "Scratch notes.\n");
+    put(".cursor/docs/reports/benchmark.md", "A benchmark report.\n");
+    put(".cursor/skills/opam/SKILL.md", "---\nname: opam\ndescription: Manage opam switches\n---\nSteps.\n");
+    put(".cursor/skills/opam/documentation.md", "Reference.\n");
+    put(".cursor/skills/draft/SKILL.md", "No frontmatter, so Cursor cannot list it.\n");
+    put(".codex/skills/legacy/SKILL.md", "---\nname: legacy\ndescription: Read by Cursor only\n---\nBody.\n");
+    put(".agents/skills/release/SKILL.md", "---\nname: release\ndescription: Cut a release\n---\nBody.\n");
+    put(".claude/skills/review/SKILL.md", "Review the change.\n");
     const added = commit("Add Cursor configuration");
 
     // Git detects both moves as renames; the second turns an ignored file into a counted rule.
@@ -1362,11 +1373,18 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
         ]),
       );
     assert.deepEqual(labels(revisions[0]), {
+      ".agents/skills/release/SKILL.md": ["shared", "skills", "text"],
+      ".claude/skills/review/SKILL.md": ["shared", "skills", "text"],
+      ".codex/skills/legacy/SKILL.md": ["cursor", "skills", "text"],
       ".cursor/commands/drafts/old.md": ["cursor", "other", "source"],
+      ".cursor/hooks.json": ["cursor", "other", "source"],
       ".cursor/commands/review.md": ["cursor", "commands", "text"],
       ".cursor/mcp.json": ["cursor", "tools", "source"],
       ".cursor/rules/notes.md": ["cursor", "other", "source"],
       ".cursor/rules/style.mdc": ["cursor", "rules", "text"],
+      ".cursor/skills/draft/SKILL.md": ["cursor", "skills", "text"],
+      ".cursor/skills/opam/SKILL.md": ["cursor", "skills", "text"],
+      ".cursor/skills/opam/documentation.md": ["cursor", "skills", "source"],
       ".cursorrules": ["cursor", "rules", "text"],
       "AGENTS.md": ["shared", "instructions", "text"],
       "packages/web/.cursor/rules/react/components.mdc": ["cursor", "rules", "text"],
@@ -1375,6 +1393,30 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     assert.equal(byPath.get(".cursorrules").legacy, true);
     assert.ok(revisions[0].components.every((component) => component.path === ".cursorrules" || !component.legacy));
     assert.deepEqual(byPath.get("AGENTS.md").readers, ["claude", "codex", "cursor"]);
+    assert.deepEqual(byPath.get(".agents/skills/release/SKILL.md").readers, ["codex", "cursor", "gemini"]);
+    assert.deepEqual(byPath.get(".claude/skills/review/SKILL.md").readers, ["claude", "cursor"]);
+
+    // Cursor needs name and description; a shared .claude/skills manifest keeps Claude Code's listing rules.
+    const listing = (path) => byPath.get(path).skill.listing;
+    assert.deepEqual(listing(".cursor/skills/opam/SKILL.md"), {
+      status: "listed",
+      tokens: Math.ceil(Buffer.byteLength("opam\nManage opam switches") / 4),
+    });
+    assert.equal(listing(".cursor/skills/draft/SKILL.md").status, "unresolved");
+    assert.deepEqual(listing(".claude/skills/review/SKILL.md"), {
+      status: "listed",
+      tokens: Math.ceil(Buffer.byteLength("review\nReview the change.") / 4),
+    });
+    assert.deepEqual(
+      revisions[0].skillGroups.map(({ root, provider, resourceCount }) => [root, provider, resourceCount]),
+      [
+        [".agents/skills/release", "shared", 0],
+        [".claude/skills/review", "shared", 0],
+        [".codex/skills/legacy", "cursor", 0],
+        [".cursor/skills/draft", "cursor", 0],
+        [".cursor/skills/opam", "cursor", 1],
+      ],
+    );
 
     // AGENTS.md is one component in All files and appears in the Cursor view without being counted twice.
     const cursorView = viewRevision(revisions[0], "cursor");
@@ -1383,11 +1425,16 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     assert.equal(revisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
     assert.deepEqual(
       viewRevision(revisions[0], "claude").components.map((component) => component.path),
-      ["AGENTS.md"],
+      [".claude/skills/review/SKILL.md", "AGENTS.md"],
+    );
+    assert.deepEqual(
+      viewRevision(revisions[0], "codex").components.map((component) => component.path),
+      [".agents/skills/release/SKILL.md", "AGENTS.md"],
     );
     assert.equal(revisions[0].categoryTotals.rules.count, 3);
+    assert.equal(revisions[0].categoryTotals.skills.count, 6);
     assert.equal(revisions[0].categoryTotals.tools.sourceOnlyCount, 1);
-    assert.equal(revisions[0].categoryTotals.other.sourceOnlyCount, 2);
+    assert.equal(revisions[0].categoryTotals.other.sourceOnlyCount, 3);
 
     assert.deepEqual(report.revisions[1].changes.map((change) => [change.kind, change.path]).sort(), [
       ["added", ".cursor/rules/testing.mdc"],
@@ -1408,7 +1455,7 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     );
     assert.equal(revisions[2].categoryTotals.commands.count, 0);
     assert.equal(revisions[2].categoryTotals.rules.count, 5);
-    assert.equal(revisions[2].categoryTotals.other.sourceOnlyCount, 1);
+    assert.equal(revisions[2].categoryTotals.other.sourceOnlyCount, 2);
 
     // `strata diff` uses the same labels; its comparison names the removed legacy file.
     const delta = compareGitCommits(repo, added, migrated);
@@ -1418,17 +1465,25 @@ test("recognizes Cursor rules, commands, and MCP configuration, and shares AGENT
     assert.ok(delta.comparison.byProvider.some((group) => group.key === "cursor"));
 
     // Cursor has no count endpoint: its files keep the estimate and their text is never sent.
+    // Gemini is counted only for the .agents/skills manifest it shares with Cursor.
     assert.deepEqual(
       report.providerMeasurements.map((measured) => measured.provider),
-      ["claude"],
+      ["claude", "gemini"],
     );
     assert.ok(report.revisions.every((revision) => !("cursor" in (revision.providerTokenTotals ?? {}))));
     assert.ok(sentBodies.some((body) => body.includes("Shared project instructions.")));
-    assert.ok(!sentBodies.some((body) => /two spaces|function components|Legacy Cursor|staged changes/.test(body)));
+    assert.ok(sentBodies.some((body) => body.includes("Review the change.")));
     assert.ok(
-      report.components.every(
-        (component) => component.path === "AGENTS.md" || component.providerTokenCounts === undefined,
+      !sentBodies.some((body) =>
+        /two spaces|function components|Legacy Cursor|staged changes|opam switches|Read by Cursor only/.test(body),
       ),
+    );
+    const counted = report.components.filter((component) => component.providerTokenCounts);
+    assert.deepEqual(
+      [...new Set(counted.map((component) => [component.path, Object.keys(component.providerTokenCounts).join()]))]
+        .map(String)
+        .sort(),
+      [".agents/skills/release/SKILL.md,gemini", ".claude/skills/review/SKILL.md,claude", "AGENTS.md,claude"],
     );
 
     // The legacy label is not a path, so a shareable report keeps it.

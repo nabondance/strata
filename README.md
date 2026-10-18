@@ -170,7 +170,7 @@ Write a JSON report, then give your agent the bundled skill so it reads the sche
 
 ```sh
 npx context-strata analyze --format json --output strata.json
-npx context-strata skill --output .claude/skills/strata-interpret/SKILL.md   # or .agents/skills/… for Codex and Gemini CLI
+npx context-strata skill --output .claude/skills/strata-interpret/SKILL.md   # or .agents/skills/… for Codex, Cursor, and Gemini CLI
 ```
 
 The skill explains the revision and component tables, what the token estimates do and do not mean, and which conclusions the JSON cannot support.
@@ -182,7 +182,7 @@ Configuration tracked in the repository, at the root or in nested project direct
 | | Claude Code | Codex | Gemini CLI | Cursor |
 | --- | --- | --- | --- | --- |
 | Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared) |
-| Skills | `.claude/skills/*/SKILL.md` + resources | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources | |
+| Skills | `.claude/skills/*/SKILL.md` (shared) + resources | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources | `.cursor/skills/*/SKILL.md`, `.codex/skills/*/SKILL.md`, and the shared `.agents/skills` and `.claude/skills` + resources |
 | Agents | `.claude/agents/**/*.md` | `.codex/agents/*.toml` | `.gemini/agents/*.md` | |
 | Rules | `.claude/rules/**/*.md` | `.codex/rules/**/*.rules` | | `.cursor/rules/**/*.mdc`, `.cursorrules` (legacy) |
 | Commands | `.claude/commands/**/*.md` | | `.gemini/commands/**/*.toml` | `.cursor/commands/*.md` |

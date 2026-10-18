@@ -177,7 +177,7 @@ function quoted(text: string): string | null {
  * out of the listing, or null when Strata cannot tell. Claude Code lists `name` (by default the
  * skill directory name) and `description` (by default the first non-empty body line) with
  * `when_to_use` appended, the two truncated together at 1,536 characters, and leaves out a skill
- * with `disable-model-invocation: true`. Codex and Gemini CLI require both `name` and `description`.
+ * with `disable-model-invocation: true`. Codex, Cursor, and Gemini CLI require both `name` and `description`.
  */
 export function listingText(text: string, provider: Provider, directoryName: string): string | null {
   const frontmatter = readFrontmatter(text);
@@ -245,8 +245,10 @@ export function skillListings(
   const listings = new Map<string, SkillListing>();
   for (const [key, file] of manifests) {
     const text = texts.get(file.blob);
-    const { provider, skillRoot = "" } = file.classification;
-    const listed = text == null ? null : safeListingText(text, provider, skillRoot.split("/").at(-1) ?? "");
+    const { provider, readers, skillRoot = "" } = file.classification;
+    // A `.claude/skills` manifest is shared with Cursor but listed by Claude Code's rules.
+    const lister = readers?.includes("claude") ? "claude" : provider;
+    const listed = text == null ? null : safeListingText(text, lister, skillRoot.split("/").at(-1) ?? "");
     listings.set(
       key,
       listed === null

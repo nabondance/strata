@@ -37,11 +37,14 @@ export interface Classification {
 
 type Adapter = (path: string, parts: string[]) => Classification | null;
 
-// Codex and Gemini CLI both discover project skills under `.agents/skills`.
+// Codex, Cursor, and Gemini CLI all discover project skills under `.agents/skills`. Cursor also
+// loads `.claude/skills` and `.codex/skills` for compatibility; Codex itself documents only `.agents/skills`.
 const skillDirectories: Array<[directory: string, provider: Provider, readers?: Provider[]]> = [
-  [".agents", "shared", ["codex", "gemini"]],
-  [".claude", "claude"],
+  [".agents", "shared", ["codex", "cursor", "gemini"]],
+  [".claude", "shared", ["claude", "cursor"]],
   [".gemini", "gemini"],
+  [".cursor", "cursor"],
+  [".codex", "cursor"],
 ];
 
 function skill(_path: string, parts: string[]): Classification | null {
@@ -52,8 +55,8 @@ function skill(_path: string, parts: string[]): Classification | null {
     if (within[0] !== "skills") continue;
     const labels = { provider, ...(readers ? { readers: [...readers] } : {}) };
     // Gemini CLI also accepts a single skill whose manifest sits directly in its skill directory;
-    // Codex and Claude Code document only `<name>/SKILL.md`.
-    if (directory !== ".claude" && within.length === 2 && within[1] === "SKILL.md") {
+    // Codex, Claude Code, and Cursor document only `<name>/SKILL.md`.
+    if ((directory === ".agents" || directory === ".gemini") && within.length === 2 && within[1] === "SKILL.md") {
       return {
         provider: "gemini",
         category: "skills",
@@ -177,7 +180,11 @@ function cursor(path: string, parts: string[]): Classification | null {
   if (within.length === 1 && filename === "mcp.json") {
     return { provider: "cursor", category: "tools", instructionalText: false };
   }
-  return /\.(?:md|mdc|json)$/.test(filename)
+  // Projects also keep notes and reports under `.cursor/`, so only Cursor's own folders and its
+  // top-level JSON configuration stay visible as candidates.
+  const candidate =
+    ["rules", "commands", "skills"].includes(within[0] ?? "") || (within.length === 1 && filename.endsWith(".json"));
+  return candidate && /\.(?:md|mdc|json)$/.test(filename)
     ? { provider: "cursor", category: "other", instructionalText: false }
     : null;
 }
