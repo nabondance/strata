@@ -6,15 +6,14 @@
 </h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="npm total downloads"></a>
-  <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&labelColor=1d2622&color=d9a441&label=ci" alt="CI status"></a>
-  <img src="https://img.shields.io/node/v/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="supported Node.js versions">
-  <img src="https://img.shields.io/npm/l/context-strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="license">
-  <img src="https://img.shields.io/badge/runs-offline-d9a441?style=flat-square&labelColor=1d2622" alt="runs offline">
-  <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square" alt="stored agent context tokens on main"></a>
-  <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square&labelColor=1d2622&color=d9a441" alt="GitHub stars"></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-d9a441?style=flat-square&labelColor=1d2622" alt="pull requests welcome"></a>
+  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/v/context-strata?style=flat-square" alt="npm version"></a>
+  <img src="https://img.shields.io/node/v/context-strata?style=flat-square" alt="supported Node.js versions">
+  <img src="https://img.shields.io/npm/l/context-strata?style=flat-square" alt="license">
+  <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
+  <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
+  <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/badge/runs-offline-blue?style=flat-square" alt="runs offline">
+  <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square&labelColor=555&color=blue" alt="stored agent context tokens on main"></a>
 </p>
 
 **See how your agent context evolved across Git history.**
@@ -23,8 +22,8 @@
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/claude-dark.svg"><img src="docs/brand/providers/claude.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Claude Code&nbsp;&nbsp;&nbsp;
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/codex-dark.svg"><img src="docs/brand/providers/codex.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Codex&nbsp;&nbsp;&nbsp;
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/gemini-cli-dark.svg"><img src="docs/brand/providers/gemini-cli.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Gemini CLI&nbsp;&nbsp;&nbsp;
-  Cursor&nbsp;&nbsp;&nbsp;
-  GitHub Copilot
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/github-copilot-dark.svg"><img src="docs/brand/providers/github-copilot.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;GitHub Copilot&nbsp;&nbsp;&nbsp;
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/cursor-dark.svg"><img src="docs/brand/providers/cursor.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Cursor
 </p>
 
 Your `CLAUDE.md`, `AGENTS.md`, skills, rules, and agent definitions started small. Then every incident, convention, and "always remember to…" got appended. Strata replays your Git history and shows what that configuration weighs today, when it grew, and which files drove it.
@@ -81,7 +80,7 @@ Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4
 
 And `strata analyze --format svg` draws the history as a static image for a README. This one is rendered from `main` by [this repository's own workflow](.github/workflows/strata-image.yml) on every push:
 
-![Strata's own agent configuration through time, as the SVG image the CLI produces](https://raw.githubusercontent.com/nabondance/strata/strata-image/strata.svg)
+![Strata's own agent configuration through time, as the SVG image the CLI produces](https://github.com/nabondance/strata/raw/strata-image/strata.svg)
 
 ## Is it for you?
 
