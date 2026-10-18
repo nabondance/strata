@@ -38,7 +38,7 @@ export interface ProviderTotalDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 7;
+  schemaVersion: 8;
   base: string;
   head: string;
   measurement: Measurement;
@@ -67,7 +67,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
     return { components, estimatedTokens: summarize(components).estimatedTokens };
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 7,
+    schemaVersion: 8,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,

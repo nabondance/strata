@@ -18,7 +18,7 @@ export interface ComponentDelta {
   path: string;
   provider: Component["provider"];
   category: Component["category"];
-  /** Set when the file is a superseded format its provider still reads, such as `.cursorrules`. */
+  /** Set when the file is a superseded format its provider still reads, such as `.cursorrules` or a Copilot `.chatmode.md`. */
   legacy?: true;
   kind: "added" | "removed" | "edited";
   beforeTokens: number | null;

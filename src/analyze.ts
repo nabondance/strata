@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
-import { classify, withoutCursorReader } from "./adapters.js";
+import { classify, conditionalReaders, withoutReader } from "./adapters.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, gitText, gitTokens } from "./git.js";
 import { byPath, measureBlobs, summarize, type TrackedFile, toComponent, trackedFile } from "./inventory.js";
@@ -241,8 +241,9 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   if (!deltas.length) throw new Error("The repository has no commits to analyze");
 
   const written = deltas.flatMap((delta) => delta.written);
-  if (!written.some((file) => file.classification.provider === "cursor")) {
-    for (const file of written) withoutCursorReader(file.classification);
+  for (const reader of conditionalReaders) {
+    if (written.some((file) => file.classification.provider === reader)) continue;
+    for (const file of written) withoutReader(file.classification, reader);
   }
   const measured = measureBlobs(root, written, measurer);
   const configured = geminiSettings(root, written, measured);
@@ -323,7 +324,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 14,
+    schemaVersion: 15,
     repository: basename(root),
     branch,
     shallow,
