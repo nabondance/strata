@@ -121,6 +121,11 @@ function claude(path: string, parts: string[]): Classification | null {
   if (filename === "CLAUDE.local.md") {
     return { provider: "claude", category: "instructions", instructionalText: true };
   }
+  // Claude Code's Code Review service reads `REVIEW.md` at the root and in subfolders; Copilot code
+  // review reads it too, alongside `CLAUDE.md`.
+  if (filename === "REVIEW.md") {
+    return { provider: "claude", readers: ["claude", "copilot"], category: "instructions", instructionalText: true };
+  }
   if (path === ".mcp.json") {
     return { provider: "claude", readers: ["claude", "copilot"], category: "tools", instructionalText: false };
   }
@@ -131,13 +136,13 @@ function claude(path: string, parts: string[]): Classification | null {
     return { provider: "claude", category: "settings", instructionalText: false };
   }
   if (within.length >= 2 && filename?.endsWith(".md")) {
-    // VS Code's Copilot reads Claude agents and rules in their own format, and Copilot CLI reads agents.
-    if (within[0] === "agents") {
-      return { provider: "claude", readers: ["claude", "copilot"], category: "agents", instructionalText: true };
-    }
-    if (within[0] === "rules") {
-      return { provider: "claude", readers: ["claude", "copilot"], category: "rules", instructionalText: true };
-    }
+    // VS Code's Copilot reads Claude agents and rules in their own format, skipping `README.md`, and
+    // Copilot CLI reads agents.
+    const copilotReads = filename !== "README.md" ? { readers: ["claude", "copilot"] satisfies Provider[] } : {};
+    if (within[0] === "agents")
+      return { provider: "claude", ...copilotReads, category: "agents", instructionalText: true };
+    if (within[0] === "rules")
+      return { provider: "claude", ...copilotReads, category: "rules", instructionalText: true };
     if (within[0] === "commands") return { provider: "claude", category: "commands", instructionalText: true };
     if ((within[0] === "agent-memory" || within[0] === "agent-memory-local") && within.length >= 3) {
       return { provider: "claude", category: "memory", instructionalText: true };
@@ -209,7 +214,7 @@ function cursor(path: string, parts: string[]): Classification | null {
     : null;
 }
 
-/** Copilot's own folders under `.github`, the files Copilot code review and VS Code read, and nothing else in `.github`. */
+/** Copilot's own folders under `.github` and VS Code's `.vscode/mcp.json`; nothing else in `.github`. */
 function copilot(path: string, parts: string[]): Classification | null {
   const own = (category: Category, instructionalText: boolean, legacy = false): Classification => ({
     provider: "copilot",
@@ -217,8 +222,6 @@ function copilot(path: string, parts: string[]): Classification | null {
     instructionalText,
     ...(legacy ? { legacy: true as const } : {}),
   });
-  // Only Copilot code review reads `REVIEW.md`; its documentation gives no folder, so only the root counts.
-  if (path === "REVIEW.md") return own("instructions", true);
   if (path === ".vscode/mcp.json") return own("tools", false);
   const index = parts.indexOf(".github");
   if (index < 0) return null;

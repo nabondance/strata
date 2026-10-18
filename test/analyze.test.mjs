@@ -1645,12 +1645,14 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     put(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews\n---\nReview.\n");
     put(".agents/skills/release/SKILL.md", "---\nname: release\ndescription: Cut a release\n---\nBody.\n");
     put(".mcp.json", '{"mcpServers":{}}\n');
-    // Ordinary GitHub and editor files, and a nested REVIEW.md, are not Copilot configuration.
+    // Claude Code's Code Review reads REVIEW.md at any depth; VS Code skips a rules README.
+    put("docs/REVIEW.md", "Review checks for the docs folder.\n");
+    put(".claude/rules/README.md", "How we write rules.\n");
+    // Ordinary GitHub and editor files are not Copilot configuration.
     put(".github/workflows/ci.yml", "jobs:\n  test:\n    runs-on: ubuntu-latest\n");
     put(".github/ISSUE_TEMPLATE/bug.md", "Describe the bug.\n");
     put(".github/pull_request_template.md", "What changed?\n");
     put(".vscode/settings.json", "{}\n");
-    put("docs/REVIEW.md", "Notes from a design review.\n");
     commit("Claude, Codex, and Gemini only");
 
     // A history without Copilot configuration never mentions Copilot.
@@ -1660,22 +1662,26 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     assert.deepEqual([...first.keys()].sort(), [
       ".agents/skills/release/SKILL.md",
       ".claude/agents/reviewer.md",
+      ".claude/rules/README.md",
       ".claude/rules/style.md",
       ".claude/skills/review/SKILL.md",
       ".mcp.json",
       "AGENTS.md",
       "CLAUDE.md",
       "GEMINI.md",
+      "docs/REVIEW.md",
     ]);
     assert.deepEqual(first.get("AGENTS.md").readers, ["claude", "codex"]);
-    for (const path of ["CLAUDE.md", "GEMINI.md", ".claude/skills/review/SKILL.md", ".mcp.json"]) {
+    for (const path of ["CLAUDE.md", "GEMINI.md", ".claude/skills/review/SKILL.md", ".mcp.json", "docs/REVIEW.md"]) {
       assert.equal(first.get(path).readers, undefined, path);
     }
     const withoutUi = loadReportUi(renderHtml(withoutCopilot)).get;
     assert.ok(!withoutUi("provider-tabs").children.some((tab) => tab.textContent.startsWith("Copilot")));
 
     for (const [path, content] of Object.entries(copilotFiles)) put(path, content);
-    const adopted = commit("Adopt GitHub Copilot");
+    // A Cursor rule that outlives the Copilot files: each tool's condition is its own.
+    put(".cursor/rules/style.mdc", "---\nalwaysApply: true\n---\nUse two spaces.\n");
+    const adopted = commit("Adopt GitHub Copilot and Cursor");
 
     // The legacy chat mode becomes a custom agent; Git detects the move as a rename.
     git("mv", ".github/agents/legacy.chatmode.md", ".github/agents/terse.agent.md");
@@ -1720,8 +1726,10 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     assert.deepEqual(labels(revisions[1]), {
       ".agents/skills/release/SKILL.md": ["shared", "skills", "text"],
       ".claude/agents/reviewer.md": ["claude", "agents", "text"],
+      ".claude/rules/README.md": ["claude", "rules", "text"],
       ".claude/rules/style.md": ["claude", "rules", "text"],
       ".claude/skills/review/SKILL.md": ["claude", "skills", "text"],
+      ".cursor/rules/style.mdc": ["cursor", "rules", "text"],
       ".github/agents/README.md": ["copilot", "other", "source"],
       ".github/agents/legacy.chatmode.md": ["copilot", "agents", "text"],
       ".github/agents/reviewer.agent.md": ["copilot", "agents", "text"],
@@ -1747,7 +1755,8 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
       "AGENTS.md": ["shared", "instructions", "text"],
       "CLAUDE.md": ["claude", "instructions", "text"],
       "GEMINI.md": ["gemini", "instructions", "text"],
-      "REVIEW.md": ["copilot", "instructions", "text"],
+      "REVIEW.md": ["claude", "instructions", "text"],
+      "docs/REVIEW.md": ["claude", "instructions", "text"],
       "packages/web/.github/copilot-instructions.md": ["copilot", "instructions", "text"],
     });
     const byPath = new Map(revisions[1].components.map((component) => [component.path, component]));
@@ -1755,14 +1764,21 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
       revisions[1].components.filter((component) => component.legacy).map((component) => component.path),
       [".github/agents/legacy.chatmode.md"],
     );
-    // Copilot is a reader; Cursor, with no Cursor file in this history, is not.
-    assert.deepEqual(byPath.get("AGENTS.md").readers, ["claude", "codex", "copilot"]);
-    assert.deepEqual(byPath.get(".agents/skills/release/SKILL.md").readers, ["codex", "copilot", "gemini"]);
-    assert.deepEqual(byPath.get(".claude/skills/review/SKILL.md").readers, ["claude", "copilot"]);
+    assert.deepEqual(byPath.get("AGENTS.md").readers, ["claude", "codex", "copilot", "cursor"]);
+    assert.deepEqual(byPath.get(".agents/skills/release/SKILL.md").readers, ["codex", "copilot", "cursor", "gemini"]);
+    assert.deepEqual(byPath.get(".claude/skills/review/SKILL.md").readers, ["claude", "copilot", "cursor"]);
     assert.deepEqual(byPath.get("GEMINI.md").readers, ["copilot", "gemini"]);
-    for (const path of ["CLAUDE.md", ".claude/rules/style.md", ".claude/agents/reviewer.md", ".mcp.json"]) {
+    for (const path of [
+      "CLAUDE.md",
+      "REVIEW.md",
+      "docs/REVIEW.md",
+      ".claude/rules/style.md",
+      ".claude/agents/reviewer.md",
+      ".mcp.json",
+    ]) {
       assert.deepEqual(byPath.get(path).readers, ["claude", "copilot"], path);
     }
+    assert.equal(byPath.get(".claude/rules/README.md").readers, undefined);
 
     // Copilot reads the other tools' files only while the revision tracks Copilot files.
     const borrowed = (index) =>
@@ -1780,8 +1796,12 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
       "AGENTS.md",
       "CLAUDE.md",
       "GEMINI.md",
+      "REVIEW.md",
+      "docs/REVIEW.md",
     ]);
     assert.deepEqual(borrowed(3), []);
+    // Cursor, still configured after Copilot is removed, keeps reading AGENTS.md.
+    assert.ok(viewRevision(revisions[3], "cursor").components.some((component) => component.path === "AGENTS.md"));
     const adoption = viewRevision(revisions[1], "copilot", revisions[0], report.components).changes;
     for (const path of ["AGENTS.md", "CLAUDE.md", "GEMINI.md"]) {
       assert.ok(
@@ -1791,7 +1811,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     }
     const dropped = viewRevision(revisions[3], "copilot", revisions[2], report.components).changes;
     assert.ok(dropped.some((change) => change.kind === "removed" && change.path === "CLAUDE.md"));
-    // GEMINI.md stays in the Gemini view by default and in no other provider's view without Copilot.
+    // GEMINI.md stays in the Gemini view by default.
     assert.ok(viewRevision(revisions[3], "gemini").components.some((component) => component.path === "GEMINI.md"));
     const shareableRevisions = expandRevisions(redactReport(report));
     assert.deepEqual(
@@ -1822,9 +1842,9 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
       ],
     );
 
-    assert.equal(revisions[1].categoryTotals.instructions.count, 6);
+    assert.equal(revisions[1].categoryTotals.instructions.count, 7);
     assert.equal(revisions[1].categoryTotals.agents.count, 4);
-    assert.equal(revisions[1].categoryTotals.rules.count, 2);
+    assert.equal(revisions[1].categoryTotals.rules.count, 4);
     assert.equal(revisions[1].categoryTotals.commands.count, 1);
     assert.equal(revisions[1].categoryTotals.settings.sourceOnlyCount, 4);
     assert.equal(revisions[1].categoryTotals.tools.sourceOnlyCount, 3);
@@ -1861,9 +1881,10 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     assert.ok(report.components.every((c) => !("copilot" in (c.providerTokenCounts ?? {}))));
     assert.ok(sentBodies.some((body) => body.includes("Claude project memory.")));
     assert.ok(sentBodies.some((body) => body.includes("Gemini project context.")));
+    assert.ok(sentBodies.some((body) => body.includes("Flag missing tests in every review.")));
     assert.ok(
       !sentBodies.some((body) =>
-        /British English|Prefer hooks|release notes|maintainer|Break the task|Answer tersely|Flag missing tests|Web package|web app in a browser/.test(
+        /British English|Prefer hooks|release notes|maintainer|Break the task|Answer tersely|Web package|web app in a browser/.test(
           body,
         ),
       ),
@@ -1884,7 +1905,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     get("target").value = "1";
     get("target").listeners.change();
     assert.ok(paths("files").includes("CLAUDE.md"));
-    assert.match(get("view-note").textContent, /Copilot also reads AGENTS\.md, CLAUDE\.md, GEMINI\.md/);
+    assert.match(get("view-note").textContent, /Copilot also reads AGENTS\.md, CLAUDE\.md, REVIEW\.md, GEMINI\.md/);
     assert.match(get("listing-note").textContent, /Skills Copilot reads from \.claude\/skills or \.agents\/skills/);
     assert.ok(get("files").children.some((row) => row.children[2]?.textContent === "agents (legacy)"));
     get("target").value = "3";

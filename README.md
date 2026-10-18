@@ -182,7 +182,7 @@ Configuration tracked in the repository, at the root or in nested project direct
 
 | | Claude Code | Codex | Gemini CLI | Cursor | GitHub Copilot |
 | --- | --- | --- | --- | --- | --- |
-| Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared)\* | `.github/copilot-instructions.md`, `REVIEW.md`; `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`\* |
+| Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `REVIEW.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared)\* | `.github/copilot-instructions.md`; `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`\* |
 | Skills | `.claude/skills/*/SKILL.md` + resources | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources | `.cursor/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\* | `.github/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\* |
 | Agents | `.claude/agents/**/*.md` | `.codex/agents/*.toml` | `.gemini/agents/*.md` | | `.github/agents/**/*.md`, `.chatmode.md` (legacy); `.claude/agents`\* |
 | Rules | `.claude/rules/**/*.md` | `.codex/rules/**/*.rules` | | `.cursor/rules/**/*.mdc`, `.cursorrules` (legacy) | `.github/instructions/**/*.instructions.md`; `.claude/rules`\* |
