@@ -10,7 +10,7 @@ import { getEncoding } from "js-tiktoken";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
-import { instructionAges } from "../dist/instruction-age.js";
+import { instructionAgePeriods, instructionAges, sharePercent } from "../dist/instruction-age.js";
 import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -145,26 +145,49 @@ function exerciseReportUi(html, report) {
     expected.byCategory.filter((group) => group.deltaFiles || group.deltaTokens).length || 1,
   );
   assert.equal(get("slider").value, 3);
-  // Instruction age: one bar per charted revision, a legend entry per period, and the text kept from the baseline.
+  // Instruction age: one bar per charted revision, a legend entry per period present, and the text kept from the baseline.
   const ages = instructionAges(report);
-  const ageStart = ages.findIndex((age) => age.bytes);
+  const ageStart = ages.bytes.findIndex((amount) => amount > 0);
   assert.equal(get("age-panel").hidden, ageStart < 0);
   if (ageStart >= 0) {
-    assert.equal(get("age-chart").children.length, Math.min(100, ages.length - ageStart));
-    assert.ok(get("age-legend").children.length >= 1);
-    assert.ok(get("age-legend").children.every((entry) => /%|—/.test(entry.children.at(-1).textContent)));
-    assert.match(get("age-count").textContent, /half dates from|no instruction text/);
-    const keptBytes = ages[3].cohorts.reduce((sum, cohort) => sum + (cohort.from <= 2 ? cohort.bytes : 0), 0);
-    assert.equal(get("compare-kept-wrap").hidden, !ages[2].bytes);
-    if (ages[2].bytes) {
-      const share = (keptBytes / ages[2].bytes) * 100;
-      const shown = share > 0 && share < 1 ? "<1" : share > 99 && share < 100 ? ">99" : String(Math.round(share));
-      assert.ok(get("compare-kept").textContent.startsWith(`${shown}% of `), get("compare-kept").textContent);
-    }
+    const periods = instructionAgePeriods(report);
+    assert.equal(get("age-chart").children.length, Math.min(100, ages.bytes.length - ageStart));
+    const presentPeriods = new Set(ages.at(3).map((cohort) => periods.periodOf.get(cohort.from)));
+    assert.equal(get("age-legend").children.length, presentPeriods.size);
+    assert.ok(get("age-legend").children.every((entry) => /%$/.test(entry.children.at(-1).textContent)));
+    assert.match(
+      get("age-count").textContent,
+      ages.bytes[3] ? /^half added by \d{4}-\d{2}-\d{2} · / : /no instruction text/,
+    );
+    const kept = (from, to) =>
+      sharePercent(
+        ages.at(to).reduce((sum, cohort) => sum + (cohort.from <= from ? cohort.bytes : 0), 0) / ages.bytes[from],
+      );
+    assert.equal(get("compare-kept-wrap").hidden, !ages.bytes[2]);
+    if (ages.bytes[2])
+      assert.equal(
+        get("compare-kept").textContent,
+        `${kept(2, 3)} of ${new Intl.NumberFormat().format(ages.bytes[2])} bytes`,
+      );
+    assert.equal(get("compare-kept-label").textContent, "Instruction text kept");
+    // A baseline after the target has nothing to keep.
+    get("baseline").value = "4";
+    get("baseline").listeners.change();
+    assert.equal(get("compare-kept-wrap").hidden, true);
+    // The previous revision is the default baseline.
+    get("baseline").value = "previous";
+    get("baseline").listeners.change();
+    get("target").value = "4";
+    get("target").listeners.change();
+    assert.equal(get("compare-kept-wrap").hidden, !ages.bytes[3]);
+    if (ages.bytes[3])
+      assert.match(get("compare-kept").textContent, new RegExp(`^${kept(3, 4).replace(/[<>]/, "\\$&")} of `));
     // A bar selects the last revision it covers, like the history chart.
     get("age-chart").children[0].listeners.click();
-    const firstBucket = timelineBuckets(ages.length, 100, ageStart)[0];
+    const firstBucket = timelineBuckets(ages.bytes.length, 100, ageStart)[0];
     assert.equal(get("target").value, String(firstBucket.end));
+    get("baseline").value = "2";
+    get("baseline").listeners.change();
     get("target").value = "3";
     get("target").listeners.change();
   }
@@ -250,6 +273,8 @@ function exerciseReportUi(html, report) {
   assert.ok(claudeTab);
   claudeTab.listeners.click();
   openOnEstimate("claude");
+  // Kept text covers all files, and says so outside the All files view.
+  assert.equal(get("compare-kept-label").textContent, "Instruction text kept (all files)");
   const claudeView = viewRevision(revisions[4], "claude", revisions[3]);
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(claudeView.estimatedTokens));
   assert.equal(get("components").textContent, new Intl.NumberFormat().format(claudeView.components.length));

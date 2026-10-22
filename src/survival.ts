@@ -11,7 +11,8 @@ type LineCounts = Uint32Array;
 /**
  * Read every instructional blob once and reduce it to counts of its trimmed, nonblank lines. Line
  * text is interned, so the many versions of a file share one copy of each line; the text itself
- * never leaves this module. `weights[id]` is the UTF-8 byte length of line `id`.
+ * never leaves this module. `weights[id]` is the UTF-8 byte length of line `id`. Each line is
+ * decoded from its own bytes, because a slice of a decoded file would keep the whole file alive.
  */
 export function readLineCounts(
   repo: string,
@@ -23,11 +24,13 @@ export function readLineCounts(
   const ids = new Map<string, number>();
   const weights: number[] = [];
   const lines = new Map<string, LineCounts>();
-  const decoder = new TextDecoder("utf-8");
   for (const [blob, body] of readBlobs(repo, [...blobs], (blob) => measured.get(blob)?.bytes ?? 0)) {
     const counts = new Map<number, number>();
-    for (const line of decoder.decode(body).split("\n")) {
-      const text = line.trim();
+    for (let start = 0; start < body.length; ) {
+      const newline = body.indexOf(10, start);
+      const end = newline < 0 ? body.length : newline;
+      const text = body.toString("utf8", start, end).trim();
+      start = end + 1;
       if (!text) continue;
       let id = ids.get(text);
       if (id === undefined) {

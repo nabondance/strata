@@ -10,7 +10,7 @@ import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { importLinks } from "./import-links.js";
-import { summarizeInstructionAge } from "./instruction-age.js";
+import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import type { Component, Report, Submodule } from "./model.js";
 import {
@@ -397,8 +397,9 @@ async function analyze(args: string[]): Promise<void> {
   if (upFront) say(upFront);
   const age = summarizeInstructionAge(report);
   if (age) {
+    const day = (index: number) => report.revisions[index]!.date.slice(0, 10);
     say(
-      `Instruction age: half of the latest instruction text dates from ${age.medianDate.slice(0, 10)} or earlier; ${Math.round(age.kept * 100)}% of the text at the first revision with instructions (${age.firstDate.slice(0, 10)}) is still present.`,
+      `Instruction age: half of the latest instruction text was in place by revision ${age.median + 1} (${day(age.median)}); ${sharePercent(age.kept)} of the text at the first revision with instructions (${day(age.first)}) is still present.`,
     );
   }
   for (const measured of report.providerMeasurements ?? []) {
