@@ -1,11 +1,11 @@
 # Evidence for an architecture view
 
-Evaluated 2026-10-08. The report already has a category-grouped composition treemap, but that is not a dependency graph. A future architecture view can safely show a **file/directory hierarchy at a selected revision** using only tracked paths and their measured sizes. An edge from a file to its containing directory means containment, not that the agent loads or calls it.
+Evaluated 2026-10-08. The report already has a category-grouped composition treemap, but that is not a dependency graph. The report now draws the configuration map this evaluation proposed, with directory containment and resolved Claude imports only; see [Configuration map](decisions.md#configuration-map). An architecture view can safely show a **file/directory hierarchy at a selected revision** using only tracked paths and their measured sizes. An edge from a file to its containing directory means containment, not that the agent loads or calls it.
 
 | Candidate relationship | Evidence available from Git | Safe label | Current decision |
 | --- | --- | --- | --- |
-| Directory contains a file | Exact tracked path at the selected revision | `contains` | Suitable for a first hierarchy view. |
-| Markdown links to another tracked file | Link text plus a resolved path at the same revision | `links to` | Claude `@path` imports are resolved per revision (schema version 14; see [Claude imports](decisions.md#claude-imports)): `importLinks` derives each edge with its source, target, line, hop count, and status, and lists unresolved imports separately. Ordinary Markdown links are not resolved. Not a runtime edge. |
+| Directory contains a file | Exact tracked path at the selected revision | `contains` | Drawn as the configuration map's folder tree. |
+| Markdown links to another tracked file | Link text plus a resolved path at the same revision | `links to` | Claude `@path` imports are resolved per revision (schema version 16; see [Claude imports](decisions.md#claude-imports)): `importLinks` derives each edge with its source, target, line, hop count, and status, and lists unresolved imports separately. The configuration map draws resolved imports as lines. Ordinary Markdown links are not resolved. Not a runtime edge. |
 | A rule mentions a skill or agent by name | Free-form prose, possibly ambiguous | `mentions` | Do not turn into a dependency. If explored, preserve the quoted evidence locally and report uncertainty. |
 | A skill resource sits beside `SKILL.md` | Shared skill directory | `bundled with` | Already represented by each component's `skill.root`; not proof that the resource was read. |
 | Rule frontmatter or glob targets files | Conditional configuration plus path patterns | `configured for` | Provider-specific parsing and referenced-file evidence needed. Not equivalent to session loading. |

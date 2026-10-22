@@ -54,6 +54,7 @@ Strata walks the first-parent history of your branch, oldest to newest, and read
 
 - **A timeline** of stored instruction tokens across your branch's history, split by category.
 - **A treemap** of any revision, so the file eating most of the budget is the biggest rectangle.
+- **A configuration map** of any revision: every file in its folder with its share of the tokens, and a line for each Claude `@path` import between two files.
 - **A comparison** between any two revisions, with signed token and file-count changes per provider, category, and file.
 - **Per-provider views** for Claude Code, Codex, Gemini CLI, Cursor, and GitHub Copilot, with shared files such as `AGENTS.md` counted once in the overall total.
 - **A pull-request delta**, as Markdown or JSON, to see what a change adds before it merges.

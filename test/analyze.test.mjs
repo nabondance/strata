@@ -9,6 +9,7 @@ import { runInNewContext } from "node:vm";
 import { getEncoding } from "js-tiktoken";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
+import { configMap } from "../dist/config-map.js";
 import { expandRevisions } from "../dist/expand.js";
 import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
@@ -2280,8 +2281,70 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
       ["AGENTS.md", "2", "docs/common.md", "2", "missing"],
     );
     assert.equal(ui.get("imports-count").textContent, "14 · 6 unresolved");
+    // The configuration map draws the files in folders, with a line for each resolved import between two of them.
+    const lastLinks = importLinks(revisions[7].components);
+    const expectedMap = configMap(revisions[7].components, lastLinks);
+    const mapRows = () => ui.get("config-map").children.filter((child) => child.className.startsWith("map-row"));
+    const mapLines = () =>
+      ui
+        .get("config-map")
+        .children.find((child) => child.className === "map-gutter")
+        .children.filter((child) => child.className === "map-arc");
+    assert.equal(mapRows().length, expectedMap.rows.length);
+    assert.equal(mapLines().length, expectedMap.edges.length);
+    assert.ok(expectedMap.edges.length >= 5);
+    assert.match(ui.get("map-hover").textContent, / import lines · 6 unresolved, listed under Claude imports\./);
+    // A row's detail line names what the file imports and what imports it.
+    mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].listeners.focus();
+    assert.match(
+      ui.get("map-hover").textContent,
+      /^CLAUDE\.md · claude \/ instructions · \d+ stored-text tokens · imports AGENTS\.md, docs\/missing\.md, docs\/feature\.md and 1 more · edited at this revision · 4 unresolved imports$/,
+    );
+    mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseenter();
+    assert.match(
+      ui.get("map-hover").textContent,
+      / · imports docs\/deep\/one\.md · imported by \.claude\/rules\/style\.md · added at this revision$/,
+    );
+    // Selecting a folder closes it; the lines of the files it holds then end at its row.
+    const docsRow = expectedMap.rows.findIndex((row) => row.path === "docs");
+    mapRows()[docsRow].listeners.click();
+    const closedMap = configMap(revisions[7].components, lastLinks, { toggled: new Map([["docs", true]]) });
+    assert.ok(closedMap.rows[docsRow].collapsed);
+    assert.equal(mapRows().length, closedMap.rows.length);
+    assert.ok(mapRows().length < expectedMap.rows.length);
+    assert.equal(mapLines().length, closedMap.edges.length);
+    assert.ok(closedMap.folded > 0);
+    assert.equal(mapRows()[docsRow].focused, true);
+    // Arrow keys open a closed folder, then move into it; the open and close buttons reset every folder.
+    const press = (key, map, path) =>
+      ui.get("config-map").listeners.keydown({
+        key,
+        target: mapRows()[map.rows.findIndex((row) => row.path === path)],
+        preventDefault() {},
+      });
+    press("ArrowRight", closedMap, "docs");
+    assert.equal(mapRows().length, expectedMap.rows.length);
+    press("ArrowRight", expectedMap, "docs");
+    assert.equal(mapRows()[docsRow + 1].focused, true);
+    press("ArrowLeft", expectedMap, "docs");
+    assert.equal(mapRows().length, closedMap.rows.length);
+    ui.get("map-collapse").listeners.click();
+    assert.equal(
+      mapRows().length,
+      configMap(revisions[7].components, lastLinks, { fallback: "collapsed" }).rows.length,
+    );
+    ui.get("map-expand").listeners.click();
+    assert.equal(mapRows().length, configMap(revisions[7].components, lastLinks, { fallback: "expanded" }).rows.length);
     const importedRow = ui.get("files").children.find((row) => row.children[0].textContent === "docs/from-rule.md");
     assert.equal(importedRow.children[2].textContent, "instructions (imported)");
+    // Selecting a file locates it in the file table, as the treemap does.
+    mapRows()[
+      configMap(revisions[7].components, lastLinks, { fallback: "expanded" }).rows.findIndex(
+        (row) => row.path === "AGENTS.md",
+      )
+    ].listeners.click();
+    assert.equal(ui.get("files-panel").open, true);
+    assert.equal(ui.get("path-search").value, "AGENTS.md");
 
     // The command line counts unresolved imports at the last revision without naming paths.
     const output = join(tmpdir(), `strata-imports-${process.pid}.json`);

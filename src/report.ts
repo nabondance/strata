@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { categories } from "./adapters.js";
 import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } from "./brand.js";
 import { compareRevisions } from "./compare.js";
+import { configMap } from "./config-map.js";
 import { expandRevisions } from "./expand.js";
 import { importLinks } from "./import-links.js";
 import type { Report } from "./model.js";
@@ -42,6 +43,7 @@ export function renderHtml(report: Report): string {
   const timelineSource = timelineBuckets.toString();
   const importsSource = importLinks.toString();
   const upFrontSource = upFrontContext.toString();
+  const mapSource = configMap.toString();
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
   const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
@@ -170,6 +172,35 @@ export function renderHtml(report: Report): string {
     @media (prefers-reduced-motion: reduce) { .treemap-leaf, .treemap-group { transition: none; } .treemap-leaf.entering { animation: none; } }
     .treemap-hover { min-height: 2.9em; margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .treemap-hover.detail { color: var(--ink); }
+    .map-tools { display: flex; flex-wrap: wrap; gap: 7px; }
+    .map-tools button { padding: 6px 11px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+    .map-tools button:hover { background: var(--hover); }
+    .map-tools button:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+    .map-intro { font-size: 13px; margin: 0 0 4px; max-width: 900px; }
+    .map-key { display: inline-block; flex: none; width: 9px; height: 14px; border: 2px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
+    .map-key.dashed { border-style: dashed; border-left: 0; }
+    .config-map { --gutter: 150px; position: relative; padding-right: var(--gutter); border-top: 1px solid var(--grid); }
+    .map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 28%) 8ch; align-items: center; gap: 12px; height: 30px; padding-right: 10px; border-bottom: 1px solid var(--grid); cursor: pointer; font-size: 13px; }
+    .map-row:hover, .map-row.linked { background: var(--hover); }
+    .map-row:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
+    .map-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .map-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .map-row.folder .map-label { font-weight: 700; }
+    .map-caret { flex: none; width: 10px; color: var(--muted); font-size: 10px; }
+    .map-tag { flex: none; padding: 0 5px; border: 1px solid var(--line); color: var(--muted); font-size: 10px; letter-spacing: .05em; line-height: 16px; text-transform: uppercase; white-space: nowrap; }
+    .map-tag.warn { border-color: currentColor; color: var(--warn); }
+    .map-bar { display: flex; height: 10px; min-width: 0; overflow: hidden; background: var(--grid); }
+    .map-bar i { display: block; flex: none; min-width: 2px; height: 100%; }
+    .map-bar.source-only { background: none; }
+    .map-bar.source-only i { width: 10px; border: 2px solid; }
+    .map-size { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .map-gutter { position: absolute; top: 0; right: 0; width: var(--gutter); pointer-events: none; }
+    .map-arc { position: absolute; left: 0; border: 1.5px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; opacity: .5; }
+    .map-arc.dashed { border-style: dashed; border-left: 0; }
+    .map-arrow { position: absolute; left: 0; width: 0; height: 0; border: 4px solid transparent; border-left: 0; border-right: 6px solid var(--ink); opacity: .5; }
+    .config-map.tracing :is(.map-arc, .map-arrow) { opacity: .12; }
+    .config-map.tracing .map-arc.lit { border-color: var(--clay); border-width: 2.5px; border-left: 0; opacity: 1; }
+    .config-map.tracing .map-arrow.lit { border-right-color: var(--clay); opacity: 1; }
     .skill-toggle, .more { margin-top: 13px; border: 1px solid var(--edge); padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
     .skill-toggle:hover, .more:hover { background: var(--hover); }
     .skill-toggle:focus-visible, .more:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
@@ -213,7 +244,7 @@ export function renderHtml(report: Report): string {
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .config-map { --gutter: 64px; } .map-row { grid-template-columns: minmax(0, 1fr) 36px 7ch; gap: 8px; } /* Names need the room; the detail line and accessible name still give each tag. */ .map-tag { display: none; } }
   </style>
 </head>
 <body>
@@ -251,6 +282,13 @@ export function renderHtml(report: Report): string {
       <div class="legend" id="treemap-legend" hidden></div>
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-hover" id="treemap-hover" aria-live="polite"></p>
+    </section>
+    <section class="panel" aria-labelledby="map-heading">
+      <div class="panel-head"><h2 id="map-heading">Configuration map</h2><div class="map-tools" role="group" aria-label="Folders"><button type="button" id="map-expand">Open all folders</button><button type="button" id="map-collapse">Close all folders</button></div></div>
+      <p class="muted map-intro">Where each file sits, with a bar for its share of the stored-text tokens. Lines are Claude @path imports, with the arrow at the imported file. A folder only holds its files, and a line does not show that a session loaded a file.</p>
+      <div class="legend"><span><i class="map-key"></i>Claude import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file, measured in bytes</span></div>
+      <div class="config-map" id="config-map" role="tree" aria-labelledby="map-heading"></div>
+      <p class="treemap-hover" id="map-hover" aria-live="polite"></p>
     </section>
     <details class="panel" id="upfront-panel" hidden>
       <summary><h2>At session start</h2><span class="summary-count" id="upfront-count"></span></summary>
@@ -321,6 +359,7 @@ export function renderHtml(report: Report): string {
     const timelineBuckets = ${timelineSource};
     const importLinks = ${importsSource};
     const upFrontContext = ${upFrontSource};
+    const configMap = ${mapSource};
     const agentNames = ${JSON.stringify(sessionProviderNames)};
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
@@ -732,6 +771,21 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // Opens the file table filtered to one file and moves to its row.
+    function locateComponent(component) {
+      providerFilter = component.provider;
+      categoryFilter = component.category;
+      pathSearch = component.path.toLocaleLowerCase();
+      $('provider-filter').value = providerFilter;
+      $('category-filter').value = categoryFilter;
+      $('path-search').value = component.path;
+      $('files-panel').open = true;
+      renderInventory();
+      const row = inventoryRows.get(component.path);
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row?.focus({ preventScroll: true });
+    }
+
     // Gaps and the category header are in pixels, so the layout is redone when the treemap is resized.
     const treemapFrame = { gap: 4, seam: 1, header: 22, wide: 2 };
     // What each rectangle was drawn for, so the next revision can move it rather than redraw it.
@@ -813,19 +867,7 @@ export function renderHtml(report: Report): string {
           button.addEventListener('focus', showDetail);
           button.addEventListener('mouseleave', clearDetail);
           button.addEventListener('blur', clearDetail);
-          button.addEventListener('click', () => {
-            providerFilter = component.provider;
-            categoryFilter = component.category;
-            pathSearch = component.path.toLocaleLowerCase();
-            $('provider-filter').value = providerFilter;
-            $('category-filter').value = categoryFilter;
-            $('path-search').value = component.path;
-            $('files-panel').open = true;
-            renderInventory();
-            const row = inventoryRows.get(component.path);
-            row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            row?.focus({ preventScroll: true });
-          });
+          button.addEventListener('click', () => locateComponent(component));
           root.append(button);
           drawnNow.set('file:' + component.path, button);
         }
@@ -935,6 +977,203 @@ export function renderHtml(report: Report): string {
         skillBody.append(row);
       }
     }
+
+    // The map draws the view's files; its import lines come from the whole inventory, like the imports table.
+    const mapRowHeight = 30;
+    // Folders the reader opened or closed, by path; they stay that way across revisions and views.
+    const mapToggled = new Map();
+    let mapFallback = 'auto';
+    // The row that takes the Tab stop, by path, so it survives redrawing.
+    let mapCurrent = '';
+    let mapDrawn = { map: { rows: [] }, nodes: [], details: [], lines: [] };
+    let mapNote = '';
+    $('map-expand').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'expanded'; renderMap(); });
+    $('map-collapse').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'collapsed'; renderMap(); });
+
+    function renderMap(focus) {
+      const revision = viewRevisions[selected];
+      const links = importLinks(revisions[selected].components);
+      drawn.map = revision.components;
+      drawn.mapImports = revisions[selected].components;
+      const map = configMap(revision.components, links, { toggled: mapToggled, fallback: mapFallback });
+      const changedHere = new Map(revision.changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
+      drawn.mapTagged = changedHere.size > 0;
+      const imports = new Map();
+      const importedBy = new Map();
+      for (const link of links) {
+        if (link.status !== 'resolved' || link.source === link.target) continue;
+        imports.set(link.source, [...(imports.get(link.source) ?? []), link.target]);
+        importedBy.set(link.target, [...(importedBy.get(link.target) ?? []), link.source]);
+      }
+      // A closed folder counts the changed files it hides.
+      const changedUnder = map.rows.map(() => 0);
+      revision.components.forEach((component, index) => {
+        if (changedHere.has(component.path) && map.rows[map.rowOf[index]].kind === 'folder') changedUnder[map.rowOf[index]] += 1;
+      });
+      const root = $('config-map');
+      root.replaceChildren();
+      root.classList.remove('tracing');
+      if (!map.rows.length) root.append(text('p', 'No tracked files at this revision.', 'empty'));
+      if (!map.rows.some((row) => row.path === mapCurrent)) mapCurrent = map.rows[0]?.path ?? '';
+      const names = (paths) => paths.length > 3 ? paths.slice(0, 3).join(', ') + ' and ' + fmt(paths.length - 3) + ' more' : paths.join(', ');
+      const nodes = [];
+      const details = [];
+      for (const [index, row] of map.rows.entries()) {
+        const folder = row.kind === 'folder';
+        const component = folder ? null : revision.components[row.component];
+        const change = folder ? null : changedHere.get(row.path);
+        const parts = [folder ? row.path + '/' : row.path];
+        if (folder) {
+          parts.push(fmt(row.files) + (row.files === 1 ? ' file' : ' files') + (row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''), fmt(row.tokens) + ' stored-text tokens', row.collapsed ? 'closed' : 'open');
+          if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
+        } else {
+          parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' stored-text tokens') + listingLabel(component));
+          if (imports.has(row.path)) parts.push('imports ' + names(imports.get(row.path)));
+          if (importedBy.has(row.path)) parts.push('imported by ' + names(importedBy.get(row.path)));
+          if (change) parts.push(change.kind === 'added' ? 'added at this revision' : change.kind === 'renamed' ? 'renamed at this revision from ' + change.previousPath : 'edited at this revision');
+        }
+        if (row.unresolved) parts.push(fmt(row.unresolved) + ' unresolved ' + (row.unresolved === 1 ? 'import' : 'imports'));
+        const detail = parts.join(' · ');
+        const node = text('div', '', 'map-row ' + row.kind);
+        node.setAttribute('role', 'treeitem');
+        node.setAttribute('aria-level', String(row.depth + 1));
+        node.setAttribute('aria-setsize', String(row.siblings));
+        node.setAttribute('aria-posinset', String(row.position));
+        node.setAttribute('aria-label', detail);
+        if (folder) node.setAttribute('aria-expanded', String(!row.collapsed));
+        node.tabIndex = row.path === mapCurrent ? 0 : -1;
+        const name = text('span', '', 'map-name');
+        // Indenting the name, not the row, keeps every bar on the same scale and starting point.
+        name.style.paddingLeft = 8 + row.depth * 18 + 'px';
+        name.append(text('span', folder ? (row.collapsed ? '▸' : '▾') : '', 'map-caret'), text('span', row.label + (folder ? '/' : ''), 'map-label'));
+        if (folder && row.collapsed) name.append(text('span', fmt(row.files) + (row.files === 1 ? ' file' : ' files'), 'map-tag'));
+        const changed = change ? (change.kind === 'added' ? 'new' : change.kind === 'renamed' ? 'renamed' : 'edited') : changedUnder[index] ? fmt(changedUnder[index]) + ' changed' : '';
+        if (changed) name.append(text('span', changed, 'map-tag'));
+        if (row.unresolved) name.append(text('span', fmt(row.unresolved) + ' unresolved', 'map-tag warn'));
+        const bar = text('span', '', 'map-bar');
+        if (row.tokens === null) {
+          bar.classList.add('source-only');
+          const mark = text('i', '');
+          mark.style.borderColor = colors[row.categories[0].category];
+          bar.append(mark);
+        } else {
+          for (const part of row.categories) {
+            if (!part.tokens || !map.totalTokens) continue;
+            const segment = text('i', '');
+            segment.style.width = part.tokens / map.totalTokens * 100 + '%';
+            segment.style.background = colors[part.category];
+            bar.append(segment);
+          }
+        }
+        const sized = row.tokens !== null && row.sourceOnly < row.files;
+        node.append(name, bar, text('span', sized ? fmt(row.tokens) : '—', 'map-size'));
+        node.addEventListener('mouseenter', () => traceMap(index));
+        node.addEventListener('focus', () => {
+          mapCurrent = row.path;
+          for (const other of mapDrawn.nodes) other.tabIndex = other === node ? 0 : -1;
+          traceMap(index);
+        });
+        node.addEventListener('mouseleave', () => traceMap(-1));
+        node.addEventListener('blur', () => traceMap(-1));
+        node.addEventListener('click', () => activateMapRow(index));
+        nodes.push(node);
+        details.push(detail);
+        root.append(node);
+      }
+      // Each import is a half ellipse in the gutter, from the importing row down or up to the imported one.
+      const gutter = text('div', '', 'map-gutter');
+      gutter.setAttribute('aria-hidden', 'true');
+      gutter.style.height = map.rows.length * mapRowHeight + 'px';
+      const lines = map.rows.map(() => []);
+      for (const edge of map.edges) {
+        const span = Math.abs(edge.to - edge.from);
+        const arc = text('i', '', 'map-arc');
+        if (map.rows[edge.from].kind === 'folder' || map.rows[edge.to].kind === 'folder') arc.classList.add('dashed');
+        arc.style.top = (Math.min(edge.from, edge.to) + 0.5) * mapRowHeight + 'px';
+        arc.style.height = span * mapRowHeight + 'px';
+        arc.style.width = 'min(' + (10 + span * 8) + 'px, calc(var(--gutter) - 12px))';
+        const arrow = text('i', '', 'map-arrow');
+        arrow.style.top = (edge.to + 0.5) * mapRowHeight - 4 + 'px';
+        gutter.append(arc, arrow);
+        for (const end of [edge.from, edge.to]) lines[end].push({ arc, arrow, other: end === edge.from ? edge.to : edge.from });
+      }
+      if (map.edges.length) root.append(gutter);
+      mapDrawn = { map, nodes, details, lines };
+      const counts = [fmt(map.folders) + (map.folders === 1 ? ' folder' : ' folders'), fmt(revision.components.length) + (revision.components.length === 1 ? ' file' : ' files')];
+      if (map.edges.length || links.length) counts.push(fmt(map.edges.length) + (map.edges.length === 1 ? ' import line' : ' import lines'));
+      if (map.folded) counts.push(fmt(map.folded) + ' inside closed folders');
+      if (map.unresolved) counts.push(fmt(map.unresolved) + ' unresolved, listed under Claude imports');
+      if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
+      // Imports are Claude's; another agent's tab can still show one between two files it reads.
+      const borrowed = map.edges.length && activeView !== 'all' && activeView !== 'claude' ? ' Lines are Claude imports; they do not show that ' + (agentNames[activeView] ?? 'another agent') + ' follows them.' : '';
+      mapNote = (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + measureLabel().stat.toLowerCase() + '.' + borrowed;
+      $('map-hover').textContent = mapNote;
+      $('map-hover').classList.remove('detail');
+      if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();
+    }
+
+    // Hovering or focusing a row lights its import lines and the rows at their other ends; -1 clears it.
+    function traceMap(index) {
+      const { nodes, details, lines } = mapDrawn;
+      const root = $('config-map');
+      for (const node of nodes) node.classList.remove('linked');
+      for (const ends of lines) for (const { arc, arrow } of ends) { arc.classList.remove('lit'); arrow.classList.remove('lit'); }
+      if (index < 0) {
+        root.classList.remove('tracing');
+        $('map-hover').textContent = mapNote;
+        $('map-hover').classList.remove('detail');
+        return;
+      }
+      if (lines[index].length) root.classList.add('tracing');
+      else root.classList.remove('tracing');
+      for (const { arc, arrow, other } of lines[index]) {
+        arc.classList.add('lit');
+        arrow.classList.add('lit');
+        nodes[other].classList.add('linked');
+      }
+      $('map-hover').textContent = details[index];
+      $('map-hover').classList.add('detail');
+    }
+
+    // A folder opens or closes; a file is located in the file table, as from the treemap.
+    function activateMapRow(index) {
+      const row = mapDrawn.map.rows[index];
+      if (row.kind === 'folder') {
+        mapCurrent = row.path;
+        mapToggled.set(row.path, !row.collapsed);
+        renderMap(true);
+      } else {
+        locateComponent(viewRevisions[selected].components[row.component]);
+      }
+    }
+
+    // The map is one Tab stop; arrow keys move between rows and open or close folders, as in a file tree.
+    $('config-map').addEventListener('keydown', (event) => {
+      const { map, nodes } = mapDrawn;
+      const at = nodes.indexOf(event.target);
+      if (at < 0) return;
+      const row = map.rows[at];
+      const folder = row.kind === 'folder';
+      let next;
+      if (event.key === 'ArrowDown') next = at + 1;
+      else if (event.key === 'ArrowUp') next = at - 1;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = nodes.length - 1;
+      else if (event.key === 'ArrowRight') {
+        if (folder && row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
+        next = folder ? at + 1 : undefined;
+      } else if (event.key === 'ArrowLeft') {
+        if (folder && !row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
+        next = row.parent >= 0 ? row.parent : undefined;
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activateMapRow(at);
+        return;
+      }
+      if (next === undefined) return;
+      event.preventDefault();
+      nodes[Math.max(0, Math.min(nodes.length - 1, next))].focus();
+    });
 
     // Imports are links between stored files, so they follow the whole inventory whatever the view.
     const importStatus = { resolved: 'resolved', missing: 'missing', external: 'outside the repository', 'depth-limit': 'too deep' };
@@ -1157,6 +1396,7 @@ export function renderHtml(report: Report): string {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
       if (drawn.imports !== revisions[selected].components) renderImports();
+      if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || drawn.mapTagged || revision.changes.length) renderMap();
       if (drawn.mcp !== revision.components) renderMcp();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
