@@ -28,6 +28,8 @@ export interface MapRow {
   categories: { category: Component["category"]; tokens: number }[];
   /** Folders only: whether the map hides what the folder holds. */
   collapsed?: boolean;
+  /** Folders only: the paths of the folders the row stands for, outermost first; the last is `path`. */
+  chain?: string[];
   /** Imports from the files this row shows that do not resolve to a tracked file. */
   unresolved: number;
 }
@@ -56,10 +58,18 @@ export interface ConfigMap {
   totalTokens: number;
   /** Folders under the root, shown or not. */
   folders: number;
+  /** For each importing path, the paths its resolved imports reach, other than itself, in link order. */
+  targets: Map<string, string[]>;
+  /** For each imported path, the paths that import it, other than itself, in link order. */
+  sources: Map<string, string[]>;
 }
 
 export interface MapOptions {
-  /** Folders the reader opened (false) or closed (true), by path; these override `fallback`. */
+  /**
+   * Folders the reader opened (false) or closed (true), by path; these override `fallback`. A row that
+   * several folders share follows the choice for the deepest of them that has one, so a choice made at one
+   * revision holds at another where the folders share rows differently.
+   */
   toggled?: ReadonlyMap<string, boolean>;
   /**
    * How other folders start. `auto` opens folders level by level, as deep as it can while the map keeps
@@ -129,21 +139,33 @@ export function configMap(
   }
 
   const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-  const fileName = (index: number) => components[index]!.path.split("/").at(-1)!;
+  const names = components.map((component) => component.path.split("/").at(-1)!);
   // A folder holding only one folder shares its row with it; the row is named by the chain and opens the last.
   const shown = (start: Folder) => {
     let at = start;
     let label = start.name;
+    const chain = [start.path];
     while (!at.files.length && at.folders.size === 1) {
       at = at.folders.values().next().value!;
       label += `/${at.name}`;
+      chain.push(at.path);
     }
-    return { at, label };
+    return { at, label, chain };
   };
-  const entries = (at: Folder) => [
-    ...[...at.folders.values()].sort((a, b) => byName(a.name, b.name)).map((child) => shown(child)),
-    ...[...at.files].sort((a, b) => byName(fileName(a), fileName(b))),
-  ];
+  // Each folder's entries are sorted once and reused by every pass below.
+  type Entry = number | ReturnType<typeof shown>;
+  const sorted = new Map<Folder, Entry[]>();
+  const entries = (at: Folder): Entry[] => {
+    let list = sorted.get(at);
+    if (!list) {
+      list = [
+        ...[...at.folders.values()].sort((a, b) => byName(a.name, b.name)).map((child) => shown(child)),
+        ...[...at.files].sort((a, b) => byName(names[a]!, names[b]!)),
+      ];
+      sorted.set(at, list);
+    }
+    return list;
+  };
 
   // `auto` opens one more level at a time while the whole map stays within the row budget. The reader's own
   // toggles are left out of this, so opening one folder never closes another.
@@ -187,7 +209,7 @@ export function configMap(
         rows.push({
           kind: "file",
           path: component.path,
-          label: fileName(entry),
+          label: names[entry]!,
           depth,
           parent,
           position: place + 1,
@@ -202,7 +224,8 @@ export function configMap(
         rowOf[entry] = row;
         continue;
       }
-      const collapsed = toggled.get(entry.at.path) ?? depth >= openDepth;
+      let collapsed = depth >= openDepth;
+      for (const path of entry.chain) collapsed = toggled.get(path) ?? collapsed;
       rows.push({
         kind: "folder",
         path: entry.at.path,
@@ -216,6 +239,7 @@ export function configMap(
         tokens: entry.at.tokens,
         categories: ranked(entry.at.categories),
         collapsed,
+        chain: entry.chain,
         unresolved: 0,
       });
       if (collapsed) holdAll(entry.at, row);
@@ -229,6 +253,13 @@ export function configMap(
   let folded = 0;
   let offMap = 0;
   let unresolved = 0;
+  const targets = new Map<string, string[]>();
+  const sources = new Map<string, string[]>();
+  const listed = (lists: Map<string, string[]>, key: string, value: string) => {
+    const list = lists.get(key);
+    if (list) list.push(value);
+    else lists.set(key, [value]);
+  };
   for (const link of links) {
     const from = rowByPath.get(link.source);
     // Every unresolved import counts, as in the imports table; only one from a file on the map marks a row.
@@ -239,6 +270,8 @@ export function configMap(
     }
     // A file that imports itself links nothing to anything else.
     if (link.target === link.source) continue;
+    listed(targets, link.source, link.target!);
+    listed(sources, link.target!, link.source);
     const to = link.target === null ? undefined : rowByPath.get(link.target);
     if (from === undefined || to === undefined) offMap += 1;
     else if (to === from) folded += 1;
@@ -258,5 +291,7 @@ export function configMap(
     unresolved,
     totalTokens: root.tokens,
     folders,
+    targets,
+    sources,
   };
 }

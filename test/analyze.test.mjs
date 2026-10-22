@@ -2328,6 +2328,16 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(mapRows()[docsRow + 1].focused, true);
     press("ArrowLeft", expectedMap, "docs");
     assert.equal(mapRows().length, closedMap.rows.length);
+    // Keys pressed with Alt, Ctrl, or Cmd are left to the browser.
+    ui.get("config-map").listeners.keydown({
+      key: "ArrowLeft",
+      altKey: true,
+      target: mapRows()[docsRow],
+      preventDefault() {
+        assert.fail("Alt+ArrowLeft was taken from the browser");
+      },
+    });
+    assert.equal(mapRows().length, closedMap.rows.length);
     ui.get("map-collapse").listeners.click();
     assert.equal(
       mapRows().length,
@@ -2335,6 +2345,14 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     );
     ui.get("map-expand").listeners.click();
     assert.equal(mapRows().length, configMap(revisions[7].components, lastLinks, { fallback: "expanded" }).rows.length);
+    // While the slider is dragged the map shows the last revision it drew, and a selected file is one of those.
+    const expandedMap = configMap(revisions[7].components, lastLinks, { fallback: "expanded" });
+    ui.get("slider").value = "0";
+    ui.get("slider").listeners.input();
+    mapRows()[expandedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.click();
+    assert.equal(ui.get("path-search").value, "docs/from-rule.md");
+    ui.get("slider").value = "7";
+    ui.get("slider").listeners.change();
     const importedRow = ui.get("files").children.find((row) => row.children[0].textContent === "docs/from-rule.md");
     assert.equal(importedRow.children[2].textContent, "instructions (imported)");
     // Selecting a file locates it in the file table, as the treemap does.

@@ -985,26 +985,28 @@ export function renderHtml(report: Report): string {
     let mapFallback = 'auto';
     // The row that takes the Tab stop, by path, so it survives redrawing.
     let mapCurrent = '';
-    let mapDrawn = { map: { rows: [] }, nodes: [], details: [], lines: [] };
+    let mapDrawn = { map: { rows: [] }, components: [], nodes: [], details: [], lines: [] };
     let mapNote = '';
+    // What the last hover or focus lit, so the next one clears only that.
+    let mapLit = [];
+    let mapTabStop = null;
+    // The imports table and the map both need a revision's links; they are found once per inventory.
+    let linksCache = { components: null, links: [] };
+    function revisionLinks(components) {
+      if (linksCache.components !== components) linksCache = { components, links: importLinks(components) };
+      return linksCache.links;
+    }
     $('map-expand').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'expanded'; renderMap(); });
     $('map-collapse').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'collapsed'; renderMap(); });
 
     function renderMap(focus) {
       const revision = viewRevisions[selected];
-      const links = importLinks(revisions[selected].components);
+      const links = revisionLinks(revisions[selected].components);
       drawn.map = revision.components;
       drawn.mapImports = revisions[selected].components;
       const map = configMap(revision.components, links, { toggled: mapToggled, fallback: mapFallback });
       const changedHere = new Map(revision.changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
       drawn.mapTagged = changedHere.size > 0;
-      const imports = new Map();
-      const importedBy = new Map();
-      for (const link of links) {
-        if (link.status !== 'resolved' || link.source === link.target) continue;
-        imports.set(link.source, [...(imports.get(link.source) ?? []), link.target]);
-        importedBy.set(link.target, [...(importedBy.get(link.target) ?? []), link.source]);
-      }
       // A closed folder counts the changed files it hides.
       const changedUnder = map.rows.map(() => 0);
       revision.components.forEach((component, index) => {
@@ -1013,7 +1015,8 @@ export function renderHtml(report: Report): string {
       const root = $('config-map');
       root.replaceChildren();
       root.classList.remove('tracing');
-      if (!map.rows.length) root.append(text('p', 'No tracked files at this revision.', 'empty'));
+      mapLit = [];
+      mapTabStop = null;
       if (!map.rows.some((row) => row.path === mapCurrent)) mapCurrent = map.rows[0]?.path ?? '';
       const names = (paths) => paths.length > 3 ? paths.slice(0, 3).join(', ') + ' and ' + fmt(paths.length - 3) + ' more' : paths.join(', ');
       const nodes = [];
@@ -1028,8 +1031,8 @@ export function renderHtml(report: Report): string {
           if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
         } else {
           parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' stored-text tokens') + listingLabel(component));
-          if (imports.has(row.path)) parts.push('imports ' + names(imports.get(row.path)));
-          if (importedBy.has(row.path)) parts.push('imported by ' + names(importedBy.get(row.path)));
+          if (map.targets.has(row.path)) parts.push('imports ' + names(map.targets.get(row.path)));
+          if (map.sources.has(row.path)) parts.push('imported by ' + names(map.sources.get(row.path)));
           if (change) parts.push(change.kind === 'added' ? 'added at this revision' : change.kind === 'renamed' ? 'renamed at this revision from ' + change.previousPath : 'edited at this revision');
         }
         if (row.unresolved) parts.push(fmt(row.unresolved) + ' unresolved ' + (row.unresolved === 1 ? 'import' : 'imports'));
@@ -1042,6 +1045,7 @@ export function renderHtml(report: Report): string {
         node.setAttribute('aria-label', detail);
         if (folder) node.setAttribute('aria-expanded', String(!row.collapsed));
         node.tabIndex = row.path === mapCurrent ? 0 : -1;
+        if (node.tabIndex === 0) mapTabStop = node;
         const name = text('span', '', 'map-name');
         // Indenting the name, not the row, keeps every bar on the same scale and starting point.
         name.style.paddingLeft = 8 + row.depth * 18 + 'px';
@@ -1070,7 +1074,9 @@ export function renderHtml(report: Report): string {
         node.addEventListener('mouseenter', () => traceMap(index));
         node.addEventListener('focus', () => {
           mapCurrent = row.path;
-          for (const other of mapDrawn.nodes) other.tabIndex = other === node ? 0 : -1;
+          if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
+          node.tabIndex = 0;
+          mapTabStop = node;
           traceMap(index);
         });
         node.addEventListener('mouseleave', () => traceMap(-1));
@@ -1098,7 +1104,7 @@ export function renderHtml(report: Report): string {
         for (const end of [edge.from, edge.to]) lines[end].push({ arc, arrow, other: end === edge.from ? edge.to : edge.from });
       }
       if (map.edges.length) root.append(gutter);
-      mapDrawn = { map, nodes, details, lines };
+      mapDrawn = { map, components: revision.components, nodes, details, lines };
       const counts = [fmt(map.folders) + (map.folders === 1 ? ' folder' : ' folders'), fmt(revision.components.length) + (revision.components.length === 1 ? ' file' : ' files')];
       if (map.edges.length || links.length) counts.push(fmt(map.edges.length) + (map.edges.length === 1 ? ' import line' : ' import lines'));
       if (map.folded) counts.push(fmt(map.folded) + ' inside closed folders');
@@ -1106,7 +1112,8 @@ export function renderHtml(report: Report): string {
       if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
       // Imports are Claude's; another agent's tab can still show one between two files it reads.
       const borrowed = map.edges.length && activeView !== 'all' && activeView !== 'claude' ? ' Lines are Claude imports; they do not show that ' + (agentNames[activeView] ?? 'another agent') + ' follows them.' : '';
-      mapNote = (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + measureLabel().stat.toLowerCase() + '.' + borrowed;
+      // An empty tree holds nothing, so the note under it says why.
+      mapNote = !map.rows.length ? 'No tracked files at this revision.' : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + measureLabel().stat.toLowerCase() + '.' + borrowed;
       $('map-hover').textContent = mapNote;
       $('map-hover').classList.remove('detail');
       if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();
@@ -1116,8 +1123,8 @@ export function renderHtml(report: Report): string {
     function traceMap(index) {
       const { nodes, details, lines } = mapDrawn;
       const root = $('config-map');
-      for (const node of nodes) node.classList.remove('linked');
-      for (const ends of lines) for (const { arc, arrow } of ends) { arc.classList.remove('lit'); arrow.classList.remove('lit'); }
+      for (const [node, name] of mapLit) node.classList.remove(name);
+      mapLit = [];
       if (index < 0) {
         root.classList.remove('tracing');
         $('map-hover').textContent = mapNote;
@@ -1130,6 +1137,7 @@ export function renderHtml(report: Report): string {
         arc.classList.add('lit');
         arrow.classList.add('lit');
         nodes[other].classList.add('linked');
+        mapLit.push([arc, 'lit'], [arrow, 'lit'], [nodes[other], 'linked']);
       }
       $('map-hover').textContent = details[index];
       $('map-hover').classList.add('detail');
@@ -1140,10 +1148,12 @@ export function renderHtml(report: Report): string {
       const row = mapDrawn.map.rows[index];
       if (row.kind === 'folder') {
         mapCurrent = row.path;
-        mapToggled.set(row.path, !row.collapsed);
+        // Every folder the row stands for takes the choice, so it holds where they share rows differently.
+        for (const path of row.chain) mapToggled.set(path, !row.collapsed);
         renderMap(true);
       } else {
-        locateComponent(viewRevisions[selected].components[row.component]);
+        // The drawn files, not the selected revision's: while the slider is dragged, the map catches up later.
+        locateComponent(mapDrawn.components[row.component]);
       }
     }
 
@@ -1151,7 +1161,8 @@ export function renderHtml(report: Report): string {
     $('config-map').addEventListener('keydown', (event) => {
       const { map, nodes } = mapDrawn;
       const at = nodes.indexOf(event.target);
-      if (at < 0) return;
+      // Modified keys stay the browser's, such as Alt+Left for Back.
+      if (at < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
       const row = map.rows[at];
       const folder = row.kind === 'folder';
       let next;
@@ -1181,7 +1192,7 @@ export function renderHtml(report: Report): string {
     function renderImports() {
       const components = revisions[selected].components;
       drawn.imports = components;
-      const links = importLinks(components);
+      const links = revisionLinks(components);
       $('imports-panel').hidden = !links.length;
       const unresolved = links.filter((link) => link.status !== 'resolved').length;
       $('imports-count').textContent = fmt(links.length) + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');

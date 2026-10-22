@@ -52,6 +52,17 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
   );
   assert.deepEqual(map.rowOf, [1, 2, 5, 6, 4]);
   assert.deepEqual(configMap([], []).rows, []);
+  // A row several folders share follows the choice for the deepest of them that has one.
+  assert.deepEqual(map.rows[0].chain, [".claude", ".claude/skills", ".claude/skills/review"]);
+  const closedOuter = configMap(components, [], { toggled: new Map([[".claude", true]]) });
+  assert.equal(closedOuter.rows[0].collapsed, true);
+  const reopened = configMap(components, [], {
+    toggled: new Map([
+      [".claude", true],
+      [".claude/skills/review", false],
+    ]),
+  });
+  assert.equal(reopened.rows[0].collapsed, false);
 });
 
 test("opens folders as deep as the row budget allows and keeps the reader's choices", () => {
@@ -102,6 +113,15 @@ test("draws resolved imports between rows and counts the rest", () => {
       [5, 4, 1],
     ],
   );
+  // Each file's resolved imports, both ways, for the detail line.
+  assert.deepEqual(
+    [...open.targets],
+    [
+      ["CLAUDE.md", ["docs/guide.md", "rules/a.md"]],
+      ["docs/guide.md", ["docs/deep.md"]],
+    ],
+  );
+  assert.deepEqual(open.sources.get("docs/deep.md"), ["docs/guide.md"]);
   // Unresolved imports are counted on the importing row and never drawn.
   assert.equal(open.unresolved, 2);
   assert.equal(open.rows[5].unresolved, 2);
