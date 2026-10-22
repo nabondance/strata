@@ -1,7 +1,0 @@
-# Instruction survival prototype
-
-Recorded 2026-10-08. `measureLineSurvival` is a deliberately small attribution experiment, not a field in the current report. It accepts instructional text from two revisions and returns the fraction of old nonblank lines that still occur in the newer text. It normalizes CRLF and leading/trailing whitespace, treats lines as a multiset, and ignores paths and line order. A line moved from a root instruction file into a skill can therefore survive; two old copies need two new copies to both survive. An empty old instruction set has an undefined fraction (`null`).
-
-This is **exact-line retention**, not semantic survival. Rewording, wrapping, or splitting an instruction loses its match; a coincidentally identical line can look like survival. The function does not identify the origin of duplicated text, copied instructions, or a specific Git rename. It should be applied only to recognized instructional blobs, never to settings JSON, MCP schemas, binary resources, or runtime context assumptions.
-
-Before adding historical survival to JSON or HTML, test the method against a synthetic sequence with an instruction moved into a skill, a near-identical edit, duplicated lines, deletion, and a revert. Decide whether to report line count, byte weight, or token weight; line count gives a long and short line equal weight. A future report must state the chosen baseline and method and version its schema. Text may be read locally from Git for analysis, but source text must stay out of default exports.

@@ -27,6 +27,7 @@ import { providerReads } from "./provider-view.js";
 import { rulesUpFront } from "./rule-loading.js";
 import { skillListings } from "./skill-listing.js";
 import { inspectSubmodules } from "./submodules.js";
+import { LineAges, lineAgeMethod, readLineCounts } from "./survival.js";
 
 export { categories } from "./adapters.js";
 export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
@@ -263,6 +264,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const listings = skillListings(root, written, measured, measurer);
   const rules = rulesUpFront(root, written, measured);
   const mcp = mcpServerLists(root, written, measured);
+  const counted = readLineCounts(root, written, measured);
+  const ages = new LineAges(counted.lines, counted.weights);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
@@ -310,9 +313,17 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     const changes = buildChanges(before, inventory, delta.renames, table);
     // A revision that changes no recognized file keeps the previous revision's totals.
     if (previous && !changes.length) {
-      revisions.push({ ...previous, id, date, firstParent, changes });
+      const { lineAge: _unchanged, ...totals } = previous;
+      revisions.push({ ...totals, id, date, firstParent, changes });
       continue;
     }
+    const instructional = (index: number | undefined) =>
+      index !== undefined && table[index]!.estimatedTokens !== null ? [table[index]!.blob] : [];
+    const lineAge = ages.apply(
+      revisions.length,
+      [...before.values()].flatMap(instructional),
+      [...before.keys()].flatMap((path) => instructional(inventory.get(path))),
+    );
     const components = [...inventory.values()].map((index) => table[index]!);
     const settings = inventory.get(geminiSettingsPath);
     const names = settings === undefined ? null : (configured.get(table[settings]!.blob) ?? null);
@@ -336,6 +347,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       changes,
       ...(plan ? { providerTokenTotals } : {}),
       ...(geminiContext ? { geminiContextFiles: geminiContext } : {}),
+      ...(lineAge ? { lineAge } : {}),
     });
   }
 
@@ -350,7 +362,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
 
   return {
-    schemaVersion: 18,
+    schemaVersion: 19,
     repository: basename(root),
     branch,
     shallow,
@@ -358,6 +370,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     privacy: { mode: "local" },
     measurement: measurer.measurement,
     ...(provided ? { providerMeasurements: provided.metadata } : {}),
+    lineAgeMethod,
     components: order.map((index) => table[index]!),
     revisions,
   };

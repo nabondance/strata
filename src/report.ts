@@ -6,6 +6,7 @@ import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } fro
 import { compareRevisions } from "./compare.js";
 import { expandRevisions } from "./expand.js";
 import { importLinks } from "./import-links.js";
+import { instructionAges } from "./instruction-age.js";
 import type { Report } from "./model.js";
 import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "./palette.js";
 import { textRecipients } from "./provider-count.js";
@@ -42,6 +43,7 @@ export function renderHtml(report: Report): string {
   const timelineSource = timelineBuckets.toString();
   const importsSource = importLinks.toString();
   const upFrontSource = upFrontContext.toString();
+  const agesSource = instructionAges.toString();
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
   const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
@@ -139,6 +141,13 @@ export function renderHtml(report: Report): string {
     .segment { display: block; width: 100%; }
     input[type=range] { width: 100%; accent-color: var(--clay); margin-top: 17px; }
     .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    /* Instruction age: one hue, oldest text darkest in light mode and lightest in dark mode, a surface gap between layers. */
+    :root { --age-old: #0f4f4a; --age-new: #a8d8cf; }
+    @media (prefers-color-scheme: dark) { :root { --age-old: #c2e6df; --age-new: #2b6a62; } }
+    .age-chart { height: 160px; background: repeating-linear-gradient(to top, transparent 0, transparent 39px, var(--grid) 40px); }
+    .age-chart .segment { border-top: 2px solid var(--sheet); }
+    .age-chart .segment:last-child { border-top: 0; }
+    .age-legend b { min-width: 3.2em; }
     .provider-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 11px; }
     .provider-tab { padding: 9px 14px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
     .provider-tab[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
@@ -252,6 +261,13 @@ export function renderHtml(report: Report): string {
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-hover" id="treemap-hover" aria-live="polite"></p>
     </section>
+    <details class="panel" id="age-panel" hidden>
+      <summary><h2>Instruction age</h2><span class="summary-count" id="age-count"></span></summary>
+      <p class="muted">How long the instruction text has stayed. Each layer is the text first added in one period that is still present. Lines are matched by their exact text in every instruction file, so a line moved into a skill keeps its age, and an edited line starts again. Text removed and later restored counts as new. Weighed by the bytes of nonblank lines, and always across all files, whatever the view.</p>
+      <div class="legend age-legend" id="age-legend"></div>
+      <div class="chart-scroll"><div class="chart age-chart" id="age-chart" role="group" aria-label="Instruction text by the period it was added"></div></div>
+      <p class="muted" id="age-note"></p>
+    </details>
     <details class="panel" id="upfront-panel" hidden>
       <summary><h2>At session start</h2><span class="summary-count" id="upfront-count"></span></summary>
       <p class="muted">What each agent reads as soon as a session opens at the repository root, and what it reads only when needed.</p>
@@ -287,6 +303,7 @@ export function renderHtml(report: Report): string {
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
+        <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span>Instruction text kept</span><strong id="compare-kept"></strong></span>
         <span id="compare-mcp-wrap" hidden>MCP servers<strong id="compare-mcp"></strong></span>
         <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Skill summary tokens</span><strong id="compare-listing"></strong></span>
       </div>
@@ -321,6 +338,7 @@ export function renderHtml(report: Report): string {
     const timelineBuckets = ${timelineSource};
     const importLinks = ${importsSource};
     const upFrontContext = ${upFrontSource};
+    const instructionAges = ${agesSource};
     const agentNames = ${JSON.stringify(sessionProviderNames)};
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
@@ -1078,6 +1096,11 @@ export function renderHtml(report: Report): string {
       $('compare-listing').textContent = signed(skills.deltaTokens) + ' (' + fmt(skills.beforeTokens) + ' → ' + fmt(skills.afterTokens) + ')' +
         (skills.beforeUnresolved || skills.afterUnresolved ? ' · unresolved ' + fmt(skills.beforeUnresolved) + ' → ' + fmt(skills.afterUnresolved) : '');
       $('compare-listing').className = tone(skills.deltaTokens);
+      // Kept text is measured on the whole inventory, so it does not change with the view.
+      const keptFrom = baseline === 'previous' ? selected - 1 : baseline;
+      const kept = keptFrom >= 0 && keptFrom < selected ? keptShare(keptFrom, selected) : null;
+      $('compare-kept-wrap').hidden = kept === null;
+      if (kept !== null) $('compare-kept').textContent = percent(kept, 1) + ' of ' + fmt(ages[keptFrom].bytes) + ' bytes';
       const mcp = comparison.mcp;
       $('compare-mcp-wrap').hidden = !mcp;
       if (mcp) {
@@ -1121,6 +1144,127 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // Instruction age follows the whole inventory, like imports, whatever the view.
+    const ages = instructionAges(data);
+    const ageStart = ages.findIndex((age) => age.bytes);
+    const ageBuckets = [];
+    let agePeriods = [];
+    const periodOf = new Map();
+    // The finest period that keeps the layers few enough to tell apart.
+    function agePeriodsFor() {
+      const origins = [...new Set(ages.flatMap((age) => age.cohorts.map((cohort) => cohort.from)))].sort((a, b) => a - b);
+      const day = (index) => new Date(revisions[index].date);
+      const kinds = [
+        ['week', (date) => { const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - (date.getUTCDay() + 6) % 7)); return start.toISOString().slice(0, 10); }, (key) => 'Week of ' + key],
+        ['month', (date) => date.toISOString().slice(0, 7), (key) => key],
+        ['quarter', (date) => date.getUTCFullYear() + ' Q' + (Math.floor(date.getUTCMonth() / 3) + 1), (key) => key],
+        ['year', (date) => String(date.getUTCFullYear()), (key) => key],
+      ];
+      for (const [kind, key, label] of kinds) {
+        const keys = new Map(origins.map((index) => [index, key(day(index))]));
+        const distinct = [...new Set(keys.values())].sort();
+        if (distinct.length <= 8 || kind === 'year') {
+          for (const [index, value] of keys) periodOf.set(index, distinct.indexOf(value));
+          return distinct.map((value) => ({ key: value, label: label(value) }));
+        }
+      }
+    }
+    const ageColor = (period) => agePeriods.length === 1 ? 'var(--age-old)' : 'color-mix(in oklab, var(--age-new) ' + (period / (agePeriods.length - 1) * 100).toFixed(1) + '%, var(--age-old))';
+    /** Bytes at a revision by period, oldest first. */
+    function agePeriodBytes(age) {
+      const bytes = agePeriods.map(() => 0);
+      for (const cohort of age.cohorts) bytes[periodOf.get(cohort.from)] += cohort.bytes;
+      return bytes;
+    }
+    const percent = (part, whole) => {
+      const share = whole ? part / whole * 100 : 0;
+      return (share > 0 && share < 1 ? '<1' : share > 99 && share < 100 ? '>99' : String(Math.round(share))) + '%';
+    };
+    /** Of the instruction text at the baseline, the share still present at the target, or null without baseline text. */
+    function keptShare(from, to) {
+      const before = ages[from]?.bytes;
+      if (!before || to < from) return null;
+      return ages[to].cohorts.reduce((sum, cohort) => sum + (cohort.from <= from ? cohort.bytes : 0), 0) / before;
+    }
+    function renderAgeChart() {
+      $('age-panel').hidden = ageStart < 0;
+      if (ageStart < 0) return;
+      agePeriods = agePeriodsFor();
+      const chart = $('age-chart');
+      const buckets = timelineBuckets(ages.length, 100, ageStart);
+      chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
+      const max = Math.max(1, ...ages.map((age) => age.bytes));
+      for (const bucket of buckets) {
+        const age = ages[bucket.end];
+        const button = text('button', '', 'bar');
+        button.type = 'button';
+        const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
+        const bytes = agePeriodBytes(age);
+        const oldest = bytes.findIndex((amount) => amount);
+        button.title = range + ' · ' + revisions[bucket.end].date.slice(0, 10) + ' · ' + fmt(age.bytes) + ' bytes of instruction lines' + (oldest >= 0 ? ', ' + percent(bytes[oldest], age.bytes) + ' from ' + agePeriods[oldest].label : '');
+        button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revisions[bucket.end].date.slice(0, 10));
+        const stack = text('span', '', 'stack');
+        stack.style.height = Math.max(2, age.bytes / max * 150) + 'px';
+        bytes.forEach((amount, period) => {
+          if (!amount) return;
+          const segment = text('span', '', 'segment');
+          segment.style.height = amount / age.bytes * 100 + '%';
+          segment.style.background = ageColor(period);
+          stack.append(segment);
+        });
+        button.append(stack);
+        button.addEventListener('click', () => { render(bucket.end); button.focus(); });
+        chart.append(button);
+        ageBuckets.push({ ...bucket, button });
+      }
+      chart.addEventListener('keydown', (event) => {
+        const at = ageBuckets.findIndex((bucket) => bucket.button === event.target);
+        const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: ageBuckets.length - 1 }[event.key];
+        if (at < 0 || next === undefined) return;
+        event.preventDefault();
+        const bucket = ageBuckets[Math.max(0, Math.min(ageBuckets.length - 1, next))];
+        render(bucket.end);
+        bucket.button.focus();
+      });
+    }
+    function renderAge() {
+      if (ageStart < 0) return;
+      for (const bucket of ageBuckets) {
+        const isSelected = bucket.start <= selected && selected <= bucket.end;
+        bucket.button.classList.toggle('selected', isSelected);
+        bucket.button.tabIndex = isSelected ? 0 : -1;
+        bucket.button.setAttribute('aria-current', String(isSelected));
+      }
+      if (ageBuckets.length && !ageBuckets.some((bucket) => bucket.button.tabIndex === 0)) ageBuckets[0].button.tabIndex = 0;
+      const age = ages[selected];
+      const bytes = agePeriodBytes(age);
+      // Newest first, as the layers read from the top of the chart.
+      const legend = $('age-legend');
+      legend.replaceChildren();
+      for (let period = agePeriods.length - 1; period >= 0; period -= 1) {
+        const entry = text('span', agePeriods[period].label);
+        entry.append(text('b', age.bytes ? percent(bytes[period], age.bytes) : '—'));
+        const swatch = text('i', '', 'swatch');
+        swatch.style.background = ageColor(period);
+        entry.prepend(swatch);
+        legend.append(entry);
+      }
+      // The revision by which half of the text present had appeared, weighed by bytes.
+      let median = null;
+      for (let seen = 0, index = 0; index < age.cohorts.length; index += 1) {
+        seen += age.cohorts[index].bytes;
+        if (seen * 2 >= age.bytes) { median = age.cohorts[index].from; break; }
+      }
+      const kept = keptShare(ageStart, selected);
+      $('age-count').textContent = age.bytes
+        ? 'half dates from ' + revisions[median].date.slice(0, 10) + ' or earlier · ' + percent(kept ?? 0, 1) + ' of the first text kept'
+        : 'no instruction text at this revision';
+      $('age-note').textContent = age.bytes
+        ? fmt(age.bytes) + ' bytes of instruction lines at revision ' + (selected + 1) + '. Half of them were added by revision ' + (median + 1) + ' (' + revisions[median].date.slice(0, 10) + '). Of the ' + fmt(ages[ageStart].bytes) + ' bytes at the first revision with instructions (' + revisions[ageStart].date.slice(0, 10) + (data.shallow ? ', where this shallow clone starts' : '') + '), ' + percent(kept ?? 0, 1) + ' are still present.'
+        : 'No instruction text at this revision.';
+    }
+    renderAgeChart();
+
     function render(index, dragging) {
       selected = index;
       const revision = viewRevisions[index];
@@ -1144,6 +1288,7 @@ export function renderHtml(report: Report): string {
       $('delta').className = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
       $('revision').textContent = (index + 1) + ' / ' + revisions.length + ' · ' + revision.id.slice(0, 10);
 
+      renderAge();
       if (drawn.skills !== revision.skillGroups) renderSkills();
       if (drawn.upFront !== revisions[index].components) renderUpFront();
 

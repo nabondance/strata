@@ -30,7 +30,7 @@ A count endpoint counts a request, not a file, so each count includes the tokens
 
 ## History extraction
 
-Analysis reads the whole first-parent history from one streamed `git log --first-parent --diff-merges=first-parent --raw -M` process, which needs Git 2.31 or newer. Each commit's raw diff against its first parent updates an in-memory inventory of recognized regular files; symlinks and submodules are never tracked. The same diff shows each submodule entry being added or removed, so the submodules present at the last commit, and the commit each records, are collected without another Git command. `--ignore-submodules=none` keeps settings such as `diff.ignoreSubmodules` from hiding them. Renames are the ones Git reports in that diff, and only a rename between two recognized paths is labeled as such. Blob sizes come from `git cat-file --batch-check`. Blob content is read, in bounded batches, only for instructional text and only when the selected measurement needs the text, with three exceptions: the root Gemini settings, to resolve `context.fileName`; skill manifests, to measure their listing; and Claude instruction files and the Markdown their imports reach, to resolve `@path` imports. The default estimate reads no other file content. For the paths imports name that no path rule recognizes, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when no instruction file has an import. `strata diff` lists the two commit trees directly and shares the same classification and measurement code.
+Analysis reads the whole first-parent history from one streamed `git log --first-parent --diff-merges=first-parent --raw -M` process, which needs Git 2.31 or newer. Each commit's raw diff against its first parent updates an in-memory inventory of recognized regular files; symlinks and submodules are never tracked. The same diff shows each submodule entry being added or removed, so the submodules present at the last commit, and the commit each records, are collected without another Git command. `--ignore-submodules=none` keeps settings such as `diff.ignoreSubmodules` from hiding them. Renames are the ones Git reports in that diff, and only a rename between two recognized paths is labeled as such. Blob sizes come from `git cat-file --batch-check`. Blob content is read, in bounded batches, for every instructional file version, because [instruction age](#instruction-age) matches their lines, and for three kinds of other file: the root Gemini settings, to resolve `context.fileName`; skill manifests, to measure their listing; and Claude instruction files and the Markdown their imports reach, to resolve `@path` imports. Each instructional version is reduced to counts of its lines as soon as it is read, so memory grows with the number of distinct lines, not with the history's text. Settings, MCP, and other source-only files are otherwise read only where a section below says so. For the paths imports name that no path rule recognizes, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when no instruction file has an import. `strata diff` lists the two commit trees directly and shares the same classification and measurement code.
 
 Analysis keeps one running inventory and records, for each revision, only what that commit changed. It never materializes a per-revision file list, so memory and report size grow with the number of distinct file versions plus the number of revisions, not with revisions multiplied by tracked files.
 
@@ -50,7 +50,7 @@ Schema version 12 adds `submodules`: one entry per submodule present at the last
 
 ```json
 {
-  "schemaVersion": 18,
+  "schemaVersion": 19,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -65,6 +65,7 @@ Schema version 12 adds `submodules`: one entry per submodule present at the last
     "model": null,
     "implementation": "strata-v1"
   },
+  "lineAgeMethod": "exact-trimmed-line-multiset-utf8-bytes-v1",
   "components": [{
     "path": "AGENTS.md", "provider": "shared", "readers": ["claude", "codex", "cursor"], "category": "instructions",
     "blob": "<Git blob ID>", "bytes": 8, "estimatedTokens": 2
@@ -81,7 +82,8 @@ Schema version 12 adds `submodules`: one entry per submodule present at the last
     "changes": [{
       "kind": "added", "path": "AGENTS.md", "previousTokens": null,
       "estimatedTokens": 2, "deltaTokens": 2, "component": 0
-    }]
+    }],
+    "lineAge": { "added": 7 }
   }]
 }
 ```
@@ -100,7 +102,9 @@ Schema version 17 adds `upFront` to components that may be read from the start o
 
 Schema version 18 adds `mcp` to MCP configuration files and to Gemini CLI and Codex settings files that mention MCP servers; see [MCP servers](#mcp-servers). Earlier versions record those files by size alone.
 
-`--shareable` produces schema version 18 with `privacy.mode: "shareable"`. It replaces repository and branch names, commit and first-parent IDs, component and change paths, import targets (with the same aliases as paths, including targets no file has), skill roots, MCP server names, submodule paths, and blob IDs with deterministic aliases local to that report. The alias maps are not embedded. Dates, category and provider labels, `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels, an MCP server's `transport` and `disabled`, counts, byte sizes, estimates, change kinds, and timeline shape remain visible. Some labels narrow an alias to a well-known path: `legacy` is set only on the root `.cursorrules` and on a Copilot `.chatmode.md` in `.github/agents`, as Claude `tools` is only the root `.mcp.json`, and `upFront` is set only on a few root file names and on rules in the root `.claude/rules` and `.cursor/rules`. The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect before publishing.
+Schema version 19 adds the top-level `lineAgeMethod` and a `lineAge` on each revision that added or removed instruction lines; see [Instruction age](#instruction-age). Earlier versions have no instruction age, and analysis of the same history now reads every instructional file version.
+
+`--shareable` produces schema version 19 with `privacy.mode: "shareable"`. It replaces repository and branch names, commit and first-parent IDs, component and change paths, import targets (with the same aliases as paths, including targets no file has), skill roots, MCP server names, submodule paths, and blob IDs with deterministic aliases local to that report. The alias maps are not embedded. Dates, category and provider labels, `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels, an MCP server's `transport` and `disabled`, `lineAge`, counts, byte sizes, estimates, change kinds, and timeline shape remain visible. Some labels narrow an alias to a well-known path: `legacy` is set only on the root `.cursorrules` and on a Copilot `.chatmode.md` in `.github/agents`, as Claude `tools` is only the root `.mcp.json`, and `upFront` is set only on a few root file names and on rules in the root `.claude/rules` and `.cursor/rules`. The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect before publishing.
 
 ## MCP servers
 
@@ -166,6 +170,18 @@ The decisions that shape the data:
 - **Unresolved imports are listed, not drawn.** `missing`, `external`, and `depth-limit` imports stay in the derived list with their status, and the report lists them first, so a broken import is visible instead of silently absent.
 
 What this does not establish: which files a session loaded. Claude Code asks before loading external imports, skips files it cannot read as text, reads `AGENTS.md` only under conditions Strata does not resolve, and loads nested `CLAUDE.md` files only when it works in their directory. Imports in rules and other files are followed only when an import reaches them. `strata diff` resolves imports in each of its two trees the same way and includes the imported files in its totals; the comparison marks them `imported`, and its summary's file table adds "(imported)" to the change, since a change that only adds or drops an import lists the file as added or removed.
+
+## Instruction age
+
+Instruction age answers how much of a revision's instruction text dates from each earlier period, and how much of an older revision's text is still there, in the spirit of git-of-theseus cohorts. It covers every component with stored text (`estimatedTokens` not null), across all files whatever the provider view; settings, MCP schemas, and other source-only files never take part.
+
+Text is compared as lines. Each line is trimmed (so CRLF endings and indentation do not matter), blank lines are skipped, and the rest are matched by exact text across all instructional files, ignoring paths and order. A line moved from a root instruction file into a skill therefore keeps its age, and so does a renamed file. Each copy of a line is followed separately and remembers the revision it first appeared at: when a revision has more copies of a line than before, the extra copies are new; when it has fewer, the newest copies go first, whichever file they left, so the text said to survive is the oldest. A reworded, rewrapped, or split line is a removal and an addition. A line that disappears and later comes back, as in a revert, is new again: survival means continuous presence, like `git blame`. Matching is not semantic, so a short line such as `---` or a code fence can match a copy in another file by coincidence.
+
+Lines are weighed by their trimmed UTF-8 bytes, so a long instruction counts more than a short one and the result is the same whichever token measurement the report uses. Bytes are not tokens: the figures are shares and byte counts, never added to `estimatedTokens`. The baseline is the first analyzed revision, so in a shallow clone the oldest cohort holds everything before the clone starts.
+
+A revision that added or removed lines carries `lineAge`: `added`, the bytes of copies new at that revision, and `removed`, the bytes it removed grouped by `from`, the index in `revisions` of the revision they had appeared at, oldest first. Bytes only ever leave a cohort after the revision that added them, so replaying `lineAge` in order gives each revision's text by origin; `instructionAges` in `src/instruction-age.ts` does this and the HTML report embeds it. At a target revision, the bytes whose origin is at or before a baseline revision are exactly the baseline's text that stayed present the whole time, which gives survival between any two revisions without storing it. A revision without `lineAge` moved no line, even if it changed, renamed, or added files. No line text or hash is stored, and `lineAgeMethod` (`exact-trimmed-line-multiset-utf8-bytes-v1`) names the method.
+
+The HTML report draws the age of the text as a stacked bar per charted revision in a collapsed **Instruction age** panel: one layer per period, oldest at the bottom and darkest in light mode (lightest in dark mode), with the period chosen as the finest of week, month, quarter, or year that gives at most eight layers. Its legend gives each period's share at the selected revision, and its heading the date by which half of the text had appeared and the share of the first instructional revision's text still present. "Compare revisions" adds the share of the baseline's instruction text still present at the target. The command line prints the same two figures for the last revision. `strata diff` compares two trees without their history, so it has no instruction age, and the static SVG image does not draw it.
 
 ## Revision comparison
 

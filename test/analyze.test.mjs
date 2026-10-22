@@ -10,6 +10,7 @@ import { getEncoding } from "js-tiktoken";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
+import { instructionAges } from "../dist/instruction-age.js";
 import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -144,6 +145,29 @@ function exerciseReportUi(html, report) {
     expected.byCategory.filter((group) => group.deltaFiles || group.deltaTokens).length || 1,
   );
   assert.equal(get("slider").value, 3);
+  // Instruction age: one bar per charted revision, a legend entry per period, and the text kept from the baseline.
+  const ages = instructionAges(report);
+  const ageStart = ages.findIndex((age) => age.bytes);
+  assert.equal(get("age-panel").hidden, ageStart < 0);
+  if (ageStart >= 0) {
+    assert.equal(get("age-chart").children.length, Math.min(100, ages.length - ageStart));
+    assert.ok(get("age-legend").children.length >= 1);
+    assert.ok(get("age-legend").children.every((entry) => /%|—/.test(entry.children.at(-1).textContent)));
+    assert.match(get("age-count").textContent, /half dates from|no instruction text/);
+    const keptBytes = ages[3].cohorts.reduce((sum, cohort) => sum + (cohort.from <= 2 ? cohort.bytes : 0), 0);
+    assert.equal(get("compare-kept-wrap").hidden, !ages[2].bytes);
+    if (ages[2].bytes) {
+      const share = (keptBytes / ages[2].bytes) * 100;
+      const shown = share > 0 && share < 1 ? "<1" : share > 99 && share < 100 ? ">99" : String(Math.round(share));
+      assert.ok(get("compare-kept").textContent.startsWith(`${shown}% of `), get("compare-kept").textContent);
+    }
+    // A bar selects the last revision it covers, like the history chart.
+    get("age-chart").children[0].listeners.click();
+    const firstBucket = timelineBuckets(ages.length, 100, ageStart)[0];
+    assert.equal(get("target").value, String(firstBucket.end));
+    get("target").value = "3";
+    get("target").listeners.change();
+  }
   // Rectangles of files this revision added or edited are outlined; removed and source-only files have none.
   const sized = revisions[3].changes.filter(
     (change) => change.component !== null && report.components[change.component].estimatedTokens > 0,
@@ -392,7 +416,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 18);
+    assert.equal(providerApiReport.schemaVersion, 19);
     assert.equal(providerApiReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -493,7 +517,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 18);
+    assert.equal(report.schemaVersion, 19);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -862,7 +886,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
     const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 18);
+    assert.equal(openAiReport.schemaVersion, 19);
     assert.deepEqual(
       [
         openAiReport.measurement.family,
@@ -913,7 +937,7 @@ test("tracks configuration across first-parent history without reading untracked
     const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
     assert.deepEqual(
       [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 18],
+      ["gpt-4o", "o200k_base", 19],
     );
     assert.equal(
       expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
@@ -1390,7 +1414,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
         },
       },
     });
-    assert.equal(report.schemaVersion, 18);
+    assert.equal(report.schemaVersion, 19);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -1717,7 +1741,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
         },
       },
     });
-    assert.equal(report.schemaVersion, 18);
+    assert.equal(report.schemaVersion, 19);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -2149,7 +2173,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     commit("Import a rule that imports a doc");
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 18);
+    assert.equal(report.schemaVersion, 19);
     const revisions = expandRevisions(report);
     assert.equal(revisions.length, 8);
 
@@ -2378,7 +2402,7 @@ test("lists the MCP servers tracked files define, without storing their commands
 
     const report = await analyzeRepository(repo);
     const revisions = expandRevisions(report);
-    assert.equal(report.schemaVersion, 18);
+    assert.equal(report.schemaVersion, 19);
     assert.deepEqual(at(revisions[0]), {});
     assert.deepEqual(at(revisions[1]), {
       ".codex/config.toml": ["files:local", "paused docs:remote:off"],
