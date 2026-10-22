@@ -30,8 +30,6 @@
   "files": [
     "dist",
     "!dist/**/*.map",
-    "docs/brand/*.svg",
-    "docs/images",
     "skills"
   ],
   "scripts": {

@@ -9,7 +9,8 @@
       "include-component-in-tag": false,
       "initial-version": "0.1.0",
       "bump-minor-pre-major": true,
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": ["README.md", "docs/ci.md", "docs/pr-action.md"]
     }
   }
 }
