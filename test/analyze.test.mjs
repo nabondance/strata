@@ -1188,6 +1188,33 @@ test("tracks configuration across first-parent history without reading untracked
     } finally {
       rmSync(shallow, { recursive: true, force: true });
     }
+    // A full clone that fetched another branch shallowly is a shallow repository, but this history is complete.
+    const partly = mkdtempSync(join(tmpdir(), "strata-partly-shallow-"));
+    try {
+      execFileSync("git", ["clone", "--quiet", `file://${repo}`, partly]);
+      execFileSync("git", ["-C", repo, "checkout", "--quiet", "-b", "side"]);
+      for (const step of ["one", "two"]) {
+        writeFileSync(join(repo, "side.txt"), `${step}\n`);
+        execFileSync("git", ["-C", repo, "add", "side.txt"]);
+        execFileSync("git", ["-C", repo, "commit", "--quiet", "-m", `side ${step}`]);
+      }
+      execFileSync("git", ["-C", repo, "checkout", "--quiet", "-"]);
+      execFileSync("git", ["-C", partly, "fetch", "--quiet", "--depth", "1", "origin", "side"]);
+      assert.equal(
+        execFileSync("git", ["-C", partly, "rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim(),
+        "true",
+      );
+      const partlyReport = await analyzeRepository(partly);
+      assert.equal(partlyReport.shallow, false);
+      assert.equal(
+        partlyReport.revisions.length,
+        Number(
+          execFileSync("git", ["-C", partly, "rev-list", "--count", "--first-parent", "HEAD"], { encoding: "utf8" }),
+        ),
+      );
+    } finally {
+      rmSync(partly, { recursive: true, force: true });
+    }
     git("checkout", "--detach");
     const detached = await analyzeRepository(repo);
     assert.equal(detached.branch, "detached HEAD");
@@ -1981,8 +2008,11 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
 });
 
 test("draws instruction age by period, marks a shallow start, and follows the keyboard and the baseline", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-age-ui-"));
-  try {
+  const repos = [];
+  /** A repository with one commit per entry, each writing its files at its date. */
+  const history = (commits) => {
+    const repo = mkdtempSync(join(tmpdir(), "strata-age-ui-"));
+    repos.push(repo);
     const git = (args, date) =>
       execFileSync("git", ["-C", repo, ...args], {
         encoding: "utf8",
@@ -1991,16 +2021,22 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     git(["init", "-q", "-b", "main"]);
     git(["config", "user.name", "Strata Test"]);
     git(["config", "user.email", "strata-test@example.invalid"]);
-    const lines = [];
-    // One line a year for ten years; the first is long enough to hold half the text alone.
-    for (let year = 0; year < 10; year += 1) {
-      lines.push(year ? `Line ${year}.` : `First line, ${"long ".repeat(12)}enough.`);
-      writeFileSync(join(repo, "CLAUDE.md"), `${lines.join("\n")}\n`);
-      const date = `${2010 + year}-06-01T12:00:00Z`;
+    for (const [index, { date, files }] of commits.entries()) {
+      for (const [path, content] of Object.entries(files)) writeFileSync(join(repo, path), content);
       git(["add", "-A"], date);
-      git(["commit", "-q", "-m", `year ${year}`], date);
+      git(["commit", "-q", "-m", `commit ${index}`], date);
     }
-    const report = await analyzeRepository(repo);
+    return analyzeRepository(repo);
+  };
+  try {
+    // One line a year for ten years; the first is long enough to hold half the text alone.
+    const lines = [];
+    const report = await history(
+      Array.from({ length: 10 }, (_, year) => {
+        lines.push(year ? `Line ${year}.` : `First line, ${"long ".repeat(12)}enough.`);
+        return { date: `${2010 + year}-06-01T12:00:00Z`, files: { "CLAUDE.md": `${lines.join("\n")}\n` } };
+      }),
+    );
     const dates = report.revisions.map((revision) => revision.date.slice(0, 10));
 
     // More than eight years keeps one layer a year; in a shallow clone the first is "or earlier".
@@ -2009,13 +2045,18 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     assert.equal(get("age-panel").hidden, false);
     const chart = get("age-chart");
     assert.equal(chart.children.length, 10);
+    assert.equal(get("age-start").textContent, dates[0]);
+    assert.equal(get("age-end").textContent, dates[9]);
     const legend = get("age-legend").children.map((entry) => entry.textContent);
     assert.deepEqual(
       legend,
       Array.from({ length: 10 }, (_, index) => `${2019 - index}${index === 9 ? " or earlier" : ""}`),
     );
     assert.match(chart.children[0].title, /from 2010 or earlier$/);
-    assert.match(get("age-count").textContent, new RegExp(`^half added by ${dates[0]} or earlier · `));
+    assert.equal(
+      get("age-count").textContent,
+      `half added by ${dates[0]} or earlier · 100% of the ${dates[0]} text still there`,
+    );
     assert.match(
       get("age-note").textContent,
       /This shallow clone starts at revision 1, so text dated there may be older\.$/,
@@ -2031,17 +2072,25 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     press("End", chart.children[1]);
     assert.equal(get("target").value, "9");
 
-    // A fixed baseline is marked on the age chart, as on the history chart; "Previous revision" marks nothing.
+    // A fixed baseline is marked on both charts, and still is after a provider tab redraws the history chart.
+    const marked = (bars) => bars.map((bar) => bar.classes.has("baseline"));
+    const atTwo = Array.from({ length: 10 }, (_, index) => index === 2);
     get("baseline").value = "2";
     get("baseline").listeners.change();
-    assert.deepEqual(
-      chart.children.map((bar) => bar.classes.has("baseline")),
-      Array.from({ length: 10 }, (_, index) => index === 2),
-    );
+    assert.deepEqual(marked(chart.children), atTwo);
+    assert.deepEqual(marked(get("chart").children), atTwo);
     assert.match(get("compare-kept").textContent, /^100% of /);
+    get("provider-tabs").children[1].listeners.click();
+    assert.deepEqual(marked(get("chart").children), atTwo);
+    assert.deepEqual(marked(chart.children), atTwo);
+    assert.match(get("age-count").textContent, / · all files$/);
+    get("provider-tabs").children[0].listeners.click();
+    assert.doesNotMatch(get("age-count").textContent, /all files/);
+    // "Previous revision" marks nothing.
     get("baseline").value = "previous";
     get("baseline").listeners.change();
     assert.ok(chart.children.every((bar) => !bar.classes.has("baseline")));
+    assert.ok(get("chart").children.every((bar) => !bar.classes.has("baseline")));
 
     // A full clone has no "or earlier"; a year of monthly commits is drawn by quarter.
     const monthly = {
@@ -2062,8 +2111,34 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     // Without instruction text the panel stays hidden.
     const silent = { ...report, revisions: report.revisions.map(({ lineAge: _lineAge, ...revision }) => revision) };
     assert.equal(loadReportUi(renderHtml(silent)).get("age-panel").hidden, true);
+
+    // A shallow history whose first revision has no instruction text dates nothing "or earlier".
+    const late = await history([
+      { date: "2026-03-02T12:00:00Z", files: { "README.md": "Readme.\n" } },
+      { date: "2026-03-03T12:00:00Z", files: { "CLAUDE.md": "Short.\n" } },
+    ]);
+    const lateUi = loadReportUi(renderHtml({ ...late, shallow: true })).get;
+    assert.deepEqual(
+      lateUi("age-legend").children.map((entry) => entry.textContent),
+      ["Week of 2026-03-02"],
+    );
+    assert.doesNotMatch(lateUi("age-count").textContent, /or earlier/);
+    assert.doesNotMatch(lateUi("age-note").textContent, /shallow|or earlier/);
+
+    // The period holding the first revision is "or earlier", but a median at a later revision in it is not.
+    const sameWeek = await history([
+      { date: "2026-03-02T12:00:00Z", files: { "CLAUDE.md": "Short.\n" } },
+      { date: "2026-03-03T12:00:00Z", files: { "CLAUDE.md": `Short.\n${"A much longer line. ".repeat(4)}\n` } },
+    ]);
+    const sameWeekUi = loadReportUi(renderHtml({ ...sameWeek, shallow: true })).get;
+    assert.deepEqual(
+      sameWeekUi("age-legend").children.map((entry) => entry.textContent),
+      ["Week of 2026-03-02 or earlier"],
+    );
+    assert.match(sameWeekUi("age-count").textContent, /^half added by 2026-03-03 · /);
+    assert.match(sameWeekUi("age-note").textContent, /This shallow clone starts at revision 1/);
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    for (const repo of repos) rmSync(repo, { recursive: true, force: true });
   }
 });
 

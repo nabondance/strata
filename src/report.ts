@@ -143,9 +143,10 @@ export function renderHtml(report: Report): string {
     .segment { display: block; width: 100%; }
     input[type=range] { width: 100%; accent-color: var(--clay); margin-top: 17px; }
     .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-    /* Instruction age: one hue, oldest text darkest in light mode and lightest in dark mode, a surface gap between layers. */
-    :root { --age-old: #0f4f4a; --age-new: #a8d8cf; }
-    @media (prefers-color-scheme: dark) { :root { --age-old: #c2e6df; --age-new: #2b6a62; } }
+    /* Instruction age: one hue, oldest text darkest in light mode and lightest in dark mode, a surface gap between layers.
+       The newest end keeps 3:1 contrast with the panel, so every layer stays visible. */
+    :root { --age-old: #0f4f4a; --age-new: #609890; }
+    @media (prefers-color-scheme: dark) { :root { --age-old: #c2e6df; --age-new: #3c7870; } }
     .age-chart { height: 160px; background: repeating-linear-gradient(to top, transparent 0, transparent 39px, var(--grid) 40px); }
     .age-chart .segment { border-top: 2px solid var(--sheet); }
     .age-chart .segment:last-child { border-top: 0; }
@@ -265,9 +266,11 @@ export function renderHtml(report: Report): string {
     </section>
     <details class="panel" id="age-panel" hidden>
       <summary><h2>Instruction age</h2><span class="summary-count" id="age-count"></span></summary>
-      <p class="muted">How long the instruction text has stayed. Each layer is the text first added in one period that is still present. Lines are matched by their exact text in every instruction file, so a line moved into a skill keeps its age, and an edited line starts again. Text removed and later restored counts as new, including a file that leaves and rejoins because an import was dropped and restored. Weighed by the bytes of nonblank lines, and always across all files, whatever the view. Periods follow author dates.</p>
+      <p class="muted">How long the instruction text has stayed: each layer is the text first added in one period that is still there, oldest at the bottom.</p>
+      <details class="notice"><summary>How instruction age is measured</summary><p>Lines are matched by their exact text in every instruction file, so a line moved into a skill keeps its age, and an edited line starts again. Text removed and later restored counts as new, including a file that leaves and rejoins because an import was dropped and restored. Weighed by the bytes of nonblank lines, and always across all files, whatever the view. Periods follow author dates.</p></details>
       <div class="legend age-legend" id="age-legend"></div>
       <div class="chart-scroll"><div class="chart age-chart" id="age-chart" role="group" aria-label="Instruction text by the period it was added"></div></div>
+      <div class="timeline-meta"><span id="age-start"></span><span id="age-end"></span></div>
       <p class="muted" id="age-note"></p>
     </details>
     <details class="panel" id="upfront-panel" hidden>
@@ -1177,6 +1180,8 @@ export function renderHtml(report: Report): string {
       if (ageStart < 0) return;
       const chart = $('age-chart');
       const buckets = timelineBuckets(ages.bytes.length, 100, ageStart);
+      $('age-start').textContent = revisions[ageStart].date.slice(0, 10);
+      $('age-end').textContent = revisions.at(-1).date.slice(0, 10);
       chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...ages.bytes);
       // Buckets run forward, so the replay passes over the history once.
@@ -1237,7 +1242,7 @@ export function renderHtml(report: Report): string {
         legend.append(entry);
       }
       if (!total) {
-        $('age-count').textContent = 'no instruction text at this revision';
+        $('age-count').textContent = 'no instruction text at this revision' + (activeView === 'all' ? '' : ' · all files');
         $('age-note').textContent = 'No instruction text at this revision.';
         return;
       }
@@ -1250,8 +1255,9 @@ export function renderHtml(report: Report): string {
       }
       const kept = sharePercent(keptShare(ageStart, selected) ?? 0);
       const medianDate = revisions[median].date.slice(0, 10) + (data.shallow && median === 0 ? ' or earlier' : '');
-      $('age-count').textContent = 'half added by ' + medianDate + ' · ' + kept + ' of the first text kept';
-      $('age-note').textContent = fmt(total) + ' bytes of instruction lines at revision ' + (selected + 1) + '. Half of them were in place by revision ' + (median + 1) + ' (' + medianDate + '). Of the ' + fmt(ages.bytes[ageStart]) + ' bytes at the first revision with instructions (' + revisions[ageStart].date.slice(0, 10) + '), ' + kept + ' are still present.' +
+      const firstDate = revisions[ageStart].date.slice(0, 10);
+      $('age-count').textContent = 'half added by ' + medianDate + ' · ' + kept + ' of the ' + firstDate + ' text still there' + (activeView === 'all' ? '' : ' · all files');
+      $('age-note').textContent = fmt(total) + ' bytes of instruction lines at revision ' + (selected + 1) + '. Half of them were in place by revision ' + (median + 1) + ' (' + medianDate + '). Of the ' + fmt(ages.bytes[ageStart]) + ' bytes at the first revision with instructions (' + firstDate + '), ' + kept + ' are still present.' +
         (data.shallow && ageStart === 0 ? ' This shallow clone starts at revision 1, so text dated there may be older.' : '');
     }
     renderAgeChart();

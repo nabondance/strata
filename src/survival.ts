@@ -3,7 +3,7 @@ import type { BlobMeasurement, TrackedFile } from "./inventory.js";
 import type { LineAgeChange } from "./model.js";
 
 /** Recorded in the report so a reader knows how lines were matched and weighed. */
-export const lineAgeMethod = "exact-trimmed-line-multiset-utf8-bytes-v1";
+export const lineAgeMethod = "exact-trimmed-line-multiset-stored-bytes-v1";
 
 /** A blob's nonblank lines, as interned line IDs, each followed by how often it occurs. */
 type LineCounts = Uint32Array;

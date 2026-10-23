@@ -92,7 +92,7 @@ test("dates instruction lines by the revision they appeared at and follows them 
     const report = await analyzeRepository(repo);
     assertLineAgesMatchTrees(repo, report);
     assert.equal(report.schemaVersion, 19);
-    assert.equal(report.lineAgeMethod, "exact-trimmed-line-multiset-utf8-bytes-v1");
+    assert.equal(report.lineAgeMethod, "exact-trimmed-line-multiset-stored-bytes-v1");
     assert.equal(report.revisions.length, 12);
     const copy = report.components.find((component) => component.path === ".claude/skills/build/copy.txt");
     const root = report.components.find((component) => component.path === "CLAUDE.md");

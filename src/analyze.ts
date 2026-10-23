@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
@@ -237,7 +238,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const measurer = createMeasurer(mode, model);
   const root = gitText(resolve(repoPath), ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
-  const shallow = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
+  const shallowRepository = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
   try {
     git(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   } catch {
@@ -361,6 +362,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     }
   }
 
+  const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
     schemaVersion: 19,
     repository: basename(root),
@@ -374,4 +376,19 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     components: order.map((index) => table[index]!),
     revisions,
   };
+}
+
+/**
+ * Whether the history starts where a shallow fetch cut it: the oldest first-parent commit is a
+ * shallow boundary, so its parents are missing. A repository can be shallow only on a side branch
+ * or another ref, with this history complete.
+ */
+function startsAtShallowBoundary(root: string, first: string | undefined): boolean {
+  if (!first) return false;
+  try {
+    const listed = readFileSync(resolve(root, gitText(root, ["rev-parse", "--git-path", "shallow"])), "utf8");
+    return listed.split("\n").includes(first);
+  } catch {
+    return true;
+  }
 }

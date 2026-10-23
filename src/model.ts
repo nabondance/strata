@@ -105,7 +105,7 @@ export interface Change {
  * exact text across all instructional files, so a moved line keeps its age; see `LineAges`.
  */
 export interface LineAgeChange {
-  /** UTF-8 bytes of the line copies that first appear at this revision. */
+  /** Stored bytes (UTF-8 for text) of the line copies that first appear at this revision. */
   added: number;
   /** Bytes removed, grouped by `from`, the index in `Report.revisions` where they had appeared; oldest first. */
   removed?: Array<{ from: number; bytes: number }>;
@@ -165,6 +165,7 @@ export interface Report {
   schemaVersion: 19;
   repository: string;
   branch: string;
+  /** The first revision is where a shallow fetch cut the history, so earlier history is missing. */
   shallow: boolean;
   /** Submodules at the last revision, when there are any. Their files are never analyzed. */
   submodules?: Submodule[];
@@ -172,7 +173,7 @@ export interface Report {
   measurement: Measurement;
   providerMeasurements?: ProviderMeasurementMetadata[];
   /** How `lineAge` matches and weighs lines. */
-  lineAgeMethod: "exact-trimmed-line-multiset-utf8-bytes-v1";
+  lineAgeMethod: "exact-trimmed-line-multiset-stored-bytes-v1";
   /** Every distinct file version in the history, once each, ordered by path. */
   components: Component[];
   revisions: Revision[];
