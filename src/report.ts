@@ -144,12 +144,15 @@ export function renderHtml(report: Report): string {
     input[type=range] { width: 100%; accent-color: var(--clay); margin-top: 17px; }
     .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     /* Instruction age: one hue, oldest text darkest in light mode and lightest in dark mode, a surface gap between layers.
-       The newest end keeps 3:1 contrast with the panel, so every layer stays visible. */
-    :root { --age-old: #0f4f4a; --age-new: #609890; }
+       The newest end keeps 3:1 contrast with the panel, so every layer stays visible, and the two ends are
+       as far apart in lightness as in dark mode, so neighboring layers stay distinct. */
+    :root { --age-old: #08302c; --age-new: #609890; }
     @media (prefers-color-scheme: dark) { :root { --age-old: #c2e6df; --age-new: #3c7870; } }
     .age-chart { height: 160px; background: repeating-linear-gradient(to top, transparent 0, transparent 39px, var(--grid) 40px); }
     .age-chart .segment { border-top: 2px solid var(--sheet); }
     .age-chart .segment:last-child { border-top: 0; }
+    /* No tint behind the selected bar, which would lower the contrast of its top layer; the mark under it shows the selection. */
+    .age-chart .bar.selected { background: transparent; }
     .age-legend b { min-width: 3.2em; }
     .provider-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 11px; }
     .provider-tab { padding: 9px 14px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
@@ -225,7 +228,7 @@ export function renderHtml(report: Report): string {
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
   </style>
 </head>
 <body>
@@ -1201,6 +1204,7 @@ export function renderHtml(report: Report): string {
           const segment = text('span', '', 'segment');
           segment.style.height = amount / total * 100 + '%';
           segment.style.background = ageColor(period);
+          segment.title = range + ' · ' + sharePercent(amount / total) + ' from ' + periodLabel(period);
           stack.append(segment);
         });
         button.append(stack);

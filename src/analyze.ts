@@ -380,15 +380,18 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
 /**
  * Whether the history starts where a shallow fetch cut it: the oldest first-parent commit is a
- * shallow boundary, so its parents are missing. A repository can be shallow only on a side branch
- * or another ref, with this history complete.
+ * shallow boundary and has a parent that was not fetched. A repository can be shallow only on a
+ * side branch or another ref, with this history complete, and Git also lists a root commit that
+ * sat at the depth limit, though nothing before it is missing.
  */
 function startsAtShallowBoundary(root: string, first: string | undefined): boolean {
   if (!first) return false;
   try {
     const listed = readFileSync(resolve(root, gitText(root, ["rev-parse", "--git-path", "shallow"])), "utf8");
-    return listed.split("\n").includes(first);
+    if (!listed.split("\n").includes(first)) return false;
   } catch {
     return true;
   }
+  // The raw commit still names its parents; a shallow boundary only hides them from history walks.
+  return /^parent /m.test(git(root, ["cat-file", "commit", first]).toString("utf8").split("\n\n")[0]!);
 }

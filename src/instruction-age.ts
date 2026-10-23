@@ -8,7 +8,7 @@ export interface AgeCohort {
 
 /** The age of the instruction text through a report's history. */
 export interface InstructionAges {
-  /** UTF-8 bytes of trimmed, nonblank instruction lines present at each revision. */
+  /** Stored bytes of trimmed, nonblank instruction lines present at each revision. */
   bytes: number[];
   /** The text present at a revision by the revision it appeared at, oldest first, none empty. */
   at: (index: number) => AgeCohort[];

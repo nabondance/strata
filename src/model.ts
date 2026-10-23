@@ -165,7 +165,7 @@ export interface Report {
   schemaVersion: 19;
   repository: string;
   branch: string;
-  /** The first revision is where a shallow fetch cut the history, so earlier history is missing. */
+  /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */
   shallow: boolean;
   /** Submodules at the last revision, when there are any. Their files are never analyzed. */
   submodules?: Submodule[];

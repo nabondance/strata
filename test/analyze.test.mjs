@@ -1192,13 +1192,16 @@ test("tracks configuration across first-parent history without reading untracked
     const partly = mkdtempSync(join(tmpdir(), "strata-partly-shallow-"));
     try {
       execFileSync("git", ["clone", "--quiet", `file://${repo}`, partly]);
+      // Return to the same branch, or the same commit when detached, without relying on the reflog.
+      const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+      const back = branch === "HEAD" ? git("rev-parse", "HEAD") : branch;
       execFileSync("git", ["-C", repo, "checkout", "--quiet", "-b", "side"]);
       for (const step of ["one", "two"]) {
         writeFileSync(join(repo, "side.txt"), `${step}\n`);
         execFileSync("git", ["-C", repo, "add", "side.txt"]);
         execFileSync("git", ["-C", repo, "commit", "--quiet", "-m", `side ${step}`]);
       }
-      execFileSync("git", ["-C", repo, "checkout", "--quiet", "-"]);
+      execFileSync("git", ["-C", repo, "checkout", "--quiet", back]);
       execFileSync("git", ["-C", partly, "fetch", "--quiet", "--depth", "1", "origin", "side"]);
       assert.equal(
         execFileSync("git", ["-C", partly, "rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim(),
@@ -1214,6 +1217,35 @@ test("tracks configuration across first-parent history without reading untracked
       );
     } finally {
       rmSync(partly, { recursive: true, force: true });
+    }
+    // A depth limit that reaches the root commit cuts nothing, though Git lists the root as shallow.
+    const single = mkdtempSync(join(tmpdir(), "strata-single-"));
+    const singleClone = mkdtempSync(join(tmpdir(), "strata-single-clone-"));
+    try {
+      execFileSync("git", ["-C", single, "init", "--quiet", "-b", "main"]);
+      writeFileSync(join(single, "CLAUDE.md"), "Only commit.\n");
+      execFileSync("git", ["-C", single, "add", "CLAUDE.md"]);
+      execFileSync("git", [
+        "-C",
+        single,
+        "-c",
+        "user.name=Strata Test",
+        "-c",
+        "user.email=strata-test@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "root",
+      ]);
+      execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${single}`, singleClone]);
+      assert.equal(
+        execFileSync("git", ["-C", singleClone, "rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim(),
+        "true",
+      );
+      assert.equal((await analyzeRepository(singleClone)).shallow, false);
+    } finally {
+      rmSync(single, { recursive: true, force: true });
+      rmSync(singleClone, { recursive: true, force: true });
     }
     git("checkout", "--detach");
     const detached = await analyzeRepository(repo);
@@ -2053,6 +2085,11 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
       Array.from({ length: 10 }, (_, index) => `${2019 - index}${index === 9 ? " or earlier" : ""}`),
     );
     assert.match(chart.children[0].title, /from 2010 or earlier$/);
+    // Each layer names its period and share; the last bar has one layer per year.
+    const layers = chart.children[9].children[0].children;
+    assert.equal(layers.length, 10);
+    assert.match(layers[0].title, /^Revision 10 · \d+% from 2010 or earlier$/);
+    assert.match(layers[9].title, /^Revision 10 · \d+% from 2019$/);
     assert.equal(
       get("age-count").textContent,
       `half added by ${dates[0]} or earlier · 100% of the ${dates[0]} text still there`,
