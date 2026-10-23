@@ -173,6 +173,7 @@ export function renderHtml(report: Report): string {
     .treemap-hover { min-height: 2.9em; margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .treemap-hover.detail { color: var(--ink); }
     .map-tools { display: flex; flex-wrap: wrap; gap: 7px; }
+    @media (max-width: 520px) { .map-tools { margin-bottom: 10px; } }
     .map-tools button { padding: 6px 11px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
     .map-tools button:hover { background: var(--hover); }
     .map-tools button:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
@@ -180,7 +181,7 @@ export function renderHtml(report: Report): string {
     .map-key { display: inline-block; flex: none; width: 9px; height: 14px; border: 2px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
     .map-key.dashed { border-style: dashed; border-left: 0; }
     .config-map { --gutter: 150px; position: relative; padding-right: var(--gutter); border-top: 1px solid var(--grid); }
-    .map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 28%) 8ch; align-items: center; gap: 12px; height: 30px; padding-right: 10px; border-bottom: 1px solid var(--grid); cursor: pointer; font-size: 13px; }
+    .map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 1fr) 8ch; align-items: center; gap: 12px; height: 30px; padding-right: 10px; border-bottom: 1px solid var(--grid); cursor: pointer; font-size: 13px; }
     .map-row:hover, .map-row.linked { background: var(--hover); }
     .map-row:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
     .map-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -285,8 +286,8 @@ export function renderHtml(report: Report): string {
     </section>
     <section class="panel" aria-labelledby="map-heading">
       <div class="panel-head"><h2 id="map-heading">Configuration map</h2><div class="map-tools" role="group" aria-label="Folders"><button type="button" id="map-expand">Open all folders</button><button type="button" id="map-collapse">Close all folders</button></div></div>
-      <p class="muted map-intro">Where each file sits, with a bar for its share of the stored-text tokens. Lines are Claude @path imports, with the arrow at the imported file. A folder only holds its files, and a line does not show that a session loaded a file.</p>
-      <div class="legend"><span><i class="map-key"></i>Claude import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file, measured in bytes</span></div>
+      <p class="muted map-intro">Where each file sits, with a bar for its share of the tokens named under the map. Lines are Claude @path imports, with the arrow at the imported file. A folder only holds its files, and a line does not show that a session loaded a file.</p>
+      <div class="legend"><span><i class="map-key"></i>Claude import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file or folder, measured in bytes</span></div>
       <div class="config-map" id="config-map" role="tree" aria-labelledby="map-heading"></div>
       <p class="treemap-hover" id="map-hover" aria-live="polite"></p>
     </section>
@@ -413,6 +414,8 @@ export function renderHtml(report: Report): string {
     }
     // The measure's name inside a sentence: provider names and acronyms keep their case.
     const inlineStat = () => activeMeasure === 'estimate' ? measureLabel().stat.toLowerCase() : measureLabel().stat;
+    // What a map row's figure is, inside a sentence.
+    const rowTokens = () => activeMeasure === 'estimate' ? 'stored-text tokens' : inlineStat();
     function measureLabel() {
       if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.label };
       const measured = measures.get(activeMeasure);
@@ -1012,6 +1015,7 @@ export function renderHtml(report: Report): string {
       drawn.mapChanges = revision.changes;
       const map = configMap(revision.components, links, { toggled: mapToggled, fallback: mapFallback });
       const changedHere = new Map(revision.changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
+      drawn.mapTagged = changedHere.size > 0;
       // A closed folder counts the changed files it hides.
       const changedUnder = map.rows.map(() => 0);
       revision.components.forEach((component, index) => {
@@ -1032,16 +1036,17 @@ export function renderHtml(report: Report): string {
       };
       const nodes = [];
       const details = [];
+      const rowIndex = new Map();
       for (const [index, row] of map.rows.entries()) {
         const folder = row.kind === 'folder';
         const component = folder ? null : revision.components[row.component];
         const change = folder ? null : changedHere.get(row.path);
         const parts = [folder ? row.path + '/' : row.path];
         if (folder) {
-          parts.push(plural(row.files, 'file') + (row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''), fmt(row.tokens) + ' stored-text tokens', row.collapsed ? 'closed' : 'open');
+          parts.push(plural(row.files, 'file') + (row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''), fmt(row.tokens) + ' ' + rowTokens(), row.collapsed ? 'closed' : 'open');
           if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
         } else {
-          parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' stored-text tokens') + listingLabel(component));
+          parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' ' + rowTokens()) + listingLabel(component));
           if (map.targets.has(row.path)) parts.push('imports ' + names(map.targets.get(row.path)));
           if (map.sources.has(row.path)) parts.push('imported by ' + names(map.sources.get(row.path)));
           if (change) parts.push(change.kind === 'added' ? 'added at this revision' : change.kind === 'renamed' ? 'renamed at this revision from ' + change.previousPath : 'edited at this revision');
@@ -1067,7 +1072,7 @@ export function renderHtml(report: Report): string {
         if (row.unresolved) name.append(text('span', fmt(row.unresolved) + ' unresolved', 'map-tag warn'));
         const bar = text('span', '', 'map-bar');
         // A source-only file, or a folder of nothing else, has no stored text to draw.
-        if (row.tokens === null || row.sourceOnly === row.files) {
+        if (row.sourceOnly === row.files) {
           bar.classList.add('source-only');
           const mark = text('i', '');
           mark.style.borderColor = colors[row.categories[0].category];
@@ -1081,26 +1086,8 @@ export function renderHtml(report: Report): string {
             bar.append(segment);
           }
         }
-        const sized = row.tokens !== null && row.sourceOnly < row.files;
-        node.append(name, bar, text('span', sized ? fmt(row.tokens) : '—', 'map-size'));
-        node.addEventListener('mouseenter', () => {
-          mapHovered = index;
-          traceMap(index);
-        });
-        node.addEventListener('focus', () => {
-          mapCurrent = row.path;
-          if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
-          node.tabIndex = 0;
-          mapTabStop = node;
-          traceMap(index);
-        });
-        // Leaving a row with the mouse goes back to the focused row, and losing focus to the hovered one.
-        node.addEventListener('mouseleave', () => {
-          mapHovered = -1;
-          traceMap(nodes.indexOf(document.activeElement));
-        });
-        node.addEventListener('blur', () => traceMap(mapHovered));
-        node.addEventListener('click', () => activateMapRow(index));
+        node.append(name, bar, text('span', row.sourceOnly < row.files ? fmt(row.tokens) : '—', 'map-size'));
+        rowIndex.set(node, index);
         nodes.push(node);
         details.push(detail);
         root.append(node);
@@ -1110,6 +1097,7 @@ export function renderHtml(report: Report): string {
       gutter.setAttribute('aria-hidden', 'true');
       gutter.style.height = map.rows.length * mapRowHeight + 'px';
       const lines = map.rows.map(() => []);
+      const drawnEdges = new Set(map.edges.map((edge) => edge.from + '>' + edge.to));
       for (const edge of map.edges) {
         const span = Math.abs(edge.to - edge.from);
         const arc = text('i', '', 'map-arc');
@@ -1117,17 +1105,19 @@ export function renderHtml(report: Report): string {
         arc.style.top = (Math.min(edge.from, edge.to) + 0.5) * mapRowHeight + 'px';
         arc.style.height = span * mapRowHeight + 'px';
         // Width grows with the span, scaled to the map's height so long lines never share one width.
-        arc.style.width = 'max(10px, calc((var(--gutter) - 12px) * ' + (span / Math.max(16, map.rows.length - 1)).toFixed(4) + '))';
+        // Two files importing each other get two arcs; the upward one is drawn wider so both show.
+        const apart = edge.from > edge.to && drawnEdges.has(edge.to + '>' + edge.from) ? ' + 6px' : '';
+        arc.style.width = 'calc(max(10px, calc((var(--gutter) - 12px) * ' + (span / Math.max(16, map.rows.length - 1)).toFixed(4) + '))' + apart + ')';
         const arrow = text('i', '', 'map-arrow');
         arrow.style.top = (edge.to + 0.5) * mapRowHeight - 4 + 'px';
         gutter.append(arc, arrow);
         for (const end of [edge.from, edge.to]) lines[end].push({ arc, arrow, other: end === edge.from ? edge.to : edge.from });
       }
       if (map.edges.length) root.append(gutter);
-      mapDrawn = { map, components: revision.components, nodes, details, lines };
+      mapDrawn = { map, components: revision.components, nodes, details, lines, rowIndex };
       const counts = [plural(map.folders, 'folder'), plural(revision.components.length, 'file')];
       if (map.edges.length || links.length) counts.push(plural(map.edges.length, 'import line'));
-      if (map.folded) counts.push(fmt(map.folded) + ' inside closed folders');
+      if (map.folded) counts.push(plural(map.folded, 'import') + ' inside ' + (map.folded === 1 ? 'a closed folder' : 'closed folders'));
       if (map.unresolved) counts.push(fmt(map.unresolved) + ' unresolved, listed under Claude imports');
       if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
       // Imports are Claude's; another agent's tab can still show one between two files it reads.
@@ -1185,9 +1175,42 @@ export function renderHtml(report: Report): string {
     }
 
     // The map is one Tab stop; arrow keys move between rows and open or close folders, as in a file tree.
-    $('config-map').addEventListener('keydown', (event) => {
+    // Rows share one set of listeners on the map, so a large map costs no more than its rows.
+    const mapRowAt = (target) => {
+      const node = target?.closest?.('.map-row');
+      return node ? mapDrawn.rowIndex.get(node) ?? -1 : -1;
+    };
+    const mapRoot = $('config-map');
+    mapRoot.addEventListener('mouseover', (event) => {
+      const index = mapRowAt(event.target);
+      if (index === mapHovered) return;
+      mapHovered = index;
+      // Between rows, the focused row keeps its lines.
+      traceMap(index >= 0 ? index : mapRowAt(document.activeElement));
+    });
+    mapRoot.addEventListener('mouseleave', () => {
+      mapHovered = -1;
+      traceMap(mapRowAt(document.activeElement));
+    });
+    mapRoot.addEventListener('focusin', (event) => {
+      const index = mapRowAt(event.target);
+      if (index < 0) return;
+      const node = mapDrawn.nodes[index];
+      mapCurrent = mapDrawn.map.rows[index].path;
+      if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
+      node.tabIndex = 0;
+      mapTabStop = node;
+      traceMap(index);
+    });
+    // Losing focus goes back to the row under the pointer.
+    mapRoot.addEventListener('focusout', () => traceMap(mapHovered));
+    mapRoot.addEventListener('click', (event) => {
+      const index = mapRowAt(event.target);
+      if (index >= 0) activateMapRow(index);
+    });
+    mapRoot.addEventListener('keydown', (event) => {
       const { map, nodes } = mapDrawn;
-      const at = nodes.indexOf(event.target);
+      const at = mapRowAt(event.target);
       // Modified keys stay the browser's, such as Alt+Left for Back.
       if (at < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
       const row = map.rows[at];

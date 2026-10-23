@@ -176,21 +176,22 @@ export function configMap(
   // toggles are left out of this, so opening one folder never closes another.
   const fallback = options.fallback ?? "auto";
   const toggled = options.toggled ?? new Map<string, boolean>();
-  const rowsWithin = (at: Folder, depth: number, open: number): number =>
-    entries(at).reduce<number>(
-      (sum, entry) =>
-        sum + 1 + (typeof entry === "number" || depth >= open ? 0 : rowsWithin(entry.at, depth + 1, open)),
-      0,
-    );
   // Folders at a depth below `openDepth` start open.
   let openDepth = fallback === "expanded" ? Number.POSITIVE_INFINITY : fallback === "collapsed" ? 0 : 1;
   if (fallback === "auto") {
-    let count = rowsWithin(root, 0, openDepth);
-    for (;;) {
-      const deeper = rowsWithin(root, 0, openDepth + 1);
-      if (deeper > 80 || deeper === count) break;
+    // Rows at each depth, counted in one walk; opening depth d shows every row down to depth d + 1.
+    const perDepth: number[] = [];
+    const tally = (at: Folder, depth: number) => {
+      for (const entry of entries(at)) {
+        perDepth[depth] = (perDepth[depth] ?? 0) + 1;
+        if (typeof entry !== "number") tally(entry.at, depth + 1);
+      }
+    };
+    tally(root, 0);
+    let count = (perDepth[0] ?? 0) + (perDepth[1] ?? 0);
+    while (perDepth[openDepth + 1] && count + perDepth[openDepth + 1]! <= 80) {
+      count += perDepth[openDepth + 1]!;
       openDepth += 1;
-      count = deeper;
     }
   }
 
@@ -261,6 +262,7 @@ export function configMap(
   let unresolved = 0;
   const targets = new Map<string, string[]>();
   const sources = new Map<string, string[]>();
+  // `readImports` keeps one import per target in each file, so these lists hold no repeats.
   const listed = (lists: Map<string, string[]>, key: string, value: string) => {
     const list = lists.get(key);
     if (list) list.push(value);
@@ -278,7 +280,7 @@ export function configMap(
     if (link.target === link.source) continue;
     listed(targets, link.source, link.target!);
     listed(sources, link.target!, link.source);
-    const to = link.target === null ? undefined : rowByPath.get(link.target);
+    const to = rowByPath.get(link.target!);
     if (from === undefined || to === undefined) offMap += 1;
     else if (to === from) folded += 1;
     else {

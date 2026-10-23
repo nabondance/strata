@@ -37,7 +37,13 @@ function loadReportUi(html) {
       };
     }
     append(...children) {
+      for (const child of children) if (child instanceof Element) child.parentElement = this;
       this.children.push(...children);
+    }
+    closest(selector) {
+      const name = selector.slice(1);
+      for (let at = this; at; at = at.parentElement) if (at.className?.split(" ").includes(name)) return at;
+      return null;
     }
     prepend(...children) {
       this.children.unshift(...children);
@@ -2286,6 +2292,9 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     const lastLinks = importLinks(revisions[7].components);
     const expectedMap = configMap(revisions[7].components, lastLinks);
     const mapRows = () => ui.get("config-map").children.filter((child) => child.className.startsWith("map-row"));
+    // Rows share listeners on the map, as in the browser, so events are sent there with the row as target.
+    const onMap = (type, target) => ui.get("config-map").listeners[type]({ target });
+    const mapRow = (path, map = expectedMap) => mapRows()[map.rows.findIndex((row) => row.path === path)];
     const mapLines = () =>
       ui
         .get("config-map")
@@ -2296,27 +2305,27 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.ok(expectedMap.edges.length >= 5);
     assert.match(ui.get("map-hover").textContent, / import lines · 6 unresolved, listed under Claude imports\./);
     // A row's detail line names what the file imports and what imports it.
-    mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].listeners.focus();
+    onMap("focusin", mapRow("CLAUDE.md"));
     assert.match(
       ui.get("map-hover").textContent,
       /^CLAUDE\.md · claude \/ instructions · \d+ stored-text tokens · imports AGENTS\.md, docs\/missing\.md, docs\/feature\.md and 1 more · edited at this revision · 4 unresolved imports$/,
     );
-    mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseenter();
+    onMap("mouseover", mapRow("docs/from-rule.md").children[0]);
     assert.match(
       ui.get("map-hover").textContent,
       / · imports docs\/deep\/one\.md · imported by \.claude\/rules\/style\.md · added at this revision$/,
     );
     // Leaving a row with the mouse goes back to the focused row's detail.
-    mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].focus();
-    mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseleave();
+    mapRow("CLAUDE.md").focus();
+    onMap("mouseleave");
     assert.match(ui.get("map-hover").textContent, /^CLAUDE\.md · /);
     // Losing focus goes back to the row under the pointer.
-    mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseenter();
-    mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].listeners.blur();
+    onMap("mouseover", mapRow("docs/from-rule.md"));
+    onMap("focusout", mapRow("CLAUDE.md"));
     assert.match(ui.get("map-hover").textContent, /^docs\/from-rule\.md · /);
     // Selecting a folder closes it; the lines of the files it holds then end at its row.
     const docsRow = expectedMap.rows.findIndex((row) => row.path === "docs");
-    mapRows()[docsRow].listeners.click();
+    onMap("click", mapRows()[docsRow].children[0]);
     const closedMap = configMap(revisions[7].components, lastLinks, { toggled: new Map([["docs", true]]) });
     assert.ok(closedMap.rows[docsRow].collapsed);
     assert.equal(mapRows().length, closedMap.rows.length);
@@ -2361,7 +2370,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     const searched = ui.get("path-search").value;
     ui.get("slider").value = "0";
     ui.get("slider").listeners.input();
-    mapRows()[fromRule()].listeners.click();
+    onMap("click", mapRows()[fromRule()]);
     assert.ok(!revisions[0].components.some((component) => component.path === "docs/from-rule.md"));
     assert.equal(
       mapRows().length,
@@ -2374,26 +2383,29 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     const drawnRow = mapRows()[0];
     ui.get("slider").listeners.change();
     assert.equal(mapRows()[0], drawnRow);
-    mapRows()[fromRule()].listeners.click();
+    onMap("click", mapRows()[fromRule()]);
     assert.equal(ui.get("path-search").value, "docs/from-rule.md");
     const importedRow = ui.get("files").children.find((row) => row.children[0].textContent === "docs/from-rule.md");
     assert.equal(importedRow.children[2].textContent, "instructions (imported)");
     // Selecting a file locates it in the file table, as the treemap does.
-    mapRows()[
-      configMap(revisions[7].components, lastLinks, { fallback: "expanded" }).rows.findIndex(
-        (row) => row.path === "AGENTS.md",
-      )
-    ].listeners.click();
+    onMap("click", mapRow("AGENTS.md", expandedMap));
     assert.equal(ui.get("files-panel").open, true);
     assert.equal(ui.get("path-search").value, "AGENTS.md");
 
-    // Moving between revisions that share an inventory and tag nothing keeps the rows already drawn.
+    // Leaving a revision that tagged files for one that changed nothing clears the tags; moving on between
+    // revisions that share an inventory and tag nothing keeps the rows already drawn.
     const quiet = (id) => ({ ...report.revisions.at(-1), id, changes: [] });
     const unchanged = { ...report, revisions: [...report.revisions, quiet("a".repeat(40)), quiet("b".repeat(40))] };
     const quietUi = loadReportUi(renderHtml(unchanged));
     const quietRows = () => quietUi.get("config-map").children.filter((child) => child.className.startsWith("map-row"));
+    const tags = () =>
+      quietRows().flatMap((row) => row.children[0].children.filter((child) => child.className === "map-tag"));
+    quietUi.get("slider").value = String(unchanged.revisions.length - 3);
+    quietUi.get("slider").listeners.change();
+    assert.ok(tags().length > 0);
     quietUi.get("slider").value = String(unchanged.revisions.length - 2);
     quietUi.get("slider").listeners.change();
+    assert.equal(tags().length, 0);
     const quietRow = quietRows()[0];
     quietUi.get("slider").value = String(unchanged.revisions.length - 1);
     quietUi.get("slider").listeners.change();
