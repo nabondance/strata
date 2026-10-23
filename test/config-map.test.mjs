@@ -20,8 +20,8 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
   const map = configMap(components, []);
   assert.deepEqual(outline(map), [
     ".claude/skills/review/",
-    "  SKILL.md",
     "  notes.txt",
+    "  SKILL.md",
     "docs/",
     "  a.md",
     "AGENTS.md",
@@ -35,7 +35,7 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
     [2, 1, 40, [{ category: "skills", tokens: 40 }]],
   );
   // A source-only file has no tokens; a zero-token file has zero.
-  assert.equal(map.rows[2].tokens, null);
+  assert.equal(map.rows[1].tokens, null);
   assert.equal(map.rows[4].tokens, 0);
   assert.equal(map.totalTokens, 55);
   assert.deepEqual(
@@ -50,7 +50,22 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
       [-1, 4, 4],
     ],
   );
-  assert.deepEqual(map.rowOf, [1, 2, 5, 6, 4]);
+  assert.deepEqual(map.rowOf, [2, 1, 5, 6, 4]);
+  // Names sort as in the file table, not uppercase first.
+  assert.deepEqual(
+    configMap([file("Zeta.md", 1), file("alpha.md", 1)], []).rows.map((row) => row.label),
+    ["alpha.md", "Zeta.md"],
+  );
+  // Among source-only files, a folder's leading category is the one with more files.
+  const settings = configMap(
+    [
+      file("conf/a.json", null, { category: "agents" }),
+      file("conf/b.json", null, { category: "settings" }),
+      file("conf/c.json", null, { category: "settings" }),
+    ],
+    [],
+  );
+  assert.equal(settings.rows[0].categories[0].category, "settings");
   assert.deepEqual(configMap([], []).rows, []);
   // A row several folders share is closed when any of them was closed, and open when any was opened.
   assert.deepEqual(map.rows[0].chain, [".claude", ".claude/skills", ".claude/skills/review"]);

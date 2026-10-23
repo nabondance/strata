@@ -372,6 +372,7 @@ export function renderHtml(report: Report): string {
     const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);
+    const plural = (count, word) => fmt(count) + ' ' + word + (count === 1 ? '' : 's');
     const signed = (n) => (n > 0 ? '+' : '') + fmt(n);
     const tone = (n) => n > 0 ? 'positive' : n < 0 ? 'negative' : '';
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
@@ -410,6 +411,8 @@ export function renderHtml(report: Report): string {
         (measured.alsoSentTo?.length ? '; instruction text also went to ' + measured.alsoSentTo.join(' and ') + ' through a method that then failed' : '') +
         (measured.fallbacks?.length ? '; more precise methods unavailable: ' + measured.fallbacks.join('; ') : '') + '.';
     }
+    // The measure's name inside a sentence: provider names and acronyms keep their case.
+    const inlineStat = () => activeMeasure === 'estimate' ? measureLabel().stat.toLowerCase() : measureLabel().stat;
     function measureLabel() {
       if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.label };
       const measured = measures.get(activeMeasure);
@@ -522,7 +525,7 @@ export function renderHtml(report: Report): string {
         if (!viewRevisions.some((revision) => revision.categoryTotals[category].count)) continue;
         const total = viewRevisions[selected].categoryTotals[category];
         const sourceOnly = total.count && total.count === total.sourceOnlyCount;
-        const files = fmt(total.count) + (total.count === 1 ? ' file' : ' files');
+        const files = plural(total.count, 'file');
         // Source-only categories have no tokens and no area in the chart or treemap, so they give their
         // file count, draw a hollow swatch, and lead to their files instead.
         const label = text(sourceOnly ? 'button' : 'span', category, sourceOnly ? 'legend-link' : '');
@@ -569,7 +572,7 @@ export function renderHtml(report: Report): string {
         const button = text('button', '', 'bar');
         button.type = 'button';
         const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
-        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + measureLabel().stat.toLowerCase() + ' at end';
+        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + inlineStat() + ' at end';
         button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revision.date.slice(0, 10));
         const stack = text('span', '', 'stack');
         stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
@@ -955,7 +958,7 @@ export function renderHtml(report: Report): string {
       const manifestTokens = groups.reduce((sum, group) => sum + (group.manifestPath ? group.manifestEstimatedTokens : 0), 0);
       const listedTokens = groups.reduce((sum, group) => sum + (group.listing?.tokens ?? 0), 0);
       const unresolved = groups.filter((group) => group.listing?.status === 'unresolved').length;
-      $('skill-count').textContent = fmt(groups.length) + (groups.length === 1 ? ' skill' : ' skills') + ' · summaries ' + fmt(listedTokens) + listingKind() + ' · full text ' + fmt(manifestTokens) + ' tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      $('skill-count').textContent = plural(groups.length, 'skill') + ' · summaries ' + fmt(listedTokens) + listingKind() + ' · full text ' + fmt(manifestTokens) + ' tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       const borrowed = (activeView === 'cursor' || activeView === 'copilot') && groups.some((group) => group.provider !== activeView);
       $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Full text uses ' + providerNames[activeMeasure] + ' counts and summaries the ' + listingKind().slice(2, -1) + ', so do not compare them. ') +
         'Summary: the name and description an agent sees before using a skill. It is part of the full text, so do not add the two. Hidden skills have no summary; unresolved ones could not be read and are not counted.' +
@@ -989,6 +992,8 @@ export function renderHtml(report: Report): string {
     let mapNote = '';
     // What the last hover or focus lit, so the next one clears only that.
     let mapLit = [];
+    // The row under the pointer, so losing focus goes back to it.
+    let mapHovered = -1;
     let mapTabStop = null;
     // The imports table and the map both need a revision's links; they are found once per inventory.
     let linksCache = { components: null, links: [] };
@@ -1016,6 +1021,7 @@ export function renderHtml(report: Report): string {
       root.replaceChildren();
       root.classList.remove('tracing');
       mapLit = [];
+      mapHovered = -1;
       mapTabStop = null;
       if (!map.rows.some((row) => row.path === mapCurrent)) mapCurrent = map.rows[0]?.path ?? '';
       // Imports are read from the whole inventory, so a file can import, or be imported by, one this view leaves out.
@@ -1032,7 +1038,7 @@ export function renderHtml(report: Report): string {
         const change = folder ? null : changedHere.get(row.path);
         const parts = [folder ? row.path + '/' : row.path];
         if (folder) {
-          parts.push(fmt(row.files) + (row.files === 1 ? ' file' : ' files') + (row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''), fmt(row.tokens) + ' stored-text tokens', row.collapsed ? 'closed' : 'open');
+          parts.push(plural(row.files, 'file') + (row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''), fmt(row.tokens) + ' stored-text tokens', row.collapsed ? 'closed' : 'open');
           if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
         } else {
           parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' stored-text tokens') + listingLabel(component));
@@ -1040,7 +1046,7 @@ export function renderHtml(report: Report): string {
           if (map.sources.has(row.path)) parts.push('imported by ' + names(map.sources.get(row.path)));
           if (change) parts.push(change.kind === 'added' ? 'added at this revision' : change.kind === 'renamed' ? 'renamed at this revision from ' + change.previousPath : 'edited at this revision');
         }
-        if (row.unresolved) parts.push(fmt(row.unresolved) + ' unresolved ' + (row.unresolved === 1 ? 'import' : 'imports'));
+        if (row.unresolved) parts.push(plural(row.unresolved, 'unresolved import'));
         const detail = parts.join(' · ');
         const node = text('div', '', 'map-row ' + row.kind);
         node.setAttribute('role', 'treeitem');
@@ -1055,7 +1061,7 @@ export function renderHtml(report: Report): string {
         // Indenting the name, not the row, keeps every bar on the same scale and starting point.
         name.style.paddingLeft = 8 + row.depth * 18 + 'px';
         name.append(text('span', folder ? (row.collapsed ? '▸' : '▾') : '', 'map-caret'), text('span', row.label + (folder ? '/' : ''), 'map-label'));
-        if (folder && row.collapsed) name.append(text('span', fmt(row.files) + (row.files === 1 ? ' file' : ' files'), 'map-tag'));
+        if (folder && row.collapsed) name.append(text('span', plural(row.files, 'file'), 'map-tag'));
         const changed = change ? (change.kind === 'added' ? 'new' : change.kind === 'renamed' ? 'renamed' : 'edited') : changedUnder[index] ? fmt(changedUnder[index]) + ' changed' : '';
         if (changed) name.append(text('span', changed, 'map-tag'));
         if (row.unresolved) name.append(text('span', fmt(row.unresolved) + ' unresolved', 'map-tag warn'));
@@ -1077,7 +1083,10 @@ export function renderHtml(report: Report): string {
         }
         const sized = row.tokens !== null && row.sourceOnly < row.files;
         node.append(name, bar, text('span', sized ? fmt(row.tokens) : '—', 'map-size'));
-        node.addEventListener('mouseenter', () => traceMap(index));
+        node.addEventListener('mouseenter', () => {
+          mapHovered = index;
+          traceMap(index);
+        });
         node.addEventListener('focus', () => {
           mapCurrent = row.path;
           if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
@@ -1085,9 +1094,12 @@ export function renderHtml(report: Report): string {
           mapTabStop = node;
           traceMap(index);
         });
-        // Leaving a row with the mouse goes back to the focused row, if the map has one.
-        node.addEventListener('mouseleave', () => traceMap(nodes.indexOf(document.activeElement)));
-        node.addEventListener('blur', () => traceMap(-1));
+        // Leaving a row with the mouse goes back to the focused row, and losing focus to the hovered one.
+        node.addEventListener('mouseleave', () => {
+          mapHovered = -1;
+          traceMap(nodes.indexOf(document.activeElement));
+        });
+        node.addEventListener('blur', () => traceMap(mapHovered));
         node.addEventListener('click', () => activateMapRow(index));
         nodes.push(node);
         details.push(detail);
@@ -1104,7 +1116,8 @@ export function renderHtml(report: Report): string {
         if (map.rows[edge.from].kind === 'folder' || map.rows[edge.to].kind === 'folder') arc.classList.add('dashed');
         arc.style.top = (Math.min(edge.from, edge.to) + 0.5) * mapRowHeight + 'px';
         arc.style.height = span * mapRowHeight + 'px';
-        arc.style.width = 'min(' + (10 + span * 8) + 'px, calc(var(--gutter) - 12px))';
+        // Width grows with the span, scaled to the map's height so long lines never share one width.
+        arc.style.width = 'max(10px, calc((var(--gutter) - 12px) * ' + (span / Math.max(16, map.rows.length - 1)).toFixed(4) + '))';
         const arrow = text('i', '', 'map-arrow');
         arrow.style.top = (edge.to + 0.5) * mapRowHeight - 4 + 'px';
         gutter.append(arc, arrow);
@@ -1112,15 +1125,15 @@ export function renderHtml(report: Report): string {
       }
       if (map.edges.length) root.append(gutter);
       mapDrawn = { map, components: revision.components, nodes, details, lines };
-      const counts = [fmt(map.folders) + (map.folders === 1 ? ' folder' : ' folders'), fmt(revision.components.length) + (revision.components.length === 1 ? ' file' : ' files')];
-      if (map.edges.length || links.length) counts.push(fmt(map.edges.length) + (map.edges.length === 1 ? ' import line' : ' import lines'));
+      const counts = [plural(map.folders, 'folder'), plural(revision.components.length, 'file')];
+      if (map.edges.length || links.length) counts.push(plural(map.edges.length, 'import line'));
       if (map.folded) counts.push(fmt(map.folded) + ' inside closed folders');
       if (map.unresolved) counts.push(fmt(map.unresolved) + ' unresolved, listed under Claude imports');
       if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
       // Imports are Claude's; another agent's tab can still show one between two files it reads.
       const borrowed = map.edges.length && activeView !== 'all' && activeView !== 'claude' ? ' Lines are Claude imports; they do not show that ' + (agentNames[activeView] ?? 'another agent') + ' follows them.' : '';
       // An empty tree holds nothing, so the note under it says why.
-      mapNote = !map.rows.length ? 'No tracked files at this revision.' : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + measureLabel().stat.toLowerCase() + '.' + borrowed;
+      mapNote = !map.rows.length ? 'No tracked files at this revision.' : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
       $('map-hover').textContent = mapNote;
       $('map-hover').classList.remove('detail');
       if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();
@@ -1230,7 +1243,7 @@ export function renderHtml(report: Report): string {
         : [{ component, server: null }]);
       const servers = rows.filter((row) => row.server).length;
       const unresolved = rows.length - servers;
-      $('mcp-count').textContent = fmt(servers) + (servers === 1 ? ' server' : ' servers') + ' · ' + fmt(components.length) + (components.length === 1 ? ' file' : ' files') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      $('mcp-count').textContent = plural(servers, 'server') + ' · ' + plural(components.length, 'file') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       const body = $('mcp-servers');
       body.replaceChildren();
       if (!rows.length) {
@@ -1306,9 +1319,8 @@ export function renderHtml(report: Report): string {
         body.append(row);
       }
       const notes = [];
-      const fileCount = (count) => fmt(count) + (count === 1 ? ' file' : ' files');
       const unsure = entries.filter((entry) => entry.unresolved);
-      if (unsure.length) notes.push('Maybe read at start, counted as when needed: ' + unsure.map((entry) => agentNames[entry.provider] + ' ' + fileCount(entry.unresolved)).join(', ') + '.');
+      if (unsure.length) notes.push('Maybe read at start, counted as when needed: ' + unsure.map((entry) => agentNames[entry.provider] + ' ' + plural(entry.unresolved, 'file')).join(', ') + '.');
       for (const entry of entries.filter((item) => item.skipped)) notes.push(agentNames[entry.provider] + ' skips AGENTS.md because ' + (entry.provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.override.md') + ' exists (' + fmt(entry.skippedTokens) + ' tokens, left out).');
       const unreadable = entries.filter((entry) => entry.listingUnresolved);
       if (unreadable.length) notes.push('Skills with unreadable descriptions, not counted: ' + unreadable.map((entry) => agentNames[entry.provider] + ' ' + fmt(entry.listingUnresolved)).join(', ') + '.');
@@ -1421,7 +1433,9 @@ export function renderHtml(report: Report): string {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
       if (drawn.imports !== revisions[selected].components) renderImports();
-      if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || drawn.mapChanges !== revision.changes) renderMap();
+      // Changes only matter to the map when the drawn or the selected revision tags a file.
+      const mapTags = drawn.mapChanges !== revision.changes && (drawn.mapTagged || revision.changes.some((change) => change.kind !== 'removed'));
+      if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || mapTags) renderMap();
       if (drawn.mcp !== revision.components) renderMcp();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }

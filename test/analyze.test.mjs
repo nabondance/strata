@@ -2310,6 +2310,10 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].focus();
     mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseleave();
     assert.match(ui.get("map-hover").textContent, /^CLAUDE\.md · /);
+    // Losing focus goes back to the row under the pointer.
+    mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseenter();
+    mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].listeners.blur();
+    assert.match(ui.get("map-hover").textContent, /^docs\/from-rule\.md · /);
     // Selecting a folder closes it; the lines of the files it holds then end at its row.
     const docsRow = expectedMap.rows.findIndex((row) => row.path === "docs");
     mapRows()[docsRow].listeners.click();
@@ -2382,6 +2386,18 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     ].listeners.click();
     assert.equal(ui.get("files-panel").open, true);
     assert.equal(ui.get("path-search").value, "AGENTS.md");
+
+    // Moving between revisions that share an inventory and tag nothing keeps the rows already drawn.
+    const quiet = (id) => ({ ...report.revisions.at(-1), id, changes: [] });
+    const unchanged = { ...report, revisions: [...report.revisions, quiet("a".repeat(40)), quiet("b".repeat(40))] };
+    const quietUi = loadReportUi(renderHtml(unchanged));
+    const quietRows = () => quietUi.get("config-map").children.filter((child) => child.className.startsWith("map-row"));
+    quietUi.get("slider").value = String(unchanged.revisions.length - 2);
+    quietUi.get("slider").listeners.change();
+    const quietRow = quietRows()[0];
+    quietUi.get("slider").value = String(unchanged.revisions.length - 1);
+    quietUi.get("slider").listeners.change();
+    assert.equal(quietRows()[0], quietRow);
 
     // The command line counts unresolved imports at the last revision without naming paths.
     const output = join(tmpdir(), `strata-imports-${process.pid}.json`);

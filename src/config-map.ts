@@ -24,7 +24,7 @@ export interface MapRow {
   sourceOnly: number;
   /** Stored-text tokens of the file or of every file under the folder; null for a source-only file. */
   tokens: number | null;
-  /** Tokens by category, largest first. A source-only file lists its category with 0. */
+  /** Tokens by category, largest first, then by file count. A source-only file lists its category with 0. */
   categories: { category: Component["category"]; tokens: number }[];
   /** Folders only: whether the map hides what the folder holds. */
   collapsed?: boolean;
@@ -100,7 +100,7 @@ export function configMap(
     count: number;
     sourceOnly: number;
     tokens: number;
-    categories: Map<Component["category"], number>;
+    categories: Map<Component["category"], { tokens: number; files: number }>;
   }
   const folder = (name: string, path: string): Folder => ({
     name,
@@ -122,7 +122,10 @@ export function configMap(
       into.count += 1;
       if (tokens === null) into.sourceOnly += 1;
       into.tokens += tokens ?? 0;
-      into.categories.set(component.category, (into.categories.get(component.category) ?? 0) + (tokens ?? 0));
+      const share = into.categories.get(component.category) ?? { tokens: 0, files: 0 };
+      share.tokens += tokens ?? 0;
+      share.files += 1;
+      into.categories.set(component.category, share);
     };
     add(root);
     for (const [depth, name] of parts.slice(0, -1).entries()) {
@@ -138,7 +141,9 @@ export function configMap(
     at.files.push(index);
   }
 
-  const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  // The same order as the file table, with code points only to break ties.
+  const collator = new Intl.Collator();
+  const byName = (a: string, b: string) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
   const names = components.map((component) => component.path.split("/").at(-1)!);
   // A folder holding only one folder shares its row with it; the row is named by the chain and opens the last.
   const shown = (start: Folder) => {
@@ -191,10 +196,11 @@ export function configMap(
 
   const rows: MapRow[] = [];
   const rowOf: number[] = new Array(components.length).fill(-1);
-  const ranked = (categories: Map<Component["category"], number>) =>
+  // Largest first; among equal tokens, such as in a folder of source-only files, the category with more files.
+  const ranked = (categories: Folder["categories"]) =>
     [...categories.entries()]
-      .map(([category, tokens]) => ({ category, tokens }))
-      .sort((a, b) => b.tokens - a.tokens || byName(a.category, b.category));
+      .sort(([a, x], [b, y]) => y.tokens - x.tokens || y.files - x.files || byName(a, b))
+      .map(([category, { tokens }]) => ({ category, tokens }));
   const holdAll = (at: Folder, row: number) => {
     for (const index of at.files) rowOf[index] = row;
     for (const child of at.folders.values()) holdAll(child, row);
