@@ -135,7 +135,7 @@ npx context-strata diff --base <base-commit> --head <head-commit>
 
 Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` for every option.
 
-To try changes before they are released, use the canary build of the latest `main`: `npx context-strata@canary`. It passes the same checks as a release, but its report format can change before the next version.
+To try changes before they are released, install the [canary build](https://github.com/nabondance/strata/releases/tag/canary) of the latest `main` with `npm install --global https://github.com/nabondance/strata/releases/download/canary/context-strata.tgz`, and run it again to update. It passes the same checks as a release, but its report format can change before the next version.
 
 ### Token counts
 
