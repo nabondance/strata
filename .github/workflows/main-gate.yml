@@ -1,0 +1,40 @@
+name: Main gate
+
+# Shared by the canary and release workflows, which run after CI passes on a
+# main commit. They act on main as it is now, so they first check that main is
+# still at the commit CI checked; if it has moved on, the newer commit's CI run
+# starts them again.
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: The commit CI checked
+        required: true
+        type: string
+    outputs:
+      current:
+        description: "'true' when main is still at that commit"
+        value: ${{ jobs.check.outputs.current }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.current.outputs.current }}
+    steps:
+      - name: Check that main is still at the checked commit
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECKED_SHA: ${{ inputs.sha }}
+        run: |
+          main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$main" = "$CHECKED_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "main is at $main, not the checked $CHECKED_SHA"
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi

@@ -29,17 +29,18 @@ function check(condition, message) {
   console.log(`ok: ${message}`);
 }
 
-// The report must work offline. Its only absolute URLs may be links the reader
-// clicks, XML namespaces, and code comments; anything else (a script, style,
-// image, font, frame, or fetch) would load from the network when opened.
+// The report must work offline. Its only absolute or protocol-relative URLs may
+// be links the reader clicks, XML namespaces, and whole-line code comments;
+// anything else (a script, style, image, font, frame, or fetch) would load from
+// the network when opened.
 function networkReferences(html) {
   const found = [];
-  for (const match of html.matchAll(/https?:\/\/[^\s"'<>)]*/gi)) {
+  for (const match of html.matchAll(/(?:https?:)?\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+[^\s"'<>)]*/gi)) {
     const before = html.slice(Math.max(0, match.index - 300), match.index);
-    const line = before.slice(before.lastIndexOf("\n") + 1);
+    const line = html.slice(html.lastIndexOf("\n", match.index) + 1, match.index);
     const link = /<a\b[^<>]*\bhref=["']?$/i.test(before);
     const namespace = /\bxmlns(?::\w+)?=["']?$/i.test(before);
-    const comment = /(?:^|\s)\/\/\s/.test(line);
+    const comment = /^\s*\/\/\s/.test(line);
     if (!link && !namespace && !comment) found.push(match[0]);
   }
   return found;
