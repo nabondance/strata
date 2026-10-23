@@ -103,9 +103,10 @@ jobs:
             --repo-url "$GITHUB_REPOSITORY" \
             --config-file release-please-config.json \
             --manifest-file .release-please-manifest.json
-      # Changes pushed with GITHUB_TOKEN do not trigger pull_request workflows,
-      # so start the required checks on the release PR's branch directly, once
-      # per commit.
+      # pull_request workflows on the release PR's commits, which come from
+      # GITHUB_TOKEN, never run on their own: they wait for approval as
+      # `action_required`. Start the required checks on its branch directly, once
+      # per commit, ignoring those waiting runs.
       - name: Run the required checks on the release PR
         if: steps.plan.outputs.update == 'true'
         run: |
@@ -114,7 +115,7 @@ jobs:
           if [ -z "$branch" ]; then exit 0; fi
           head="$(gh api "repos/$GH_REPO/branches/$branch" --jq .commit.sha)"
           for workflow in ci.yml pr-title.yml; do
-            runs="$(gh api "repos/$GH_REPO/actions/workflows/$workflow/runs?head_sha=$head&per_page=1" --jq .total_count)"
+            runs="$(gh api "repos/$GH_REPO/actions/workflows/$workflow/runs?head_sha=$head&per_page=100" --jq '[.workflow_runs[] | select(.conclusion != "action_required")] | length')"
             if [ "$runs" = 0 ]; then gh workflow run "$workflow" --ref "$branch"; fi
           done
       # Tags pushed with GITHUB_TOKEN do not trigger other workflows, so start
