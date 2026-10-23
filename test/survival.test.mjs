@@ -13,6 +13,7 @@ import {
 } from "../dist/instruction-age.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
+import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 
 const bytes = (...lines) => lines.reduce((sum, line) => sum + Buffer.byteLength(line), 0);
 
@@ -89,6 +90,7 @@ test("dates instruction lines by the revision they appeared at and follows them 
     commit("settings");
 
     const report = await analyzeRepository(repo);
+    assertLineAgesMatchTrees(repo, report);
     assert.equal(report.schemaVersion, 19);
     assert.equal(report.lineAgeMethod, "exact-trimmed-line-multiset-utf8-bytes-v1");
     assert.equal(report.revisions.length, 12);
@@ -188,6 +190,7 @@ test("an imported file's text leaves and returns with its import", async () => {
     put("CLAUDE.md", `${importLine}\nRoot line.\n`);
     commit("restore the import");
     const report = await analyzeRepository(repo);
+    assertLineAgesMatchTrees(repo, report);
     assert.ok(report.components.some((component) => component.path === "docs/guide.md" && component.imported));
     assert.deepEqual(
       report.revisions.map((revision) => revision.lineAge),
@@ -216,6 +219,7 @@ test("a merge adds its branch's lines at the merge, and a shallow clone starts i
     commit("main work");
     git("merge", "-q", "--no-ff", "-m", "merge topic", "topic");
     const report = await analyzeRepository(repo);
+    assertLineAgesMatchTrees(repo, report);
     assert.deepEqual(
       report.revisions.map((revision) => revision.lineAge),
       [{ added: bytes("Root line.") }, undefined, { added: bytes("Branch line.") }],
@@ -227,10 +231,77 @@ test("a merge adds its branch's lines at the merge, and a shallow clone starts i
     assert.equal(shallow.revisions.length, 2);
     // The text before the boundary is all attributed to its first revision.
     assert.deepEqual(shallow.revisions[0].lineAge, { added: bytes("Root line.") });
+    assertLineAgesMatchTrees(clone, shallow);
     assert.equal(summarizeInstructionAge(shallow).first, 0);
+    // The command line says the text dated at the clone's first revision may be older.
+    const cli = spawnSync(
+      process.execPath,
+      ["dist/cli.js", "analyze", clone, "--output", join(clone, "r.json"), "--format", "json"],
+      { encoding: "utf8" },
+    );
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(
+      cli.stdout,
+      /is still present\. This shallow clone starts at revision 1, so text dated there may be older\./,
+    );
   } finally {
     cleanup();
     rmSync(clone, { recursive: true, force: true });
+  }
+});
+
+test("a rename with an edit keeps the unchanged lines, and a source-only copy of a removed file is not instruction text", async () => {
+  const { git, put, commit, repo, cleanup } = fixture("strata-survival-rename-");
+  try {
+    put("CLAUDE.md", "Kept line.\nOld line.\n");
+    put(".claude/rules/style.md", "Rule line.\n");
+    // The same blob at a skill resource path, which is source-only.
+    put(".claude/skills/build/copy.txt", "Rule line.\n");
+    commit("baseline");
+    git("mv", "CLAUDE.md", "AGENTS.md");
+    put("AGENTS.md", "Kept line.\nNew line.\n");
+    commit("rename and edit");
+    rmSync(join(repo, ".claude/rules/style.md"));
+    commit("remove the rule, keep its copy");
+    const report = await analyzeRepository(repo);
+    assertLineAgesMatchTrees(repo, report);
+    assert.deepEqual(
+      report.revisions.map((revision) => revision.lineAge),
+      [
+        { added: bytes("Kept line.", "Old line.", "Rule line.") },
+        { added: bytes("New line."), removed: [{ from: 0, bytes: bytes("Old line.") }] },
+        { added: 0, removed: [{ from: 0, bytes: bytes("Rule line.") }] },
+      ],
+    );
+    assert.deepEqual(instructionAges(report).at(2), [
+      { from: 0, bytes: bytes("Kept line.") },
+      { from: 1, bytes: bytes("New line.") },
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("matches and weighs lines by their stored bytes, including text that is not valid UTF-8", async () => {
+  const { put, commit, repo, cleanup } = fixture("strata-survival-bytes-");
+  try {
+    // Latin-1 é and è are each one invalid byte; decoded, both would become the same replacement character.
+    put(
+      "CLAUDE.md",
+      Buffer.concat([Buffer.from("caf"), Buffer.from([0xe9]), Buffer.from("\n\u00a0D\u00e9j\u00e0 vu.\u00a0\n")]),
+    );
+    commit("latin-1 line and a padded UTF-8 line");
+    put("CLAUDE.md", Buffer.concat([Buffer.from("caf"), Buffer.from([0xe8]), Buffer.from("\nD\u00e9j\u00e0 vu.\n")]));
+    commit("another latin-1 line");
+    const report = await analyzeRepository(repo);
+    assert.notEqual(report.components[0].estimatedTokens, null);
+    // No-break spaces are trimmed like any whitespace, and the line keeps its age.
+    assert.deepEqual(
+      report.revisions.map((revision) => revision.lineAge),
+      [{ added: 4 + bytes("D\u00e9j\u00e0 vu.") }, { added: 4, removed: [{ from: 0, bytes: 4 }] }],
+    );
+  } finally {
+    cleanup();
   }
 });
 

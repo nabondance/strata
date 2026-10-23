@@ -11,8 +11,10 @@ type LineCounts = Uint32Array;
 /**
  * Read every instructional blob once and reduce it to counts of its trimmed, nonblank lines. Line
  * text is interned, so the many versions of a file share one copy of each line; the text itself
- * never leaves this module. `weights[id]` is the UTF-8 byte length of line `id`. Each line is
- * decoded from its own bytes, because a slice of a decoded file would keep the whole file alive.
+ * never leaves this module. Lines are matched and weighed by their stored bytes, so a file that is
+ * not valid UTF-8 keeps distinct lines distinct; `weights[id]` is the byte length of line `id`.
+ * Each line is read from its own bytes, because a slice of a decoded file would keep the whole
+ * file alive.
  */
 export function readLineCounts(
   repo: string,
@@ -29,19 +31,39 @@ export function readLineCounts(
     for (let start = 0; start < body.length; ) {
       const newline = body.indexOf(10, start);
       const end = newline < 0 ? body.length : newline;
-      const text = body.toString("utf8", start, end).trim();
+      const line = trimmedRange(body, start, end);
       start = end + 1;
-      if (!text) continue;
-      let id = ids.get(text);
+      if (!line) continue;
+      // Latin-1 maps each byte to one character, so the key is the bytes themselves.
+      const key = body.toString("latin1", line[0], line[1]);
+      let id = ids.get(key);
       if (id === undefined) {
-        id = weights.push(Buffer.byteLength(text)) - 1;
-        ids.set(text, id);
+        id = weights.push(key.length) - 1;
+        ids.set(key, id);
       }
       counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     lines.set(blob, Uint32Array.from([...counts].flat()));
   }
   return { lines, weights };
+}
+
+/**
+ * The byte range of a line without the whitespace `String.prototype.trim` removes, or undefined
+ * when nothing is left. Whitespace is always valid UTF-8, so the bytes of what was trimmed are the
+ * UTF-8 length of the trimmed text, even when the rest of the line is not valid UTF-8.
+ */
+function trimmedRange(body: Buffer, start: number, end: number): [number, number] | undefined {
+  const text = body.toString("utf8", start, end);
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length === text.length) return [start, end];
+  const leading = text.length - text.trimStart().length;
+  const trailing = text.length - text.trimEnd().length;
+  return [
+    start + Buffer.byteLength(text.slice(0, leading)),
+    end - Buffer.byteLength(text.slice(text.length - trailing)),
+  ];
 }
 
 /**

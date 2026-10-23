@@ -1089,7 +1089,7 @@ export function renderHtml(report: Report): string {
       drawn.baseline = baselineRevision().components;
       drawn.target = viewRevisions[selected].components;
       $('baseline').value = String(baseline);
-      chartBuckets.forEach((bucket) => bucket.button.classList.toggle('baseline', baseline !== 'previous' && bucket.start <= baseline && baseline <= bucket.end));
+      for (const bucket of [...chartBuckets, ...ageBuckets]) bucket.button.classList.toggle('baseline', baseline !== 'previous' && bucket.start <= baseline && baseline <= bucket.end);
       $('compare-tokens').textContent = signed(comparison.deltaTokens) + ' (' + fmt(comparison.beforeTokens) + ' → ' + fmt(comparison.afterTokens) + ')';
       $('compare-tokens').className = tone(comparison.deltaTokens);
       $('compare-files').textContent = signed(comparison.deltaFiles) + ' (' + fmt(comparison.beforeFiles) + ' → ' + fmt(comparison.afterFiles) + ')';
@@ -1156,6 +1156,9 @@ export function renderHtml(report: Report): string {
     // The finest period that keeps the layers few enough to tell apart.
     const agePeriods = instructionAgePeriods(data);
     const periodCount = agePeriods.periods.length;
+    // In a shallow clone, the text at its first revision may be older than that revision.
+    const shallowPeriod = data.shallow && agePeriods.periodOf.has(0) ? agePeriods.periodOf.get(0) : -1;
+    const periodLabel = (period) => agePeriods.periods[period].label + (period === shallowPeriod ? ' or earlier' : '');
     const ageColor = (period) => periodCount === 1 ? 'var(--age-old)' : 'color-mix(in oklab, var(--age-new) ' + (period / (periodCount - 1) * 100).toFixed(1) + '%, var(--age-old))';
     /** Bytes at a revision by period, oldest first. */
     function agePeriodBytes(index) {
@@ -1184,7 +1187,7 @@ export function renderHtml(report: Report): string {
         const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
         const bytes = agePeriodBytes(bucket.end);
         const oldest = bytes.findIndex((amount) => amount);
-        button.title = range + ' · ' + revisions[bucket.end].date.slice(0, 10) + ' · ' + fmt(total) + ' bytes of instruction lines' + (oldest >= 0 ? ', ' + sharePercent(bytes[oldest] / total) + ' from ' + agePeriods.periods[oldest].label : '');
+        button.title = range + ' · ' + revisions[bucket.end].date.slice(0, 10) + ' · ' + fmt(total) + ' bytes of instruction lines' + (oldest >= 0 ? ', ' + sharePercent(bytes[oldest] / total) + ' from ' + periodLabel(oldest) : '');
         button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revisions[bucket.end].date.slice(0, 10));
         const stack = text('span', '', 'stack');
         stack.style.height = Math.max(2, total / max * 150) + 'px';
@@ -1226,7 +1229,7 @@ export function renderHtml(report: Report): string {
       legend.replaceChildren();
       for (let period = periodCount - 1; period >= 0; period -= 1) {
         if (!bytes[period]) continue;
-        const entry = text('span', agePeriods.periods[period].label);
+        const entry = text('span', periodLabel(period));
         entry.append(text('b', sharePercent(bytes[period] / total)));
         const swatch = text('i', '', 'swatch');
         swatch.style.background = ageColor(period);
@@ -1246,9 +1249,10 @@ export function renderHtml(report: Report): string {
         if (seen * 2 >= total) { median = cohorts[index].from; break; }
       }
       const kept = sharePercent(keptShare(ageStart, selected) ?? 0);
-      const medianDate = revisions[median].date.slice(0, 10);
+      const medianDate = revisions[median].date.slice(0, 10) + (data.shallow && median === 0 ? ' or earlier' : '');
       $('age-count').textContent = 'half added by ' + medianDate + ' · ' + kept + ' of the first text kept';
-      $('age-note').textContent = fmt(total) + ' bytes of instruction lines at revision ' + (selected + 1) + '. Half of them were in place by revision ' + (median + 1) + ' (' + medianDate + '). Of the ' + fmt(ages.bytes[ageStart]) + ' bytes at the first revision with instructions (' + revisions[ageStart].date.slice(0, 10) + (data.shallow && ageStart === 0 ? ', where this shallow clone starts' : '') + '), ' + kept + ' are still present.';
+      $('age-note').textContent = fmt(total) + ' bytes of instruction lines at revision ' + (selected + 1) + '. Half of them were in place by revision ' + (median + 1) + ' (' + medianDate + '). Of the ' + fmt(ages.bytes[ageStart]) + ' bytes at the first revision with instructions (' + revisions[ageStart].date.slice(0, 10) + '), ' + kept + ' are still present.' +
+        (data.shallow && ageStart === 0 ? ' This shallow clone starts at revision 1, so text dated there may be older.' : '');
     }
     renderAgeChart();
 

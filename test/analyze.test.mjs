@@ -19,6 +19,7 @@ import { renderHtml } from "../dist/report.js";
 import { renderSvg } from "../dist/svg.js";
 import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
+import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 
 /** Run the report's script against a minimal fake DOM and return its elements by ID. */
 function loadReportUi(html) {
@@ -33,7 +34,11 @@ function loadReportUi(html) {
       this.classList = {
         add: (name) => this.classes.add(name),
         remove: (name) => this.classes.delete(name),
-        toggle() {},
+        toggle: (name, force = !this.classes.has(name)) => {
+          if (force) this.classes.add(name);
+          else this.classes.delete(name);
+          return force;
+        },
       };
     }
     append(...children) {
@@ -422,6 +427,7 @@ test("tracks configuration across first-parent history without reading untracked
 
     put(".claude/skills/untracked/SKILL.md", "This is not in Git.\n");
     const report = await analyzeRepository(repo);
+    assertLineAgesMatchTrees(repo, report);
     const revisions = expandRevisions(report);
     const providerRequests = [];
     const providerApiReport = await analyzeRepository(repo, {
@@ -1250,6 +1256,7 @@ test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's 
         },
       },
     });
+    assertLineAgesMatchTrees(repo, report);
     assert.deepEqual(
       report.revisions.map((revision) => revision.geminiContextFiles ?? null),
       [null, ["agents-md", "gemini-md"], ["agents-md"], ["gemini-md"], null],
@@ -1439,6 +1446,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
         },
       },
     });
+    assertLineAgesMatchTrees(repo, report);
     assert.equal(report.schemaVersion, 19);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
@@ -1766,6 +1774,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
         },
       },
     });
+    assertLineAgesMatchTrees(repo, report);
     assert.equal(report.schemaVersion, 19);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
@@ -1966,6 +1975,93 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
     get("target").value = "3";
     get("target").listeners.change();
     assert.ok(!paths("files").includes("CLAUDE.md"));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("draws instruction age by period, marks a shallow start, and follows the keyboard and the baseline", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "strata-age-ui-"));
+  try {
+    const git = (args, date) =>
+      execFileSync("git", ["-C", repo, ...args], {
+        encoding: "utf8",
+        env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+      });
+    git(["init", "-q", "-b", "main"]);
+    git(["config", "user.name", "Strata Test"]);
+    git(["config", "user.email", "strata-test@example.invalid"]);
+    const lines = [];
+    // One line a year for ten years; the first is long enough to hold half the text alone.
+    for (let year = 0; year < 10; year += 1) {
+      lines.push(year ? `Line ${year}.` : `First line, ${"long ".repeat(12)}enough.`);
+      writeFileSync(join(repo, "CLAUDE.md"), `${lines.join("\n")}\n`);
+      const date = `${2010 + year}-06-01T12:00:00Z`;
+      git(["add", "-A"], date);
+      git(["commit", "-q", "-m", `year ${year}`], date);
+    }
+    const report = await analyzeRepository(repo);
+    const dates = report.revisions.map((revision) => revision.date.slice(0, 10));
+
+    // More than eight years keeps one layer a year; in a shallow clone the first is "or earlier".
+    const shallow = { ...report, shallow: true };
+    const { get } = loadReportUi(renderHtml(shallow));
+    assert.equal(get("age-panel").hidden, false);
+    const chart = get("age-chart");
+    assert.equal(chart.children.length, 10);
+    const legend = get("age-legend").children.map((entry) => entry.textContent);
+    assert.deepEqual(
+      legend,
+      Array.from({ length: 10 }, (_, index) => `${2019 - index}${index === 9 ? " or earlier" : ""}`),
+    );
+    assert.match(chart.children[0].title, /from 2010 or earlier$/);
+    assert.match(get("age-count").textContent, new RegExp(`^half added by ${dates[0]} or earlier · `));
+    assert.match(
+      get("age-note").textContent,
+      /This shallow clone starts at revision 1, so text dated there may be older\.$/,
+    );
+
+    // Arrow keys and End move the selection along the age chart and keep focus on its bars.
+    const press = (key, target) => chart.listeners.keydown({ key, target, preventDefault() {} });
+    press("Home", chart.children[9]);
+    assert.equal(get("target").value, "0");
+    press("ArrowRight", chart.children[0]);
+    assert.equal(get("target").value, "1");
+    assert.equal(chart.children[1].focused, true);
+    press("End", chart.children[1]);
+    assert.equal(get("target").value, "9");
+
+    // A fixed baseline is marked on the age chart, as on the history chart; "Previous revision" marks nothing.
+    get("baseline").value = "2";
+    get("baseline").listeners.change();
+    assert.deepEqual(
+      chart.children.map((bar) => bar.classes.has("baseline")),
+      Array.from({ length: 10 }, (_, index) => index === 2),
+    );
+    assert.match(get("compare-kept").textContent, /^100% of /);
+    get("baseline").value = "previous";
+    get("baseline").listeners.change();
+    assert.ok(chart.children.every((bar) => !bar.classes.has("baseline")));
+
+    // A full clone has no "or earlier"; a year of monthly commits is drawn by quarter.
+    const monthly = {
+      ...report,
+      revisions: report.revisions.map((revision, index) => ({
+        ...revision,
+        date: `2026-${String(index + 1).padStart(2, "0")}-15T12:00:00Z`,
+      })),
+    };
+    const quarters = loadReportUi(renderHtml(monthly)).get;
+    assert.deepEqual(
+      quarters("age-legend").children.map((entry) => entry.textContent),
+      ["2026 Q4", "2026 Q3", "2026 Q2", "2026 Q1"],
+    );
+    assert.match(quarters("age-count").textContent, /^half added by 2026-01-15 · /);
+    assert.doesNotMatch(quarters("age-note").textContent, /shallow/);
+
+    // Without instruction text the panel stays hidden.
+    const silent = { ...report, revisions: report.revisions.map(({ lineAge: _lineAge, ...revision }) => revision) };
+    assert.equal(loadReportUi(renderHtml(silent)).get("age-panel").hidden, true);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
@@ -2198,6 +2294,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     commit("Import a rule that imports a doc");
 
     const report = await analyzeRepository(repo);
+    assertLineAgesMatchTrees(repo, report);
     assert.equal(report.schemaVersion, 19);
     const revisions = expandRevisions(report);
     assert.equal(revisions.length, 8);

@@ -397,9 +397,14 @@ async function analyze(args: string[]): Promise<void> {
   if (upFront) say(upFront);
   const age = summarizeInstructionAge(report);
   if (age) {
-    const day = (index: number) => report.revisions[index]!.date.slice(0, 10);
+    // In a shallow clone, text dated at its first revision may be older.
+    const day = (index: number) =>
+      report.revisions[index]!.date.slice(0, 10) + (report.shallow && index === 0 ? " or earlier" : "");
     say(
-      `Instruction age: half of the latest instruction text was in place by revision ${age.median + 1} (${day(age.median)}); ${sharePercent(age.kept)} of the text at the first revision with instructions (${day(age.first)}) is still present.`,
+      `Instruction age: half of the latest instruction text was in place by revision ${age.median + 1} (${day(age.median)}); ${sharePercent(age.kept)} of the text at the first revision with instructions (${report.revisions[age.first]!.date.slice(0, 10)}) is still present.` +
+        (report.shallow && age.first === 0
+          ? " This shallow clone starts at revision 1, so text dated there may be older."
+          : ""),
     );
   }
   for (const measured of report.providerMeasurements ?? []) {
