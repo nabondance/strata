@@ -52,17 +52,22 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
   );
   assert.deepEqual(map.rowOf, [1, 2, 5, 6, 4]);
   assert.deepEqual(configMap([], []).rows, []);
-  // A row several folders share follows the choice for the deepest of them that has one.
+  // A row several folders share is closed when any of them was closed, and open when any was opened.
   assert.deepEqual(map.rows[0].chain, [".claude", ".claude/skills", ".claude/skills/review"]);
-  const closedOuter = configMap(components, [], { toggled: new Map([[".claude", true]]) });
-  assert.equal(closedOuter.rows[0].collapsed, true);
-  const reopened = configMap(components, [], {
-    toggled: new Map([
+  const choose = (choices) => configMap(components, [], { toggled: new Map(choices) }).rows[0].collapsed;
+  assert.equal(choose([[".claude", true]]), true);
+  assert.equal(choose([[".claude/skills", false]]), false);
+  assert.equal(
+    choose([
       [".claude", true],
       [".claude/skills/review", false],
     ]),
-  });
-  assert.equal(reopened.rows[0].collapsed, false);
+    true,
+  );
+  assert.equal(
+    configMap(components, [], { fallback: "collapsed", toggled: new Map([[".claude", false]]) }).rows[0].collapsed,
+    false,
+  );
 });
 
 test("opens folders as deep as the row budget allows and keeps the reader's choices", () => {

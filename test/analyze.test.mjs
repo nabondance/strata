@@ -51,6 +51,7 @@ function loadReportUi(html) {
     setAttribute() {}
     focus() {
       this.focused = true;
+      document.activeElement = this;
     }
     scrollIntoView() {
       this.scrolled = true;
@@ -2305,6 +2306,10 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
       ui.get("map-hover").textContent,
       / · imports docs\/deep\/one\.md · imported by \.claude\/rules\/style\.md · added at this revision$/,
     );
+    // Leaving a row with the mouse goes back to the focused row's detail.
+    mapRows()[expectedMap.rows.findIndex((row) => row.path === "CLAUDE.md")].focus();
+    mapRows()[expectedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.mouseleave();
+    assert.match(ui.get("map-hover").textContent, /^CLAUDE\.md · /);
     // Selecting a folder closes it; the lines of the files it holds then end at its row.
     const docsRow = expectedMap.rows.findIndex((row) => row.path === "docs");
     mapRows()[docsRow].listeners.click();
@@ -2345,14 +2350,28 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     );
     ui.get("map-expand").listeners.click();
     assert.equal(mapRows().length, configMap(revisions[7].components, lastLinks, { fallback: "expanded" }).rows.length);
-    // While the slider is dragged the map shows the last revision it drew, and a selected file is one of those.
+    // While the slider is dragged the map can show an earlier revision. Selecting a file there brings the map up
+    // to date first, and locates the file only if the selected revision has it.
     const expandedMap = configMap(revisions[7].components, lastLinks, { fallback: "expanded" });
+    const fromRule = () => expandedMap.rows.findIndex((row) => row.path === "docs/from-rule.md");
+    const searched = ui.get("path-search").value;
     ui.get("slider").value = "0";
     ui.get("slider").listeners.input();
-    mapRows()[expandedMap.rows.findIndex((row) => row.path === "docs/from-rule.md")].listeners.click();
-    assert.equal(ui.get("path-search").value, "docs/from-rule.md");
+    mapRows()[fromRule()].listeners.click();
+    assert.ok(!revisions[0].components.some((component) => component.path === "docs/from-rule.md"));
+    assert.equal(
+      mapRows().length,
+      configMap(revisions[0].components, importLinks(revisions[0].components), { fallback: "expanded" }).rows.length,
+    );
+    assert.equal(ui.get("path-search").value, searched);
     ui.get("slider").value = "7";
     ui.get("slider").listeners.change();
+    // Settling again at the same revision keeps the rows already drawn.
+    const drawnRow = mapRows()[0];
+    ui.get("slider").listeners.change();
+    assert.equal(mapRows()[0], drawnRow);
+    mapRows()[fromRule()].listeners.click();
+    assert.equal(ui.get("path-search").value, "docs/from-rule.md");
     const importedRow = ui.get("files").children.find((row) => row.children[0].textContent === "docs/from-rule.md");
     assert.equal(importedRow.children[2].textContent, "instructions (imported)");
     // Selecting a file locates it in the file table, as the treemap does.

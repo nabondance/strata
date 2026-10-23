@@ -67,8 +67,8 @@ export interface ConfigMap {
 export interface MapOptions {
   /**
    * Folders the reader opened (false) or closed (true), by path; these override `fallback`. A row that
-   * several folders share follows the choice for the deepest of them that has one, so a choice made at one
-   * revision holds at another where the folders share rows differently.
+   * several folders share is closed when any of them was closed and open when any was opened, so a choice
+   * made at one revision holds at another where the folders share rows differently.
    */
   toggled?: ReadonlyMap<string, boolean>;
   /**
@@ -224,8 +224,8 @@ export function configMap(
         rowOf[entry] = row;
         continue;
       }
-      let collapsed = depth >= openDepth;
-      for (const path of entry.chain) collapsed = toggled.get(path) ?? collapsed;
+      const choices = entry.chain.map((path) => toggled.get(path));
+      const collapsed = choices.includes(true) ? true : choices.includes(false) ? false : depth >= openDepth;
       rows.push({
         kind: "folder",
         path: entry.at.path,

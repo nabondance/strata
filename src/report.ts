@@ -1004,9 +1004,9 @@ export function renderHtml(report: Report): string {
       const links = revisionLinks(revisions[selected].components);
       drawn.map = revision.components;
       drawn.mapImports = revisions[selected].components;
+      drawn.mapChanges = revision.changes;
       const map = configMap(revision.components, links, { toggled: mapToggled, fallback: mapFallback });
       const changedHere = new Map(revision.changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
-      drawn.mapTagged = changedHere.size > 0;
       // A closed folder counts the changed files it hides.
       const changedUnder = map.rows.map(() => 0);
       revision.components.forEach((component, index) => {
@@ -1018,7 +1018,12 @@ export function renderHtml(report: Report): string {
       mapLit = [];
       mapTabStop = null;
       if (!map.rows.some((row) => row.path === mapCurrent)) mapCurrent = map.rows[0]?.path ?? '';
-      const names = (paths) => paths.length > 3 ? paths.slice(0, 3).join(', ') + ' and ' + fmt(paths.length - 3) + ' more' : paths.join(', ');
+      // Imports are read from the whole inventory, so a file can import, or be imported by, one this view leaves out.
+      const inView = new Set(revision.components.map((component) => component.path));
+      const names = (paths) => {
+        const named = paths.map((path) => inView.has(path) ? path : path + ' (outside this view)');
+        return named.length > 3 ? named.slice(0, 3).join(', ') + ' and ' + fmt(named.length - 3) + ' more' : named.join(', ');
+      };
       const nodes = [];
       const details = [];
       for (const [index, row] of map.rows.entries()) {
@@ -1055,7 +1060,8 @@ export function renderHtml(report: Report): string {
         if (changed) name.append(text('span', changed, 'map-tag'));
         if (row.unresolved) name.append(text('span', fmt(row.unresolved) + ' unresolved', 'map-tag warn'));
         const bar = text('span', '', 'map-bar');
-        if (row.tokens === null) {
+        // A source-only file, or a folder of nothing else, has no stored text to draw.
+        if (row.tokens === null || row.sourceOnly === row.files) {
           bar.classList.add('source-only');
           const mark = text('i', '');
           mark.style.borderColor = colors[row.categories[0].category];
@@ -1079,7 +1085,8 @@ export function renderHtml(report: Report): string {
           mapTabStop = node;
           traceMap(index);
         });
-        node.addEventListener('mouseleave', () => traceMap(-1));
+        // Leaving a row with the mouse goes back to the focused row, if the map has one.
+        node.addEventListener('mouseleave', () => traceMap(nodes.indexOf(document.activeElement)));
         node.addEventListener('blur', () => traceMap(-1));
         node.addEventListener('click', () => activateMapRow(index));
         nodes.push(node);
@@ -1148,12 +1155,19 @@ export function renderHtml(report: Report): string {
       const row = mapDrawn.map.rows[index];
       if (row.kind === 'folder') {
         mapCurrent = row.path;
-        // Every folder the row stands for takes the choice, so it holds where they share rows differently.
-        for (const path of row.chain) mapToggled.set(path, !row.collapsed);
+        // Opening opens every folder the row stands for; closing closes only the deepest, which holds what the
+        // row shows, so an outer folder stays open at revisions where it holds more.
+        if (row.collapsed) for (const path of row.chain) mapToggled.set(path, false);
+        else mapToggled.set(row.path, true);
         renderMap(true);
       } else {
-        // The drawn files, not the selected revision's: while the slider is dragged, the map catches up later.
-        locateComponent(mapDrawn.components[row.component]);
+        // While the slider is dragged the map can show an earlier revision; it catches up first, and the file is
+        // located only if the selected revision has it.
+        clearTimeout(settleTimer);
+        renderTables();
+        const component = viewRevisions[selected].components.find((candidate) => candidate.path === row.path);
+        if (component) locateComponent(component);
+        else mapDrawn.nodes[mapDrawn.map.rows.findIndex((shown) => shown.path === mapCurrent)]?.focus();
       }
     }
 
@@ -1407,7 +1421,7 @@ export function renderHtml(report: Report): string {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
       if (drawn.imports !== revisions[selected].components) renderImports();
-      if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || drawn.mapTagged || revision.changes.length) renderMap();
+      if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || drawn.mapChanges !== revision.changes) renderMap();
       if (drawn.mcp !== revision.components) renderMcp();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
