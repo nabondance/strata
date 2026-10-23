@@ -135,6 +135,8 @@ npx context-strata diff --base <base-commit> --head <head-commit>
 
 Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` for every option.
 
+To try changes before they are released, use the canary build of the latest `main`: `npx context-strata@canary`. It passes the same checks as a release, but its report format can change before the next version.
+
 ### Token counts
 
 By default Strata estimates tokens as UTF-8 bytes divided by four. For offline OpenAI encoding counts, pass `--model gpt-4o` or `--tokenizer openai-o200k_base`. Every report names the method it used. See [the tokenizer study](docs/tokenizers.md) for the evidence and limits.

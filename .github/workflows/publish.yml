@@ -1,19 +1,48 @@
 name: Publish to npm
 
+# A vX.Y.Z tag publishes a release under the npm `latest` tag. A push to main
+# publishes a canary build of that commit under the `canary` tag, so it can be
+# tried with `npx context-strata@canary` before the next release. Both share one
+# workflow file because npm trusted publishing is tied to the workflow name.
 on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
+    # Path filters only apply to branch pushes; every tag push still runs.
+    paths-ignore:
+      - '.agents/**'
+      - '.claude/**'
+      - '.codex/**'
+      - '.github/**'
+      - 'docs/**'
+      - 'test/**'
+      - '*.md'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# One canary run at a time; a newer push replaces a queued one.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
+    # Merging a release pull request is published from its tag, not as a canary.
+    if: >-
+      github.ref_type == 'tag' ||
+      !startsWith(github.event.head_commit.message, 'chore(main): release ')
     runs-on: ubuntu-latest
+    outputs:
+      dist-tag: ${{ steps.channel.outputs.dist-tag }}
+      publish: ${{ steps.channel.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
@@ -22,28 +51,41 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Verify release tag matches package version
-        run: |
-          version="$(node -p 'require("./package.json").version')"
-          test "$GITHUB_REF_NAME" = "v$version"
-      - name: Pack and smoke test the release artifact
+      - name: Choose the release channel
+        id: channel
         shell: bash
         run: |
           set -euo pipefail
-          pack_dir="$RUNNER_TEMP/strata-pack"
-          install_dir="$RUNNER_TEMP/strata-install"
-          package_name="$(node -p 'require("./package.json").name')"
-          package_version="$(node -p 'require("./package.json").version')"
-          mkdir -p "$pack_dir" "$install_dir"
-          pnpm pack --pack-destination "$pack_dir"
-          tarball="$pack_dir/$package_name-$package_version.tgz"
-          npm install --prefix "$install_dir" "$tarball"
-          "$install_dir/node_modules/.bin/strata" --version
-          "$install_dir/node_modules/.bin/strata" --help
-          "$install_dir/node_modules/.bin/strata" skill --output "$RUNNER_TEMP/strata-skill.md"
-          test -s "$RUNNER_TEMP/strata-skill.md"
-          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            # A release tag must match the version release-please wrote.
+            test "$GITHUB_REF_NAME" = "v$version"
+            echo "dist-tag=latest" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$GITHUB_REF" = refs/heads/main
+          # A canary sorts after the current release and before the next one:
+          # 0.4.1 on main becomes 0.4.2-canary.<commit time UTC>.g<short sha>.
+          IFS=. read -r major minor patch <<< "$version"
+          stamp="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M%S)"
+          canary="$major.$minor.$((patch + 1))-canary.$stamp.g$(git rev-parse --short=7 HEAD)"
+          npm version "$canary" --no-git-tag-version >/dev/null
+          echo "dist-tag=canary" >> "$GITHUB_OUTPUT"
+          # A re-run of the same commit finds its canary already published.
+          if npm view "$name@$canary" version >/dev/null 2>&1; then
+            echo "$name@$canary is already published"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pack and smoke test the release artifact
         id: pack
+        run: |
+          set -euo pipefail
+          node scripts/smoke-package.mjs --pack-destination "$RUNNER_TEMP/strata-pack" | tee "$RUNNER_TEMP/smoke.log"
+          echo "tarball=$(tail -n 1 "$RUNNER_TEMP/smoke.log")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-release-tarball
@@ -53,6 +95,7 @@ jobs:
 
   publish:
     needs: verify
+    if: needs.verify.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,4 +112,6 @@ jobs:
           package-manager-cache: false
       - run: npm install --global npm@11.5.1
       - name: Publish verified tarball with trusted publishing
-        run: npm publish ./release/*.tgz --access public
+        env:
+          DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
+        run: npm publish ./release/*.tgz --access public --tag "$DIST_TAG"

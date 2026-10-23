@@ -1,15 +1,20 @@
 name: Release PR
 
+# Runs only after CI passes on a main commit, so a broken main is never tagged
+# and the release PR only moves forward from green commits.
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   release-please:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -18,14 +23,32 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_PLEASE_VERSION: 17.11.2
+      CHECKED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
+      # release-please reads main as it is now. If main has moved past the
+      # commit CI checked, the newer commit's CI run starts this workflow again.
+      - name: Stop if main moved past the checked commit
+        id: current
+        run: |
+          main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$main" = "$CHECKED_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "main is at $main, not the checked $CHECKED_SHA; leaving this to the newer CI run"
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.current.outputs.current == 'true'
+        with:
+          ref: ${{ env.CHECKED_SHA }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.current.outputs.current == 'true'
         with:
           node-version: 24
       # The repository only allows GitHub-maintained actions, so run the
       # release-please CLI instead of googleapis/release-please-action.
       - name: Create the GitHub release for a merged release PR
+        if: steps.current.outputs.current == 'true'
         id: release
         shell: bash
         run: |
@@ -48,6 +71,7 @@ jobs:
           echo "created=$created" >> "$GITHUB_OUTPUT"
           echo "published=$published" >> "$GITHUB_OUTPUT"
       - name: Open or update the release PR
+        if: steps.current.outputs.current == 'true'
         run: |
           npx --yes "release-please@$RELEASE_PLEASE_VERSION" release-pr \
             --token "$GH_TOKEN" \
@@ -57,5 +81,5 @@ jobs:
       # Tags pushed with GITHUB_TOKEN do not trigger other workflows, so start
       # the publish workflow explicitly on the new tag.
       - name: Start the npm publish workflow
-        if: steps.release.outputs.created == 'true' && steps.release.outputs.published == 'false'
+        if: steps.current.outputs.current == 'true' && steps.release.outputs.created == 'true' && steps.release.outputs.published == 'false'
         run: gh workflow run publish.yml --ref "${{ steps.release.outputs.tag }}"
