@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { categories } from "./adapters.js";
 import { brandColors, brandUrl, displayFontFace, displayFontStack, markSvg } from "./brand.js";
 import { compareRevisions } from "./compare.js";
+import { configMap } from "./config-map.js";
 import { expandRevisions } from "./expand.js";
 import { importLinks } from "./import-links.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "./instruction-age.js";
@@ -43,6 +44,7 @@ export function renderHtml(report: Report): string {
   const timelineSource = timelineBuckets.toString();
   const importsSource = importLinks.toString();
   const upFrontSource = upFrontContext.toString();
+  const mapSource = configMap.toString();
   const agesSource = instructionAges.toString();
   const periodsSource = instructionAgePeriods.toString();
   const shareSource = sharePercent.toString();
@@ -185,6 +187,36 @@ export function renderHtml(report: Report): string {
     @media (prefers-reduced-motion: reduce) { .treemap-leaf, .treemap-group { transition: none; } .treemap-leaf.entering { animation: none; } }
     .treemap-hover { min-height: 2.9em; margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
     .treemap-hover.detail { color: var(--ink); }
+    .map-tools { display: flex; flex-wrap: wrap; gap: 7px; }
+    @media (max-width: 520px) { .map-tools { margin-bottom: 10px; } }
+    .map-tools button { padding: 6px 11px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+    .map-tools button:hover { background: var(--hover); }
+    .map-tools button:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+    .map-intro { font-size: 13px; margin: 0 0 4px; max-width: 900px; }
+    .map-key { display: inline-block; flex: none; width: 9px; height: 14px; border: 2px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
+    .map-key.dashed { border-style: dashed; border-left: 0; }
+    .config-map { --gutter: 150px; position: relative; padding-right: var(--gutter); border-top: 1px solid var(--grid); }
+    .map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 1fr) 8ch; align-items: center; gap: 12px; height: 30px; padding-right: 10px; border-bottom: 1px solid var(--grid); cursor: pointer; font-size: 13px; }
+    .map-row:hover, .map-row.linked { background: var(--hover); }
+    .map-row:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
+    .map-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .map-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .map-row.folder .map-label { font-weight: 700; }
+    .map-caret { flex: none; width: 10px; color: var(--muted); font-size: 10px; }
+    .map-tag { flex: none; padding: 0 5px; border: 1px solid var(--line); color: var(--muted); font-size: 10px; letter-spacing: .05em; line-height: 16px; text-transform: uppercase; white-space: nowrap; }
+    .map-tag.warn { border-color: currentColor; color: var(--warn); }
+    .map-bar { display: flex; height: 10px; min-width: 0; overflow: hidden; background: var(--grid); }
+    .map-bar i { display: block; flex: none; min-width: 2px; height: 100%; }
+    .map-bar.source-only { background: none; }
+    .map-bar.source-only i { width: 10px; border: 2px solid; }
+    .map-size { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .map-gutter { position: absolute; top: 0; right: 0; width: var(--gutter); pointer-events: none; }
+    .map-arc { position: absolute; left: 0; border: 1.5px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; opacity: .5; }
+    .map-arc.dashed { border-style: dashed; border-left: 0; }
+    .map-arrow { position: absolute; left: 0; width: 0; height: 0; border: 4px solid transparent; border-left: 0; border-right: 6px solid var(--ink); opacity: .5; }
+    .config-map.tracing :is(.map-arc, .map-arrow) { opacity: .12; }
+    .config-map.tracing .map-arc.lit { border-color: var(--clay); border-width: 2.5px; border-left: 0; opacity: 1; }
+    .config-map.tracing .map-arrow.lit { border-right-color: var(--clay); opacity: 1; }
     .skill-toggle, .more { margin-top: 13px; border: 1px solid var(--edge); padding: 9px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
     .skill-toggle:hover, .more:hover { background: var(--hover); }
     .skill-toggle:focus-visible, .more:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
@@ -228,7 +260,7 @@ export function renderHtml(report: Report): string {
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .config-map { --gutter: 64px; } .map-row { grid-template-columns: minmax(0, 1fr) 36px 7ch; gap: 8px; } /* Names need the room; the detail line and accessible name still give each tag. */ .map-tag { display: none; } }
   </style>
 </head>
 <body>
@@ -266,6 +298,13 @@ export function renderHtml(report: Report): string {
       <div class="legend" id="treemap-legend" hidden></div>
       <div class="treemap" id="treemap" role="group" aria-label="Token-size treemap of instructional components"></div>
       <p class="treemap-hover" id="treemap-hover" aria-live="polite"></p>
+    </section>
+    <section class="panel" aria-labelledby="map-heading">
+      <div class="panel-head"><h2 id="map-heading">Configuration map</h2><div class="map-tools" role="group" aria-label="Folders"><button type="button" id="map-expand">Open all folders</button><button type="button" id="map-collapse">Close all folders</button></div></div>
+      <p class="muted map-intro">Where each file sits, with a bar for its share of the tokens named under the map. Lines are Claude @path imports, with the arrow at the imported file. A folder only holds its files, and a line does not show that a session loaded a file.</p>
+      <div class="legend"><span><i class="map-key"></i>Claude import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file or folder, measured in bytes</span></div>
+      <div class="config-map" id="config-map" role="tree" aria-labelledby="map-heading"></div>
+      <p class="treemap-hover" id="map-hover" aria-live="polite"></p>
     </section>
     <details class="panel" id="age-panel" hidden>
       <summary><h2>Instruction age</h2><span class="summary-count" id="age-count"></span></summary>
@@ -346,6 +385,7 @@ export function renderHtml(report: Report): string {
     const timelineBuckets = ${timelineSource};
     const importLinks = ${importsSource};
     const upFrontContext = ${upFrontSource};
+    const configMap = ${mapSource};
     const instructionAges = ${agesSource};
     const instructionAgePeriods = ${periodsSource};
     const sharePercent = ${shareSource};
@@ -361,6 +401,7 @@ export function renderHtml(report: Report): string {
     const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);
+    const plural = (count, word) => fmt(count) + ' ' + word + (count === 1 ? '' : 's');
     const signed = (n) => (n > 0 ? '+' : '') + fmt(n);
     const tone = (n) => n > 0 ? 'positive' : n < 0 ? 'negative' : '';
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
@@ -399,6 +440,10 @@ export function renderHtml(report: Report): string {
         (measured.alsoSentTo?.length ? '; instruction text also went to ' + measured.alsoSentTo.join(' and ') + ' through a method that then failed' : '') +
         (measured.fallbacks?.length ? '; more precise methods unavailable: ' + measured.fallbacks.join('; ') : '') + '.';
     }
+    // The measure's name inside a sentence: provider names and acronyms keep their case.
+    const inlineStat = () => activeMeasure === 'estimate' ? measureLabel().stat.toLowerCase() : measureLabel().stat;
+    // What a map row's figure is, inside a sentence.
+    const rowTokens = () => activeMeasure === 'estimate' ? 'stored-text tokens' : inlineStat();
     function measureLabel() {
       if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.label };
       const measured = measures.get(activeMeasure);
@@ -511,7 +556,7 @@ export function renderHtml(report: Report): string {
         if (!viewRevisions.some((revision) => revision.categoryTotals[category].count)) continue;
         const total = viewRevisions[selected].categoryTotals[category];
         const sourceOnly = total.count && total.count === total.sourceOnlyCount;
-        const files = fmt(total.count) + (total.count === 1 ? ' file' : ' files');
+        const files = plural(total.count, 'file');
         // Source-only categories have no tokens and no area in the chart or treemap, so they give their
         // file count, draw a hollow swatch, and lead to their files instead.
         const label = text(sourceOnly ? 'button' : 'span', category, sourceOnly ? 'legend-link' : '');
@@ -558,7 +603,7 @@ export function renderHtml(report: Report): string {
         const button = text('button', '', 'bar');
         button.type = 'button';
         const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
-        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + measureLabel().stat.toLowerCase() + ' at end';
+        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + inlineStat() + ' at end';
         button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revision.date.slice(0, 10));
         const stack = text('span', '', 'stack');
         stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
@@ -760,6 +805,21 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // Opens the file table filtered to one file and moves to its row.
+    function locateComponent(component) {
+      providerFilter = component.provider;
+      categoryFilter = component.category;
+      pathSearch = component.path.toLocaleLowerCase();
+      $('provider-filter').value = providerFilter;
+      $('category-filter').value = categoryFilter;
+      $('path-search').value = component.path;
+      $('files-panel').open = true;
+      renderInventory();
+      const row = inventoryRows.get(component.path);
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row?.focus({ preventScroll: true });
+    }
+
     // Gaps and the category header are in pixels, so the layout is redone when the treemap is resized.
     const treemapFrame = { gap: 4, seam: 1, header: 22, wide: 2 };
     // What each rectangle was drawn for, so the next revision can move it rather than redraw it.
@@ -841,19 +901,7 @@ export function renderHtml(report: Report): string {
           button.addEventListener('focus', showDetail);
           button.addEventListener('mouseleave', clearDetail);
           button.addEventListener('blur', clearDetail);
-          button.addEventListener('click', () => {
-            providerFilter = component.provider;
-            categoryFilter = component.category;
-            pathSearch = component.path.toLocaleLowerCase();
-            $('provider-filter').value = providerFilter;
-            $('category-filter').value = categoryFilter;
-            $('path-search').value = component.path;
-            $('files-panel').open = true;
-            renderInventory();
-            const row = inventoryRows.get(component.path);
-            row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            row?.focus({ preventScroll: true });
-          });
+          button.addEventListener('click', () => locateComponent(component));
           root.append(button);
           drawnNow.set('file:' + component.path, button);
         }
@@ -941,7 +989,7 @@ export function renderHtml(report: Report): string {
       const manifestTokens = groups.reduce((sum, group) => sum + (group.manifestPath ? group.manifestEstimatedTokens : 0), 0);
       const listedTokens = groups.reduce((sum, group) => sum + (group.listing?.tokens ?? 0), 0);
       const unresolved = groups.filter((group) => group.listing?.status === 'unresolved').length;
-      $('skill-count').textContent = fmt(groups.length) + (groups.length === 1 ? ' skill' : ' skills') + ' · summaries ' + fmt(listedTokens) + listingKind() + ' · full text ' + fmt(manifestTokens) + ' tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      $('skill-count').textContent = plural(groups.length, 'skill') + ' · summaries ' + fmt(listedTokens) + listingKind() + ' · full text ' + fmt(manifestTokens) + ' tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       const borrowed = (activeView === 'cursor' || activeView === 'copilot') && groups.some((group) => group.provider !== activeView);
       $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Full text uses ' + providerNames[activeMeasure] + ' counts and summaries the ' + listingKind().slice(2, -1) + ', so do not compare them. ') +
         'Summary: the name and description an agent sees before using a skill. It is part of the full text, so do not add the two. Hidden skills have no summary; unresolved ones could not be read and are not counted.' +
@@ -964,13 +1012,271 @@ export function renderHtml(report: Report): string {
       }
     }
 
+    // The map draws the view's files; its import lines come from the whole inventory, like the imports table.
+    const mapRowHeight = 30;
+    // Folders the reader opened or closed, by path; they stay that way across revisions and views.
+    const mapToggled = new Map();
+    let mapFallback = 'auto';
+    // The row that takes the Tab stop, by path, so it survives redrawing.
+    let mapCurrent = '';
+    let mapDrawn = { map: { rows: [] }, components: [], nodes: [], details: [], lines: [] };
+    let mapNote = '';
+    // What the last hover or focus lit, so the next one clears only that.
+    let mapLit = [];
+    // The row under the pointer, so losing focus goes back to it.
+    let mapHovered = -1;
+    let mapTabStop = null;
+    // The imports table and the map both need a revision's links; they are found once per inventory.
+    let linksCache = { components: null, links: [] };
+    function revisionLinks(components) {
+      if (linksCache.components !== components) linksCache = { components, links: importLinks(components) };
+      return linksCache.links;
+    }
+    $('map-expand').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'expanded'; renderMap(); });
+    $('map-collapse').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'collapsed'; renderMap(); });
+
+    function renderMap(focus) {
+      const revision = viewRevisions[selected];
+      const links = revisionLinks(revisions[selected].components);
+      drawn.map = revision.components;
+      drawn.mapImports = revisions[selected].components;
+      drawn.mapChanges = revision.changes;
+      const map = configMap(revision.components, links, { toggled: mapToggled, fallback: mapFallback });
+      const changedHere = new Map(revision.changes.filter((change) => change.kind !== 'removed').map((change) => [change.path, change]));
+      drawn.mapTagged = changedHere.size > 0;
+      // A closed folder counts the changed files it hides.
+      const changedUnder = map.rows.map(() => 0);
+      revision.components.forEach((component, index) => {
+        if (changedHere.has(component.path) && map.rows[map.rowOf[index]].kind === 'folder') changedUnder[map.rowOf[index]] += 1;
+      });
+      const root = $('config-map');
+      root.replaceChildren();
+      root.classList.remove('tracing');
+      mapLit = [];
+      mapHovered = -1;
+      mapTabStop = null;
+      if (!map.rows.some((row) => row.path === mapCurrent)) mapCurrent = map.rows[0]?.path ?? '';
+      // Imports are read from the whole inventory, so a file can import, or be imported by, one this view leaves out.
+      const inView = new Set(revision.components.map((component) => component.path));
+      const names = (paths) => {
+        const named = paths.map((path) => inView.has(path) ? path : path + ' (outside this view)');
+        return named.length > 3 ? named.slice(0, 3).join(', ') + ' and ' + fmt(named.length - 3) + ' more' : named.join(', ');
+      };
+      const nodes = [];
+      const details = [];
+      const rowIndex = new Map();
+      for (const [index, row] of map.rows.entries()) {
+        const folder = row.kind === 'folder';
+        const component = folder ? null : revision.components[row.component];
+        const change = folder ? null : changedHere.get(row.path);
+        const parts = [folder ? row.path + '/' : row.path];
+        if (folder) {
+          // A folder of source-only files has no stored text, so it gives no token figure.
+          const unmeasured = row.sourceOnly === row.files;
+          parts.push(plural(row.files, 'file') + (unmeasured ? ', all source-only' : row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''));
+          if (!unmeasured) parts.push(fmt(row.tokens) + ' ' + rowTokens());
+          parts.push(row.collapsed ? 'closed' : 'open');
+          if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
+        } else {
+          parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' ' + rowTokens()) + listingLabel(component));
+          if (map.targets.has(row.path)) parts.push('imports ' + names(map.targets.get(row.path)));
+          if (map.sources.has(row.path)) parts.push('imported by ' + names(map.sources.get(row.path)));
+          if (change) parts.push(change.kind === 'added' ? 'added at this revision' : change.kind === 'renamed' ? 'renamed at this revision from ' + change.previousPath : 'edited at this revision');
+        }
+        if (row.unresolved) parts.push(plural(row.unresolved, 'unresolved import'));
+        const detail = parts.join(' · ');
+        const node = text('div', '', 'map-row ' + row.kind);
+        node.setAttribute('role', 'treeitem');
+        node.setAttribute('aria-level', String(row.depth + 1));
+        node.setAttribute('aria-setsize', String(row.siblings));
+        node.setAttribute('aria-posinset', String(row.position));
+        node.setAttribute('aria-label', detail);
+        if (folder) node.setAttribute('aria-expanded', String(!row.collapsed));
+        node.tabIndex = row.path === mapCurrent ? 0 : -1;
+        if (node.tabIndex === 0) mapTabStop = node;
+        const name = text('span', '', 'map-name');
+        // Indenting the name, not the row, keeps every bar on the same scale and starting point.
+        name.style.paddingLeft = 8 + row.depth * 18 + 'px';
+        name.append(text('span', folder ? (row.collapsed ? '▸' : '▾') : '', 'map-caret'), text('span', row.label + (folder ? '/' : ''), 'map-label'));
+        if (folder && row.collapsed) name.append(text('span', plural(row.files, 'file'), 'map-tag'));
+        const changed = change ? (change.kind === 'added' ? 'new' : change.kind === 'renamed' ? 'renamed' : 'edited') : changedUnder[index] ? fmt(changedUnder[index]) + ' changed' : '';
+        if (changed) name.append(text('span', changed, 'map-tag'));
+        if (row.unresolved) name.append(text('span', fmt(row.unresolved) + ' unresolved', 'map-tag warn'));
+        const bar = text('span', '', 'map-bar');
+        // A source-only file, or a folder of nothing else, has no stored text to draw.
+        if (row.sourceOnly === row.files) {
+          bar.classList.add('source-only');
+          const mark = text('i', '');
+          mark.style.borderColor = colors[row.categories[0].category];
+          bar.append(mark);
+        } else {
+          for (const part of row.categories) {
+            if (!part.tokens || !map.totalTokens) continue;
+            const segment = text('i', '');
+            segment.style.width = part.tokens / map.totalTokens * 100 + '%';
+            segment.style.background = colors[part.category];
+            bar.append(segment);
+          }
+        }
+        node.append(name, bar, text('span', row.sourceOnly < row.files ? fmt(row.tokens) : '—', 'map-size'));
+        rowIndex.set(node, index);
+        nodes.push(node);
+        details.push(detail);
+        root.append(node);
+      }
+      // Each import is a half ellipse in the gutter, from the importing row down or up to the imported one.
+      const gutter = text('div', '', 'map-gutter');
+      gutter.setAttribute('aria-hidden', 'true');
+      gutter.style.height = map.rows.length * mapRowHeight + 'px';
+      const lines = map.rows.map(() => []);
+      const drawnEdges = new Set(map.edges.map((edge) => edge.from + '>' + edge.to));
+      for (const edge of map.edges) {
+        const span = Math.abs(edge.to - edge.from);
+        const arc = text('i', '', 'map-arc');
+        if (map.rows[edge.from].kind === 'folder' || map.rows[edge.to].kind === 'folder') arc.classList.add('dashed');
+        arc.style.top = (Math.min(edge.from, edge.to) + 0.5) * mapRowHeight + 'px';
+        arc.style.height = span * mapRowHeight + 'px';
+        // Width grows with the span, scaled to the map's height so long lines never share one width.
+        // Two files importing each other get two arcs; the upward one is drawn wider so both show.
+        const apart = edge.from > edge.to && drawnEdges.has(edge.to + '>' + edge.from) ? ' + 6px' : '';
+        arc.style.width = 'calc(max(10px, calc((var(--gutter) - 12px) * ' + (span / Math.max(16, map.rows.length - 1)).toFixed(4) + '))' + apart + ')';
+        const arrow = text('i', '', 'map-arrow');
+        arrow.style.top = (edge.to + 0.5) * mapRowHeight - 4 + 'px';
+        gutter.append(arc, arrow);
+        for (const end of [edge.from, edge.to]) lines[end].push({ arc, arrow, other: end === edge.from ? edge.to : edge.from });
+      }
+      if (map.edges.length) root.append(gutter);
+      mapDrawn = { map, components: revision.components, nodes, details, lines, rowIndex };
+      const counts = [plural(map.folders, 'folder'), plural(revision.components.length, 'file')];
+      if (map.edges.length || links.length) counts.push(plural(map.edges.length, 'import line'));
+      if (map.folded) counts.push(plural(map.folded, 'import') + ' between files of the same closed folder');
+      if (map.unresolved) counts.push(fmt(map.unresolved) + ' unresolved, listed under Claude imports');
+      if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
+      // Imports are Claude's; another agent's tab can still show one between two files it reads.
+      const borrowed = map.edges.length && activeView !== 'all' && activeView !== 'claude' ? ' Lines are Claude imports; they do not show that ' + (agentNames[activeView] ?? 'another agent') + ' follows them.' : '';
+      // An empty tree holds nothing, so the note under it says why.
+      // A provider tab can be empty at a revision that tracks other agents' files.
+      const empty = activeView === 'all' || !revisions[selected].components.length ? 'No tracked files at this revision.' : 'No files in this view at this revision.';
+      mapNote = !map.rows.length ? empty : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
+      $('map-hover').textContent = mapNote;
+      $('map-hover').classList.remove('detail');
+      if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();
+    }
+
+    // Hovering or focusing a row lights its import lines and the rows at their other ends; -1 clears it.
+    function traceMap(index) {
+      const { nodes, details, lines } = mapDrawn;
+      const root = $('config-map');
+      for (const [node, name] of mapLit) node.classList.remove(name);
+      mapLit = [];
+      if (index < 0) {
+        root.classList.remove('tracing');
+        $('map-hover').textContent = mapNote;
+        $('map-hover').classList.remove('detail');
+        return;
+      }
+      if (lines[index].length) root.classList.add('tracing');
+      else root.classList.remove('tracing');
+      for (const { arc, arrow, other } of lines[index]) {
+        arc.classList.add('lit');
+        arrow.classList.add('lit');
+        nodes[other].classList.add('linked');
+        mapLit.push([arc, 'lit'], [arrow, 'lit'], [nodes[other], 'linked']);
+      }
+      $('map-hover').textContent = details[index];
+      $('map-hover').classList.add('detail');
+    }
+
+    // A folder opens or closes; a file is located in the file table, as from the treemap.
+    function activateMapRow(index) {
+      const row = mapDrawn.map.rows[index];
+      if (row.kind === 'folder') {
+        mapCurrent = row.path;
+        // Opening opens every folder the row stands for; closing closes only the deepest, which holds what the
+        // row shows, so an outer folder stays open at revisions where it holds more.
+        if (row.collapsed) for (const path of row.chain) mapToggled.set(path, false);
+        else mapToggled.set(row.path, true);
+        renderMap(true);
+      } else {
+        // While the slider is dragged the map can show an earlier revision; it catches up first, and the file is
+        // located only if the selected revision has it.
+        clearTimeout(settleTimer);
+        renderTables();
+        const component = viewRevisions[selected].components.find((candidate) => candidate.path === row.path);
+        if (component) locateComponent(component);
+        else mapDrawn.nodes[mapDrawn.map.rows.findIndex((shown) => shown.path === mapCurrent)]?.focus();
+      }
+    }
+
+    // The map is one Tab stop; arrow keys move between rows and open or close folders, as in a file tree.
+    // Rows share one set of listeners on the map, so a large map costs no more than its rows.
+    const mapRowAt = (target) => {
+      const node = target?.closest?.('.map-row');
+      return node ? mapDrawn.rowIndex.get(node) ?? -1 : -1;
+    };
+    const mapRoot = $('config-map');
+    mapRoot.addEventListener('mouseover', (event) => {
+      const index = mapRowAt(event.target);
+      if (index === mapHovered) return;
+      mapHovered = index;
+      // Between rows, the focused row keeps its lines.
+      traceMap(index >= 0 ? index : mapRowAt(document.activeElement));
+    });
+    mapRoot.addEventListener('mouseleave', () => {
+      mapHovered = -1;
+      traceMap(mapRowAt(document.activeElement));
+    });
+    mapRoot.addEventListener('focusin', (event) => {
+      const index = mapRowAt(event.target);
+      if (index < 0) return;
+      const node = mapDrawn.nodes[index];
+      mapCurrent = mapDrawn.map.rows[index].path;
+      if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
+      node.tabIndex = 0;
+      mapTabStop = node;
+      traceMap(index);
+    });
+    // Losing focus goes back to the row under the pointer.
+    mapRoot.addEventListener('focusout', () => traceMap(mapHovered));
+    mapRoot.addEventListener('click', (event) => {
+      const index = mapRowAt(event.target);
+      if (index >= 0) activateMapRow(index);
+    });
+    mapRoot.addEventListener('keydown', (event) => {
+      const { map, nodes } = mapDrawn;
+      const at = mapRowAt(event.target);
+      // Modified keys stay the browser's, such as Alt+Left for Back.
+      if (at < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
+      const row = map.rows[at];
+      const folder = row.kind === 'folder';
+      let next;
+      if (event.key === 'ArrowDown') next = at + 1;
+      else if (event.key === 'ArrowUp') next = at - 1;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = nodes.length - 1;
+      else if (event.key === 'ArrowRight') {
+        if (folder && row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
+        next = folder ? at + 1 : undefined;
+      } else if (event.key === 'ArrowLeft') {
+        if (folder && !row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
+        next = row.parent >= 0 ? row.parent : undefined;
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activateMapRow(at);
+        return;
+      }
+      if (next === undefined) return;
+      event.preventDefault();
+      nodes[Math.max(0, Math.min(nodes.length - 1, next))].focus();
+    });
+
     // Imports are links between stored files, so they follow the whole inventory whatever the view.
     const importStatus = { resolved: 'resolved', missing: 'missing', external: 'outside the repository', 'depth-limit': 'too deep' };
     const unresolvedFirst = { missing: 0, external: 1, 'depth-limit': 2, resolved: 3 };
     function renderImports() {
       const components = revisions[selected].components;
       drawn.imports = components;
-      const links = importLinks(components);
+      const links = revisionLinks(components);
       $('imports-panel').hidden = !links.length;
       const unresolved = links.filter((link) => link.status !== 'resolved').length;
       $('imports-count').textContent = fmt(links.length) + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
@@ -994,7 +1300,7 @@ export function renderHtml(report: Report): string {
         : [{ component, server: null }]);
       const servers = rows.filter((row) => row.server).length;
       const unresolved = rows.length - servers;
-      $('mcp-count').textContent = fmt(servers) + (servers === 1 ? ' server' : ' servers') + ' · ' + fmt(components.length) + (components.length === 1 ? ' file' : ' files') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      $('mcp-count').textContent = plural(servers, 'server') + ' · ' + plural(components.length, 'file') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       const body = $('mcp-servers');
       body.replaceChildren();
       if (!rows.length) {
@@ -1070,9 +1376,8 @@ export function renderHtml(report: Report): string {
         body.append(row);
       }
       const notes = [];
-      const fileCount = (count) => fmt(count) + (count === 1 ? ' file' : ' files');
       const unsure = entries.filter((entry) => entry.unresolved);
-      if (unsure.length) notes.push('Maybe read at start, counted as when needed: ' + unsure.map((entry) => agentNames[entry.provider] + ' ' + fileCount(entry.unresolved)).join(', ') + '.');
+      if (unsure.length) notes.push('Maybe read at start, counted as when needed: ' + unsure.map((entry) => agentNames[entry.provider] + ' ' + plural(entry.unresolved, 'file')).join(', ') + '.');
       for (const entry of entries.filter((item) => item.skipped)) notes.push(agentNames[entry.provider] + ' skips AGENTS.md because ' + (entry.provider === 'claude' ? 'CLAUDE.md' : 'AGENTS.override.md') + ' exists (' + fmt(entry.skippedTokens) + ' tokens, left out).');
       const unreadable = entries.filter((entry) => entry.listingUnresolved);
       if (unreadable.length) notes.push('Skills with unreadable descriptions, not counted: ' + unreadable.map((entry) => agentNames[entry.provider] + ' ' + fmt(entry.listingUnresolved)).join(', ') + '.');
@@ -1303,6 +1608,9 @@ export function renderHtml(report: Report): string {
       const revision = viewRevisions[selected];
       if (drawn.inventory !== revision.components) renderInventory();
       if (drawn.imports !== revisions[selected].components) renderImports();
+      // Changes only matter to the map when the drawn or the selected revision tags a file.
+      const mapTags = drawn.mapChanges !== revision.changes && (drawn.mapTagged || revision.changes.some((change) => change.kind !== 'removed'));
+      if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || mapTags) renderMap();
       if (drawn.mcp !== revision.components) renderMcp();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
