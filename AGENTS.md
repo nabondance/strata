@@ -28,7 +28,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch creat
 
 ## Verification
 
-Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`; `pnpm format` applies formatting. Use Conventional Commit subjects (`fix:`, `feat:`, `docs:`); the changelog and version are generated from them, so do not edit `CHANGELOG.md` by hand. For packaging changes, inspect `pnpm pack` and try the installed tarball from a clean directory. A real-repository smoke check is useful for history or rendering changes, but never modify the repository being analyzed.
+Use Node.js 22.13+ and pnpm 10.29.3. For code changes, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`; `pnpm format` applies formatting. Use Conventional Commit subjects (`fix:`, `feat:`, `docs:`); the changelog and version are generated from them, so do not edit `CHANGELOG.md` by hand. For packaging changes, run `node scripts/smoke-package.mjs`: it packs Strata, installs the tarball in a clean directory, and runs it on this repository's history, as CI and the publish workflow do. A real-repository smoke check is useful for history or rendering changes, but never modify the repository being analyzed.
 
 ## External tools and services
 

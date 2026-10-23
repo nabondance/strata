@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
@@ -27,23 +29,11 @@ jobs:
           version="$(node -p 'require("./package.json").version')"
           test "$GITHUB_REF_NAME" = "v$version"
       - name: Pack and smoke test the release artifact
-        shell: bash
+        id: pack
         run: |
           set -euo pipefail
-          pack_dir="$RUNNER_TEMP/strata-pack"
-          install_dir="$RUNNER_TEMP/strata-install"
-          package_name="$(node -p 'require("./package.json").name')"
-          package_version="$(node -p 'require("./package.json").version')"
-          mkdir -p "$pack_dir" "$install_dir"
-          pnpm pack --pack-destination "$pack_dir"
-          tarball="$pack_dir/$package_name-$package_version.tgz"
-          npm install --prefix "$install_dir" "$tarball"
-          "$install_dir/node_modules/.bin/strata" --version
-          "$install_dir/node_modules/.bin/strata" --help
-          "$install_dir/node_modules/.bin/strata" skill --output "$RUNNER_TEMP/strata-skill.md"
-          test -s "$RUNNER_TEMP/strata-skill.md"
-          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
-        id: pack
+          node scripts/smoke-package.mjs --pack-destination "$RUNNER_TEMP/strata-pack" | tee "$RUNNER_TEMP/smoke.log"
+          echo "tarball=$(tail -n 1 "$RUNNER_TEMP/smoke.log")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-release-tarball

@@ -1,7 +1,15 @@
 name: CI
 
+# Pull requests are checked before merge; main is checked again after merge,
+# because two pull requests that pass alone can still break main together.
+# The release and canary workflows wait for this to pass on main before they
+# move. The release workflow also starts it by hand on the release PR's branch.
 on:
   pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,3 +33,18 @@ jobs:
       - run: pnpm test
       - run: node dist/cli.js --help
       - run: node dist/cli.js --version
+
+  # Installs the packed tarball and runs it on this repository's own history,
+  # so packaging and real-history problems show up before a release.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+      - run: npm install --global pnpm@10.29.3
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/smoke-package.mjs

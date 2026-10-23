@@ -3,6 +3,9 @@ name: PR title
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  # The release workflow starts this on the release PR's branch, whose pushes
+  # come from GITHUB_TOKEN and so do not trigger pull_request.
+  workflow_dispatch:
 
 permissions: {}
 
@@ -12,11 +15,18 @@ permissions: {}
 jobs:
   conventional:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Check the title
         env:
+          GH_TOKEN: ${{ github.token }}
           TITLE: ${{ github.event.pull_request.title }}
         run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            TITLE="$(gh pr view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json title --jq .title)"
+          fi
           pattern='^(feat|fix|docs|chore|ci|refactor|test|perf|build|style|revert)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
           if printf '%s' "$TITLE" | grep -Eq "$pattern"; then
             echo "ok: $TITLE"
