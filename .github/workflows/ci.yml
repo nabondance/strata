@@ -2,12 +2,14 @@ name: CI
 
 # Pull requests are checked before merge; main is checked again after merge,
 # because two pull requests that pass alone can still break main together.
-# The release workflow waits for this to pass on main before it moves.
+# The release and canary workflows wait for this to pass on main before they
+# move. The release workflow also starts it by hand on the release PR's branch.
 on:
   pull_request:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
