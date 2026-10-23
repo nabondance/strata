@@ -1043,7 +1043,11 @@ export function renderHtml(report: Report): string {
         const change = folder ? null : changedHere.get(row.path);
         const parts = [folder ? row.path + '/' : row.path];
         if (folder) {
-          parts.push(plural(row.files, 'file') + (row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''), fmt(row.tokens) + ' ' + rowTokens(), row.collapsed ? 'closed' : 'open');
+          // A folder of source-only files has no stored text, so it gives no token figure.
+          const unmeasured = row.sourceOnly === row.files;
+          parts.push(plural(row.files, 'file') + (unmeasured ? ', all source-only' : row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''));
+          if (!unmeasured) parts.push(fmt(row.tokens) + ' ' + rowTokens());
+          parts.push(row.collapsed ? 'closed' : 'open');
           if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
         } else {
           parts.push(component.provider + ' / ' + categoryLabel(component), (component.estimatedTokens === null ? 'source-only, ' + fmt(component.bytes) + ' bytes' : fmt(component.estimatedTokens) + ' ' + rowTokens()) + listingLabel(component));
@@ -1117,13 +1121,15 @@ export function renderHtml(report: Report): string {
       mapDrawn = { map, components: revision.components, nodes, details, lines, rowIndex };
       const counts = [plural(map.folders, 'folder'), plural(revision.components.length, 'file')];
       if (map.edges.length || links.length) counts.push(plural(map.edges.length, 'import line'));
-      if (map.folded) counts.push(plural(map.folded, 'import') + ' inside ' + (map.folded === 1 ? 'a closed folder' : 'closed folders'));
+      if (map.folded) counts.push(plural(map.folded, 'import') + ' between files of the same closed folder');
       if (map.unresolved) counts.push(fmt(map.unresolved) + ' unresolved, listed under Claude imports');
       if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
       // Imports are Claude's; another agent's tab can still show one between two files it reads.
       const borrowed = map.edges.length && activeView !== 'all' && activeView !== 'claude' ? ' Lines are Claude imports; they do not show that ' + (agentNames[activeView] ?? 'another agent') + ' follows them.' : '';
       // An empty tree holds nothing, so the note under it says why.
-      mapNote = !map.rows.length ? 'No tracked files at this revision.' : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
+      // A provider tab can be empty at a revision that tracks other agents' files.
+      const empty = activeView === 'all' || !revisions[selected].components.length ? 'No tracked files at this revision.' : 'No files in this view at this revision.';
+      mapNote = !map.rows.length ? empty : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
       $('map-hover').textContent = mapNote;
       $('map-hover').classList.remove('detail');
       if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();

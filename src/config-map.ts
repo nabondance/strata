@@ -56,7 +56,7 @@ export interface ConfigMap {
   unresolved: number;
   /** Stored-text tokens of every file on the map. */
   totalTokens: number;
-  /** Folders under the root, shown or not. */
+  /** Folder rows the map has with every folder open; a chain of single folders sharing a row counts once. */
   folders: number;
   /** For each importing path, the paths its resolved imports reach, other than itself, in link order. */
   targets: Map<string, string[]>;
@@ -113,7 +113,6 @@ export function configMap(
     categories: new Map(),
   });
   const root = folder("", "");
-  let folders = 0;
   for (const [index, component] of components.entries()) {
     const parts = component.path.split("/");
     const tokens = component.estimatedTokens;
@@ -133,7 +132,6 @@ export function configMap(
       if (!next) {
         next = folder(name, parts.slice(0, depth + 1).join("/"));
         at.folders.set(name, next);
-        folders += 1;
       }
       at = next;
       add(at);
@@ -141,7 +139,7 @@ export function configMap(
     at.files.push(index);
   }
 
-  // The same order as the file table, with code points only to break ties.
+  // Names sort with the collator the rest of the report uses, with code points only to break ties.
   const collator = new Intl.Collator();
   const byName = (a: string, b: string) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
   const names = components.map((component) => component.path.split("/").at(-1)!);
@@ -178,6 +176,9 @@ export function configMap(
   const toggled = options.toggled ?? new Map<string, boolean>();
   // Folders at a depth below `openDepth` start open.
   let openDepth = fallback === "expanded" ? Number.POSITIVE_INFINITY : fallback === "collapsed" ? 0 : 1;
+  const countFolders = (at: Folder): number =>
+    entries(at).reduce<number>((sum, entry) => sum + (typeof entry === "number" ? 0 : 1 + countFolders(entry.at)), 0);
+  const folders = countFolders(root);
   if (fallback === "auto") {
     // Rows at each depth, counted in one walk; opening depth d shows every row down to depth d + 1.
     const perDepth: number[] = [];

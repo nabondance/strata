@@ -29,7 +29,8 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
   ]);
   // The shared row opens the last folder of the chain, so toggling it uses that path.
   assert.equal(map.rows[0].path, ".claude/skills/review");
-  assert.equal(map.folders, 4);
+  // `.claude/skills/review` shares one row, so it counts as one folder beside `docs`.
+  assert.equal(map.folders, 2);
   assert.deepEqual(
     [map.rows[0].files, map.rows[0].sourceOnly, map.rows[0].tokens, map.rows[0].categories],
     [2, 1, 40, [{ category: "skills", tokens: 40 }]],
