@@ -99,6 +99,18 @@ export interface Change {
   component: number | null;
 }
 
+/**
+ * What a revision did to the age of its instruction text: the bytes of trimmed, nonblank lines it
+ * added, and the bytes it removed by the revision those lines had appeared at. Lines are matched by
+ * exact text across all instructional files, so a moved line keeps its age; see `LineAges`.
+ */
+export interface LineAgeChange {
+  /** Stored bytes (UTF-8 for text) of the line copies that first appear at this revision. */
+  added: number;
+  /** Bytes removed, grouped by `from`, the index in `Report.revisions` where they had appeared; oldest first. */
+  removed?: Array<{ from: number; bytes: number }>;
+}
+
 export type CategoryTotals = Record<
   Category,
   { count: number; bytes: number; estimatedTokens: number; sourceOnlyCount: number }
@@ -129,6 +141,8 @@ export interface Revision {
    * files it names. Absent means Gemini CLI's default, `GEMINI.md` only.
    */
   geminiContextFiles?: ContextFile[];
+  /** Present when the revision added or removed instruction lines. `instructionAges` replays these. */
+  lineAge?: LineAgeChange;
 }
 
 /** A revision together with its rebuilt inventory. Unchanged revisions share one inventory. */
@@ -148,15 +162,18 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 18;
+  schemaVersion: 19;
   repository: string;
   branch: string;
+  /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */
   shallow: boolean;
   /** Submodules at the last revision, when there are any. Their files are never analyzed. */
   submodules?: Submodule[];
   privacy: { mode: "local" | "shareable" };
   measurement: Measurement;
   providerMeasurements?: ProviderMeasurementMetadata[];
+  /** How `lineAge` matches and weighs lines. */
+  lineAgeMethod: "exact-trimmed-line-multiset-stored-bytes-v1";
   /** Every distinct file version in the history, once each, ordered by path. */
   components: Component[];
   revisions: Revision[];

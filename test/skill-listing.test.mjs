@@ -94,7 +94,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     const renamed = commit("Rename a skill");
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 18);
+    assert.equal(report.schemaVersion, 19);
     const listing = (path) => report.components.find((component) => component.path === path)?.skill?.listing;
     const reviewListing = { status: "listed", tokens: estimate("review\nReview this project carefully.") };
     assert.deepEqual(listing(".claude/skills/review/SKILL.md"), reviewListing);

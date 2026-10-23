@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
@@ -27,6 +28,7 @@ import { providerReads } from "./provider-view.js";
 import { rulesUpFront } from "./rule-loading.js";
 import { skillListings } from "./skill-listing.js";
 import { inspectSubmodules } from "./submodules.js";
+import { LineAges, lineAgeMethod, readLineCounts } from "./survival.js";
 
 export { categories } from "./adapters.js";
 export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
@@ -236,7 +238,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const measurer = createMeasurer(mode, model);
   const root = gitText(resolve(repoPath), ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
-  const shallow = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
+  const shallowRepository = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
   try {
     git(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   } catch {
@@ -263,6 +265,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const listings = skillListings(root, written, measured, measurer);
   const rules = rulesUpFront(root, written, measured);
   const mcp = mcpServerLists(root, written, measured);
+  const counted = readLineCounts(root, written, measured);
+  const ages = new LineAges(counted.lines, counted.weights);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
@@ -310,9 +314,17 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     const changes = buildChanges(before, inventory, delta.renames, table);
     // A revision that changes no recognized file keeps the previous revision's totals.
     if (previous && !changes.length) {
-      revisions.push({ ...previous, id, date, firstParent, changes });
+      const { lineAge: _unchanged, ...totals } = previous;
+      revisions.push({ ...totals, id, date, firstParent, changes });
       continue;
     }
+    const instructional = (index: number | undefined) =>
+      index !== undefined && table[index]!.estimatedTokens !== null ? [table[index]!.blob] : [];
+    const lineAge = ages.apply(
+      revisions.length,
+      [...before.values()].flatMap(instructional),
+      [...before.keys()].flatMap((path) => instructional(inventory.get(path))),
+    );
     const components = [...inventory.values()].map((index) => table[index]!);
     const settings = inventory.get(geminiSettingsPath);
     const names = settings === undefined ? null : (configured.get(table[settings]!.blob) ?? null);
@@ -336,6 +348,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       changes,
       ...(plan ? { providerTokenTotals } : {}),
       ...(geminiContext ? { geminiContextFiles: geminiContext } : {}),
+      ...(lineAge ? { lineAge } : {}),
     });
   }
 
@@ -349,8 +362,9 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     }
   }
 
+  const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 18,
+    schemaVersion: 19,
     repository: basename(root),
     branch,
     shallow,
@@ -358,7 +372,26 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     privacy: { mode: "local" },
     measurement: measurer.measurement,
     ...(provided ? { providerMeasurements: provided.metadata } : {}),
+    lineAgeMethod,
     components: order.map((index) => table[index]!),
     revisions,
   };
+}
+
+/**
+ * Whether the history starts where a shallow fetch cut it: the oldest first-parent commit is a
+ * shallow boundary and has a parent that was not fetched. A repository can be shallow only on a
+ * side branch or another ref, with this history complete, and Git also lists a root commit that
+ * sat at the depth limit, though nothing before it is missing.
+ */
+function startsAtShallowBoundary(root: string, first: string | undefined): boolean {
+  if (!first) return false;
+  try {
+    const listed = readFileSync(resolve(root, gitText(root, ["rev-parse", "--git-path", "shallow"])), "utf8");
+    if (!listed.split("\n").includes(first)) return false;
+  } catch {
+    return true;
+  }
+  // The raw commit still names its parents; a shallow boundary only hides them from history walks.
+  return /^parent /m.test(git(root, ["cat-file", "commit", first]).toString("utf8").split("\n\n")[0]!);
 }
