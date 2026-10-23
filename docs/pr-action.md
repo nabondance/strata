@@ -4,6 +4,7 @@ The repository provides a composite GitHub Action and a local `strata diff` comm
 
 Example workflow in the **repository you want to analyze**:
 
+<!-- x-release-please-start-version -->
 ```yaml
 name: Agent context delta
 on: pull_request
@@ -16,21 +17,23 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: nabondance/strata@<release-tag-or-commit>
+      - uses: nabondance/strata@v0.4.1
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
           tokenizer: estimate
 ```
+<!-- x-release-please-end -->
 
-Pin the Action to a reviewed commit or published release tag when one exists. Strata's own [pull-request workflow](../.github/workflows/strata-pr-delta.yml) uses `uses: ./` so it runs the code under review. Both commits must be present locally; a shallow checkout may omit the base. The summary contains commit IDs, file paths, category deltas, and up to 25 changed components, but no source text. Review the summary's metadata visibility before enabling it for sensitive repositories. The Action needs `contents: read`; it does not need `pull-requests: write` or a token in Strata's process.
+The examples pin the latest release tag; you can pin a reviewed commit SHA instead. Strata's own [pull-request workflow](../.github/workflows/strata-pr-delta.yml) uses `uses: ./` so it runs the code under review. Both commits must be present locally; a shallow checkout may omit the base. The summary contains commit IDs, file paths, category deltas, and up to 25 changed components, but no source text. Review the summary's metadata visibility before enabling it for sensitive repositories. The Action needs `contents: read`; it does not need `pull-requests: write` or a token in Strata's process.
 
 Set `model: gpt-4o` instead of `tokenizer: estimate` to use a documented local OpenAI model-to-encoding mapping. The Action uses `model` when provided; the default tokenizer is used otherwise.
 
 For precise per-provider totals, set `precise: 'true'` and give the step the keys it may use. This sends recognized Claude and Gemini instruction text from both commits to those providers' token-count APIs; a provider without a key falls back to the estimate, and Codex is counted locally:
 
+<!-- x-release-please-start-version -->
 ```yaml
-      - uses: nabondance/strata@<release-tag-or-commit>
+      - uses: nabondance/strata@v0.4.1
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -39,6 +42,7 @@ For precise per-provider totals, set `precise: 'true'` and give the step the key
           head: ${{ github.event.pull_request.head.sha }}
           precise: 'true'
 ```
+<!-- x-release-please-end -->
 
 A job that authenticates `gcloud` first, for example with `google-github-actions/auth`, can count through Vertex AI instead of a Gemini key. Pull requests from forks do not receive secrets, so their counts fall back to the estimate. The summary then gains a table of each provider's totals at both commits and the host that counted them.
 
