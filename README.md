@@ -143,6 +143,7 @@ By default Strata estimates tokens as UTF-8 bytes divided by four. For offline O
 
 An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments.
 
+<!-- x-release-please-start-version -->
 ```yaml
 name: Agent context delta
 on: pull_request
@@ -155,11 +156,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: nabondance/strata@v0.4.0
+      - uses: nabondance/strata@v0.4.1
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
 ```
+<!-- x-release-please-end -->
 
 ### README image and badge
 
