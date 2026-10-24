@@ -114,7 +114,7 @@ For HTML or JSON analysis output, `--shareable` replaces repository and branch n
 
 ## The interpretation skill
 
-To print the bundled interpretation skill for a coding agent, which reads `analyze` JSON and HTML reports, `diff` JSON and Markdown, the SVG image, and the badge, or save it at a chosen path:
+To print the bundled interpretation skill, which teaches a coding agent to read `analyze` JSON and HTML reports, `diff` JSON and Markdown, the SVG image, and the badge, or to save it at a chosen path:
 
 ```sh
 strata skill

@@ -4,6 +4,13 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Source without comment lines, so a label must appear in markup or a string the report shows.
+const code = (path) =>
+  read(path)
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+    .join("\n");
 
 // The shipped skill names the report schema versions it describes; a schema bump must update it.
 test("the interpretation skill describes the current report schema versions", () => {
@@ -15,10 +22,10 @@ test("the interpretation skill describes the current report schema versions", ()
   assert.match(skill, new RegExp(`A \`strata diff\` JSON comparison \\(schema version ${diff};`));
 });
 
-// The skill names report panels, tabs, and labels in bold; each must still exist in the report.
+// The skill names report panels, tabs, and labels in bold; each must still be text the report shows.
 test("the interpretation skill names HTML labels the report still shows", () => {
   const skill = read("skills/strata-interpret/SKILL.md");
-  const report = read("src/report.ts");
+  const report = code("src/report.ts");
   const start = skill.indexOf("If the user asks about something they saw in the HTML report");
   const end = skill.indexOf("The default local report omits source text");
   assert.ok(start >= 0 && end > start);
@@ -26,5 +33,22 @@ test("the interpretation skill names HTML labels the report still shows", () => 
     match[1].replace("<Provider> ", ""),
   );
   assert.ok(labels.length > 20);
-  for (const label of labels) assert.ok(report.includes(label), `report.ts has no "${label}"`);
+  for (const label of labels) {
+    // Bounded by markup or a string quote, so a CSS class, id, or longer word does not count.
+    const shown = new RegExp(`[>'"\`]\\s*${escapeRegExp(label)}(?=\\s*[<'"\`·(:]|\\s*$)`, "m");
+    assert.match(report, shown, `report.ts does not show "${label}"`);
+  }
+});
+
+// The skill states what the diff Markdown keeps; those limits live in renderPullRequestDelta.
+test("the interpretation skill states the diff Markdown limits", () => {
+  const skill = read("skills/strata-interpret/SKILL.md");
+  const markdown = code("src/pr-delta.ts");
+  assert.match(skill, /commit IDs are cut to 12 characters/);
+  assert.match(markdown, /delta\.base\.slice\(0, 12\)/);
+  assert.match(skill, /only the 25 files with the largest token change/);
+  assert.match(markdown, /components\s*\.slice\(0, 25\)/);
+  assert.match(code("src/compare.ts"), /Math\.abs\(b\.deltaTokens\) - Math\.abs\(a\.deltaTokens\)/);
+  assert.match(skill, /MCP names stop at ten per list/);
+  assert.match(markdown, /refs\.slice\(0, 10\)/);
 });
