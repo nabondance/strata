@@ -2376,7 +2376,7 @@ test("the imports table says where an import past the depth limit points", async
     assert.equal(cli.status, 0, cli.stderr);
     assert.match(
       cli.stderr,
-      /3 Claude @path imports are unresolved at the last revision \(1 outside the repository, 2 beyond four hops, 1 of them outside the repository\)/,
+      /3 Claude @path imports are unresolved at the last revision \(1 outside the repository, 2 beyond four hops \(1 points outside the repository\)\)/,
     );
   } finally {
     rmSync(repo, { recursive: true, force: true });
