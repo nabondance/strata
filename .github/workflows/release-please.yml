@@ -103,21 +103,46 @@ jobs:
             --repo-url "$GITHUB_REPOSITORY" \
             --config-file release-please-config.json \
             --manifest-file .release-please-manifest.json
-      # pull_request workflows on the release PR's commits, which come from
-      # GITHUB_TOKEN, never run on their own: they wait for approval as
-      # `action_required`. Start the required checks on its branch directly, once
-      # per commit, ignoring those waiting runs.
-      - name: Run the required checks on the release PR
+      # The release PR's commits come from GITHUB_TOKEN, so its pull_request
+      # workflows wait for approval as `action_required`. Copies started by hand
+      # pass on the same commit, but GitHub does not count them toward the pull
+      # request's required checks, so approve the waiting runs themselves. Runs
+      # for a new commit appear a few seconds after the push. If approving is
+      # refused, start copies as before and say what to do.
+      - name: Approve the release PR's own checks
         if: steps.plan.outputs.update == 'true'
         run: |
           set -euo pipefail
           branch="$(gh pr list --state open --base main --label 'autorelease: pending' --json headRefName --jq '.[0].headRefName // empty')"
           if [ -z "$branch" ]; then exit 0; fi
           head="$(gh api "repos/$GH_REPO/branches/$branch" --jq .commit.sha)"
-          for workflow in ci.yml pr-title.yml; do
-            runs="$(gh api "repos/$GH_REPO/actions/workflows/$workflow/runs?head_sha=$head&per_page=100" --jq '[.workflow_runs[] | select(.conclusion != "action_required")] | length')"
-            if [ "$runs" = 0 ]; then gh workflow run "$workflow" --ref "$branch"; fi
+          runs() {
+            gh api "repos/$GH_REPO/actions/runs?head_sha=$head&event=pull_request&per_page=100" --jq "$1"
+          }
+          for _ in $(seq 1 18); do
+            found="$(runs '[.workflow_runs[].path | select(endswith("/ci.yml") or endswith("/pr-title.yml"))] | unique | length')"
+            if [ "$found" = 2 ]; then break; fi
+            sleep 10
           done
+          failed=false
+          if [ "$found" != 2 ]; then
+            echo "::warning::The release PR's checks did not start on $head within three minutes."
+            failed=true
+          fi
+          for id in $(runs '.workflow_runs[] | select(.conclusion == "action_required") | .id'); do
+            if gh api -X POST "repos/$GH_REPO/actions/runs/$id/approve" >/dev/null; then
+              echo "Approved run $id"
+            else
+              failed=true
+            fi
+          done
+          if [ "$failed" = true ]; then
+            for workflow in ci.yml pr-title.yml; do
+              started="$(gh api "repos/$GH_REPO/actions/workflows/$workflow/runs?head_sha=$head&event=workflow_dispatch&per_page=1" --jq .total_count)"
+              if [ "$started" = 0 ]; then gh workflow run "$workflow" --ref "$branch"; fi
+            done
+            echo "::warning::Could not approve every check on the release PR. Copies were started, but the pull request stays blocked until its own waiting runs are approved: run gh api -X POST repos/$GH_REPO/actions/runs/<id>/approve for each run of $head marked action_required."
+          fi
       # Tags pushed with GITHUB_TOKEN do not trigger other workflows, so start
       # the publish workflow explicitly on the new tag.
       - name: Start the npm publish workflow

@@ -3,7 +3,8 @@ name: CI
 # Pull requests are checked before merge; main is checked again after merge,
 # because two pull requests that pass alone can still break main together.
 # The release and canary workflows wait for this to pass on main before they
-# move. The release workflow also starts it by hand on the release PR's branch.
+# move. The release workflow approves its runs on the release PR, and starts
+# it by hand there only if approving fails.
 on:
   pull_request:
   push:

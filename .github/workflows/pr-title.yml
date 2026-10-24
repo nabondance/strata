@@ -3,8 +3,8 @@ name: PR title
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-  # The release workflow starts this on the release PR's branch, whose pushes
-  # come from GITHUB_TOKEN and so do not trigger pull_request.
+  # The release workflow starts this on the release PR's branch only when it
+  # cannot approve the pull_request run waiting there.
   workflow_dispatch:
 
 permissions: {}
