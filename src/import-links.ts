@@ -53,7 +53,7 @@ export function importLinks(components: readonly Importing[], roots?: readonly I
         // Claude Code does not expand a file past the limit at all, so even its external imports are `depth-limit`.
         const status: ImportStatus =
           hop > maxHops ? "depth-limit" : external ? "external" : reached ? "resolved" : "missing";
-        const link: ImportLink = {
+        links.push({
           kind: "links to",
           evidence: "claude-import",
           source: source.path,
@@ -61,9 +61,8 @@ export function importLinks(components: readonly Importing[], roots?: readonly I
           target,
           hop,
           status,
-        };
-        if (external) link.external = true;
-        links.push(link);
+          ...(external ? { external } : {}),
+        });
         if (status === "resolved" && reached && !hops.has(reached.path)) {
           hops.set(reached.path, hop);
           queue.push(reached);

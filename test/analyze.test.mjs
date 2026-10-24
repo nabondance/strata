@@ -2352,7 +2352,7 @@ test("the imports table says where an import past the depth limit points", async
     git("config", "user.email", "strata-test@example.invalid");
     git("config", "commit.gpgsign", "false");
     // CLAUDE.md reaches d.md in four hops, so d.md's own imports are past the limit.
-    writeFileSync(join(repo, "CLAUDE.md"), "@a.md\n");
+    writeFileSync(join(repo, "CLAUDE.md"), "@a.md\n@~/.claude/near.md\n");
     writeFileSync(join(repo, "a.md"), "@b.md\n");
     writeFileSync(join(repo, "b.md"), "@c.md\n");
     writeFileSync(join(repo, "c.md"), "@d.md\n");
@@ -2364,9 +2364,19 @@ test("the imports table says where an import past the depth limit points", async
     assert.deepEqual(
       rows.filter((cells) => cells[4] !== "resolved"),
       [
+        // Within the limit the status already says where it points, so the Imports cell is empty.
+        ["CLAUDE.md", "2", "—", "1", "outside the repository"],
         ["d.md", "1", "outside the repository", "5", "too deep"],
         ["d.md", "2", "not a tracked path", "5", "too deep"],
       ],
+    );
+    const cli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--format", "json", "--output", "-"], {
+      encoding: "utf8",
+    });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.match(
+      cli.stderr,
+      /3 Claude @path imports are unresolved at the last revision \(1 outside the repository, 2 beyond four hops, 1 of them outside the repository\)/,
     );
   } finally {
     rmSync(repo, { recursive: true, force: true });
