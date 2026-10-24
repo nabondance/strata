@@ -33,7 +33,7 @@ jobs:
           node-version: '22'
       - name: Analyze history
         env:
-          STRATA_VERSION: 0.4.1 # x-release-please-version
+          STRATA_VERSION: 0.5.0 # x-release-please-version
         run: |
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
@@ -93,7 +93,7 @@ jobs:
           node-version: '22'
       - name: Render image and badge
         env:
-          STRATA_VERSION: 0.4.1 # x-release-please-version
+          STRATA_VERSION: 0.5.0 # x-release-please-version
         run: |
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --format badge --output "$RUNNER_TEMP/strata-image/strata-badge.json" --quiet

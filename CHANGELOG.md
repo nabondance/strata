@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/nabondance/strata/compare/v0.4.1...v0.5.0) (2026-10-24)
+
+
+### Features
+
+* accept analyse as an alias for the analyze command ([#40](https://github.com/nabondance/strata/issues/40)) ([c81eebf](https://github.com/nabondance/strata/commit/c81eebfb1c3e6cdd5107bc31ad125cace6b2565d))
+* draw a configuration map of paths and Claude imports ([#45](https://github.com/nabondance/strata/issues/45)) ([951a459](https://github.com/nabondance/strata/commit/951a4596787548f0dfa16d25d22f023a58c4144e))
+* list the MCP servers tracked files define ([#42](https://github.com/nabondance/strata/issues/42)) ([0f4cb52](https://github.com/nabondance/strata/commit/0f4cb52b16538739d8fdb2b66d3a12b5058041a6))
+* report instruction age and survival ([#44](https://github.com/nabondance/strata/issues/44)) ([46ea5e1](https://github.com/nabondance/strata/commit/46ea5e1333fdfcb19539d211b1cdc8cdfef66af4))
+
+
+### Bug Fixes
+
+* bring the bundled interpretation skill up to date with the report ([#49](https://github.com/nabondance/strata/issues/49)) ([15fe0dc](https://github.com/nabondance/strata/commit/15fe0dc45cbbca3d5263bb5dc9f97ca878d717b0))
+* make muted report text easier to read in dark mode ([#46](https://github.com/nabondance/strata/issues/46)) ([5629399](https://github.com/nabondance/strata/commit/5629399ef483b432f8b4b184daa920eef3226d03))
+* say when an import past the depth limit points outside the repository ([#50](https://github.com/nabondance/strata/issues/50)) ([b9e007e](https://github.com/nabondance/strata/commit/b9e007e14d1493c289c7d18e465ab3a186f110d6))
+* stop shipping README images and keep version pins current on release ([#43](https://github.com/nabondance/strata/issues/43)) ([3c5d6fa](https://github.com/nabondance/strata/commit/3c5d6fa4475c1faba3e17660476508694c3fa01a))
+
 ## [0.4.1](https://github.com/nabondance/strata/compare/v0.4.0...v0.4.1) (2026-10-18)
 
 

@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: nabondance/strata@v0.4.1
+      - uses: nabondance/strata@v0.5.0
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
@@ -33,7 +33,7 @@ For precise per-provider totals, set `precise: 'true'` and give the step the key
 
 <!-- x-release-please-start-version -->
 ```yaml
-      - uses: nabondance/strata@v0.4.1
+      - uses: nabondance/strata@v0.5.0
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
