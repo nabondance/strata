@@ -114,7 +114,7 @@ For HTML or JSON analysis output, `--shareable` replaces repository and branch n
 
 ## The interpretation skill
 
-To print the bundled JSON interpretation skill for a coding agent, or save it at a chosen path:
+To print the bundled interpretation skill for a coding agent, which reads `analyze` JSON and HTML reports, `diff` JSON and Markdown, the SVG image, and the badge, or save it at a chosen path:
 
 ```sh
 strata skill
@@ -133,4 +133,4 @@ The treemap shows the selected revision's instructional components with rectangl
 
 ## The JSON report
 
-JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 19 and that replay rule, instruction age, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish.
+JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 19 and that replay rule, up-front context, Claude imports, MCP servers, instruction age, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish. It also covers the `strata diff` JSON (schema version 11) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
