@@ -114,13 +114,16 @@ jobs:
       # required checks, so approve the waiting runs themselves. Runs appear a
       # few seconds after a push, and release-please editing the title starts
       # another title check, so keep approving until CI and the title check have
-      # started and nothing new has waited for 30 seconds. This step comes last,
+      # started and nothing new has waited for a minute. This step comes last,
       # so it never holds up tagging or publishing; if it fails, the run fails
       # with a warning that says how to approve by hand.
       - name: Approve the release PR's own checks
-        if: steps.plan.outputs.update == 'true'
+        # Also after a failed earlier step, such as starting publish, since an
+        # update may already have pushed to the release PR.
+        if: ${{ !cancelled() && steps.plan.outputs.update == 'true' }}
         run: |
-          set -uo pipefail
+          # Errors are handled below, so do not let the default `bash -e` end the step.
+          set +e -uo pipefail
           warn() {
             echo "::warning::$1 The release PR stays blocked until its waiting runs are approved: gh api -X POST repos/$GH_REPO/actions/runs/<id>/approve for each of its runs marked action_required."
           }
@@ -129,14 +132,20 @@ jobs:
             exit 1
           fi
           if [ -z "$branch" ]; then exit 0; fi
-          if ! head="$(gh api "repos/$GH_REPO/branches/$branch" --jq .commit.sha)"; then
+          head="$(gh api "repos/$GH_REPO/branches/$branch" --jq .commit.sha)"
+          if ! [[ "$head" =~ ^[0-9a-f]{40}$ ]]; then
             warn "Could not read the release branch $branch."
             exit 1
           fi
+          # Only this repository's release branch: a fork's pull request can share the commit.
+          # shellcheck disable=SC2016 # $branch and $repo are jq variables.
+          select='.workflow_runs[] | select(.head_branch == $branch and .head_repository.full_name == $repo)'
+          declare -A refused=()
           quiet=0
-          # Every 10 seconds for up to four minutes.
-          for _ in $(seq 1 24); do
-            if ! listing="$(gh api "repos/$GH_REPO/actions/runs?head_sha=$head&event=pull_request&per_page=100" --jq '.workflow_runs[] | "\(.id) \(.conclusion) \(.path)"')"; then
+          # Every 10 seconds for up to five minutes.
+          for _ in $(seq 1 30); do
+            if ! listing="$(gh api "repos/$GH_REPO/actions/runs?head_sha=$head&event=pull_request&per_page=100" |
+              jq -r --arg branch "$branch" --arg repo "$GH_REPO" "$select"' | "\(.id) \(.conclusion) \(.path)"')"; then
               quiet=0
               sleep 10
               continue
@@ -145,18 +154,21 @@ jobs:
             for id in $waiting; do
               if gh api -X POST "repos/$GH_REPO/actions/runs/$id/approve" >/dev/null; then
                 echo "Approved run $id"
-              # Another run of this workflow may have approved it first.
+              # Another run of this workflow may have approved it first; otherwise retry.
               elif [ "$(gh api "repos/$GH_REPO/actions/runs/$id" --jq .conclusion)" = action_required ]; then
-                warn "GitHub refused to approve run $id on $head."
-                exit 1
+                refused[$id]=$(( ${refused[$id]:-0} + 1 ))
+                if [ "${refused[$id]}" -ge 3 ]; then
+                  warn "GitHub refused three times to approve run $id on $head."
+                  exit 1
+                fi
               fi
             done
-            started="$(awk '{ print $3 }' <<<"$listing" | grep -cE '/(ci|pr-title)\.yml$' | tr -d ' ')"
-            required="$(awk '{ print $3 }' <<<"$listing" | grep -E '/(ci|pr-title)\.yml$' | sort -u | wc -l | tr -d ' ')"
+            required="$(awk '$3 ~ /\/(ci|pr-title)\.yml$/ { print $3 }' <<<"$listing" | sort -u | wc -l | tr -d ' ')"
             if [ -z "$waiting" ] && [ "$required" = 2 ]; then
               quiet=$((quiet + 1))
-              if [ "$quiet" -ge 3 ]; then
-                echo "CI and the title check run on $head ($started runs)."
+              # A title check from release-please's edit can come after the push's runs.
+              if [ "$quiet" -ge 6 ]; then
+                echo "CI and the title check run on $head."
                 exit 0
               fi
             else
@@ -164,5 +176,5 @@ jobs:
             fi
             sleep 10
           done
-          warn "CI and the title check did not both start and get approved on $head within four minutes."
+          warn "CI and the title check did not both start and get approved on $head within five minutes."
           exit 1
