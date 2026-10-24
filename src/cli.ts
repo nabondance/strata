@@ -481,8 +481,16 @@ function unresolvedImportNote(report: Report): string | null {
     "depth-limit": "beyond four hops",
   } as const;
   const counts = (Object.keys(reasons) as Array<keyof typeof reasons>).flatMap((status) => {
-    const count = links.filter((link) => link.status === status).length;
-    return count ? [`${count} ${reasons[status]}`] : [];
+    const matching = links.filter((link) => link.status === status);
+    if (!matching.length) return [];
+    // Claude Code does not expand a file past the limit, but the import still points somewhere.
+    const outside = status === "depth-limit" ? matching.filter((link) => link.external).length : 0;
+    const where = !outside
+      ? ""
+      : outside === 1 && matching.length === 1
+        ? " (it points outside the repository)"
+        : ` (${outside} point${outside === 1 ? "s" : ""} outside the repository)`;
+    return [`${matching.length} ${reasons[status]}${where}`];
   });
   return `${links.length} Claude @path import${links.length === 1 ? " is" : "s are"} unresolved at the last revision (${counts.join(", ")}); the report lists them.`;
 }

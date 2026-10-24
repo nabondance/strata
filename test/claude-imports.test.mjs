@@ -136,6 +136,14 @@ test("follows imports from the roots by the shortest chain, up to four hops", ()
     ],
   );
   assert.ok(links.every((link) => link.kind === "links to" && link.evidence === "claude-import"));
+  // An external import keeps that flag past the depth limit, so the report can say where it points.
+  assert.deepEqual(
+    links.filter((link) => link.external).map(({ source, line, status }) => [source, line, status]),
+    [
+      ["CLAUDE.local.md", 4, "external"],
+      ["f.md", 2, "depth-limit"],
+    ],
+  );
   // `importLinks` is embedded in the HTML report, so it keeps its own copy of the limit; they must agree.
   assert.equal(maxImportHops, 4);
   assert.ok(importLinks.toString().includes(`maxHops = ${maxImportHops}`));

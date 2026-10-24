@@ -1285,7 +1285,7 @@ export function renderHtml(report: Report): string {
       const sorted = [...links].sort((a, b) => unresolvedFirst[a.status] - unresolvedFirst[b.status] || a.source.localeCompare(b.source) || a.line - b.line);
       for (const link of capped('imports', sorted, 25, renderImports)) {
         const row = document.createElement('tr');
-        row.append(text('td', link.source, 'path'), text('td', fmt(link.line), 'num'), text('td', link.target ?? (link.status === 'external' ? '—' : 'not a tracked path'), 'path'), text('td', fmt(link.hop), 'num'), text('td', importStatus[link.status], 'kind'));
+        row.append(text('td', link.source, 'path'), text('td', fmt(link.line), 'num'), text('td', link.target ?? (link.status === 'external' ? '—' : link.external ? 'outside the repository' : 'not a tracked path'), 'path'), text('td', fmt(link.hop), 'num'), text('td', importStatus[link.status], 'kind'));
         body.append(row);
       }
     }
