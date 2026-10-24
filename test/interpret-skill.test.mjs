@@ -52,3 +52,19 @@ test("the interpretation skill states the diff Markdown limits", () => {
   assert.match(skill, /MCP names stop at ten per list/);
   assert.match(markdown, /refs\.slice\(0, 10\)/);
 });
+
+// Quoted labels are text the report or the diff Markdown prints; each must still be printed.
+test("the interpretation skill quotes text the report and the diff Markdown still print", () => {
+  const skill = read("skills/strata-interpret/SKILL.md");
+  const quoted = (from, to) =>
+    [...skill.slice(skill.indexOf(from), skill.indexOf(to)).matchAll(/"([^"`]+)"/g)].map((match) => match[1]);
+  const html = quoted("If the user asks about something they saw in the HTML report", "The default local report omits");
+  const markdown = quoted("`strata diff` writes Markdown by default", "Other outputs carry less.").filter(
+    (text) => text !== "0",
+  );
+  assert.ok(html.length > 8 && markdown.length > 0);
+  const report = code("src/report.ts");
+  for (const text of html) assert.ok(report.includes(text), `report.ts does not print "${text}"`);
+  const delta = code("src/pr-delta.ts");
+  for (const text of markdown) assert.ok(delta.includes(text), `pr-delta.ts does not print "${text}"`);
+});
