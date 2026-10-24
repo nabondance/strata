@@ -20,6 +20,10 @@ test("the interpretation skill describes the current report schema versions", ()
   assert.ok(history && diff);
   assert.match(skill, new RegExp(`describes history schema version ${history};`));
   assert.match(skill, new RegExp(`A \`strata diff\` JSON comparison \\(schema version ${diff};`));
+  // The usage guide names the same versions.
+  const usage = read("docs/usage.md");
+  assert.match(usage, new RegExp(`explains schema version ${history} `));
+  assert.match(usage, new RegExp(`\`strata diff\` JSON \\(schema version ${diff}\\)`));
 });
 
 // The skill names report panels, tabs, and labels in bold; each must still be text the report shows.
@@ -56,8 +60,12 @@ test("the interpretation skill states the diff Markdown limits", () => {
 // Quoted labels are text the report or the diff Markdown prints; each must still be printed.
 test("the interpretation skill quotes text the report and the diff Markdown still print", () => {
   const skill = read("skills/strata-interpret/SKILL.md");
-  const quoted = (from, to) =>
-    [...skill.slice(skill.indexOf(from), skill.indexOf(to)).matchAll(/"([^"`]+)"/g)].map((match) => match[1]);
+  const quoted = (from, to) => {
+    const start = skill.indexOf(from);
+    const end = skill.indexOf(to);
+    assert.ok(start >= 0 && end > start, `section markers "${from}" and "${to}" moved`);
+    return [...skill.slice(start, end).matchAll(/"([^"`]+)"/g)].map((match) => match[1]);
+  };
   const html = quoted("If the user asks about something they saw in the HTML report", "The default local report omits");
   const markdown = quoted("`strata diff` writes Markdown by default", "Other outputs carry less.").filter(
     (text) => text !== "0",
