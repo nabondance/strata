@@ -59,7 +59,7 @@ Strata walks the first-parent history of your branch, oldest to newest, and read
 - **Per-provider views** for Claude Code, Codex, Gemini CLI, Cursor, and GitHub Copilot, with shared files such as `AGENTS.md` counted once in the overall total.
 - **A pull-request delta**, as Markdown or JSON, to see what a change adds before it merges.
 - **An SVG image** of the history to embed in your own README, in full or as the layers alone (`--minimal`), and a **badge** with the latest total.
-- **JSON output** for your own scripts, plus a bundled `strata-interpret` skill that teaches a coding agent how to read it.
+- **JSON output** for your own scripts, plus a bundled `strata-interpret` skill that teaches a coding agent how to read it, the HTML report, and `strata diff` output.
 
 The treemap sizes each file by its stored-text tokens at the selected revision:
 

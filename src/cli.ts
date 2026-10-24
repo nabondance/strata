@@ -71,7 +71,7 @@ Commands:
   analyze [repository]   Write an offline report of tracked agent configuration over time
                          (analyse is an alias)
   diff [repository]      Compare tracked agent configuration at two commits
-  skill                  Print the bundled skill for interpreting JSON reports
+  skill                  Print the bundled skill for interpreting Strata output
   help [command]         Show help for a command
 
 Options:
@@ -136,7 +136,7 @@ Example:
   skill: `Usage:
   strata skill [--output <file>]
 
-Print the bundled skill that teaches a coding agent to interpret Strata JSON reports.
+Print the bundled skill that teaches a coding agent to interpret Strata reports, comparisons, images, and badges.
 
 Options:
   -o, --output <file>        Save the skill to a file; an existing file is never overwritten
