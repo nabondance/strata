@@ -15,6 +15,8 @@ export interface ImportLink {
   /** Imports from `source` to the file it names; 1 for an import in a root file. */
   hop: number;
   status: ImportStatus;
+  /** Set when the import points outside the repository, including one past the depth limit, whose status is `depth-limit`. */
+  external?: true;
 }
 
 type Importing = Pick<Component, "path" | "contextFile" | "importRoot" | "imports">;
@@ -51,7 +53,17 @@ export function importLinks(components: readonly Importing[], roots?: readonly I
         // Claude Code does not expand a file past the limit at all, so even its external imports are `depth-limit`.
         const status: ImportStatus =
           hop > maxHops ? "depth-limit" : external ? "external" : reached ? "resolved" : "missing";
-        links.push({ kind: "links to", evidence: "claude-import", source: source.path, line, target, hop, status });
+        const link: ImportLink = {
+          kind: "links to",
+          evidence: "claude-import",
+          source: source.path,
+          line,
+          target,
+          hop,
+          status,
+        };
+        if (external) link.external = true;
+        links.push(link);
         if (status === "resolved" && reached && !hops.has(reached.path)) {
           hops.set(reached.path, hop);
           queue.push(reached);

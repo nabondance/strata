@@ -2343,6 +2343,36 @@ test("treemap frame keeps category gaps, seams, and headers in drawn units", () 
   assert.ok(meanAspect(wideLeaves) > meanAspect(squareLeaves));
 });
 
+test("the imports table says where an import past the depth limit points", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "strata-import-depth-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  try {
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Strata Test");
+    git("config", "user.email", "strata-test@example.invalid");
+    git("config", "commit.gpgsign", "false");
+    // CLAUDE.md reaches d.md in four hops, so d.md's own imports are past the limit.
+    writeFileSync(join(repo, "CLAUDE.md"), "@a.md\n");
+    writeFileSync(join(repo, "a.md"), "@b.md\n");
+    writeFileSync(join(repo, "b.md"), "@c.md\n");
+    writeFileSync(join(repo, "c.md"), "@d.md\n");
+    writeFileSync(join(repo, "d.md"), "@~/.claude/me.md\n@nowhere.md\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "chain");
+    const ui = loadReportUi(renderHtml(await analyzeRepository(repo)));
+    const rows = ui.get("imports").children.map((row) => row.children.map((cell) => cell.textContent));
+    assert.deepEqual(
+      rows.filter((cells) => cells[4] !== "resolved"),
+      [
+        ["d.md", "1", "outside the repository", "5", "too deep"],
+        ["d.md", "2", "not a tracked path", "5", "too deep"],
+      ],
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("resolves Claude @path imports per revision against the tracked tree", async () => {
   const { treeImports } = await import("../dist/claude-imports.js");
   const { listTree } = await import("../dist/git.js");
