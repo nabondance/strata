@@ -578,7 +578,7 @@ test("strata diff --precise adds each provider's totals at both commits", async 
     const delta = await compareGitCommitsPrecise(repo, base, head, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
     });
-    assert.equal(delta.schemaVersion, 11);
+    assert.equal(delta.schemaVersion, 12);
     const codexTokens = getEncoding("o200k_base").encode("Shared instructions.\n").length;
     assert.deepEqual(
       delta.providerTotals.map(({ provider, beforeTokens, afterTokens, deltaTokens }) => [

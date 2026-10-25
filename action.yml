@@ -1,5 +1,5 @@
 name: Strata PR context delta
-description: Compare Git-tracked agent configuration at two commits and write a token delta to the job summary.
+description: Compare Git-tracked agent configuration at two commits, write a token delta to the job summary, and optionally check token limits.
 inputs:
   base:
     description: Full Git commit ID for the PR base.
@@ -24,6 +24,36 @@ inputs:
       locally with gpt-5; the tokenizer and model inputs are not used with precise.
     required: false
     default: 'false'
+  max-tokens:
+    description: >-
+      Limit on the stored instructional text at the head, in tokens. Off when empty.
+    required: false
+    default: ''
+  max-increase:
+    description: >-
+      Limit on the growth of stored instructional text from base to head, in tokens or as a
+      percentage such as 10%. Off when empty.
+    required: false
+    default: ''
+  max-up-front-tokens:
+    description: >-
+      Limit on what each agent reads at session start at the head, in tokens. Give one number for
+      every agent, or agent=number entries separated by spaces or commas, such as 'claude=8000
+      codex=6000'. Off when empty.
+    required: false
+    default: ''
+  max-up-front-increase:
+    description: >-
+      Limit on the growth of what each agent reads at session start, in tokens or as a percentage,
+      in the same form as max-up-front-tokens. Off when empty.
+    required: false
+    default: ''
+  on-exceed:
+    description: >-
+      What a limit that is passed does: 'fail' fails the step after writing the summary, 'warn' adds
+      a warning and lets the step pass.
+    required: false
+    default: fail
 runs:
   using: composite
   steps:
@@ -47,7 +77,16 @@ runs:
         STRATA_TOKENIZER: ${{ inputs.tokenizer }}
         STRATA_MODEL: ${{ inputs.model }}
         STRATA_PRECISE: ${{ inputs.precise }}
+        STRATA_MAX_TOKENS: ${{ inputs.max-tokens }}
+        STRATA_MAX_INCREASE: ${{ inputs.max-increase }}
+        STRATA_MAX_UP_FRONT_TOKENS: ${{ inputs.max-up-front-tokens }}
+        STRATA_MAX_UP_FRONT_INCREASE: ${{ inputs.max-up-front-increase }}
+        STRATA_ON_EXCEED: ${{ inputs.on-exceed }}
       run: |
+        case "$STRATA_ON_EXCEED" in
+          fail | warn) ;;
+          *) echo "::error::on-exceed must be fail or warn"; exit 1 ;;
+        esac
         args=(diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --output "$RUNNER_TEMP/strata-pr-delta.md")
         if [ "$STRATA_PRECISE" = "true" ]; then
           if [ -n "$STRATA_MODEL" ] || [ "$STRATA_TOKENIZER" != "estimate" ]; then
@@ -60,5 +99,29 @@ runs:
         else
           args+=(--tokenizer "$STRATA_TOKENIZER")
         fi
-        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
-        cat "$RUNNER_TEMP/strata-pr-delta.md" >> "$GITHUB_STEP_SUMMARY"
+        # Each input holds one value or several separated by spaces or commas; set -f keeps them literal.
+        set -f
+        for value in ${STRATA_MAX_TOKENS//,/ }; do args+=(--max-tokens "$value"); done
+        for value in ${STRATA_MAX_INCREASE//,/ }; do args+=(--max-increase "$value"); done
+        for value in ${STRATA_MAX_UP_FRONT_TOKENS//,/ }; do args+=(--max-up-front-tokens "$value"); done
+        for value in ${STRATA_MAX_UP_FRONT_INCREASE//,/ }; do args+=(--max-up-front-increase "$value"); done
+        set +f
+        # Exit status 3 means a limit was passed; the summary is written either way.
+        # Files from an earlier run of the Action in the same job must not reach this summary.
+        rm -f "$RUNNER_TEMP/strata-pr-delta.md" "$RUNNER_TEMP/strata-pr-delta.err"
+        status=0
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" 2> "$RUNNER_TEMP/strata-pr-delta.err" || status=$?
+        cat "$RUNNER_TEMP/strata-pr-delta.err" >&2
+        if [ "$status" -eq 0 ] || [ "$status" -eq 3 ]; then
+          cat "$RUNNER_TEMP/strata-pr-delta.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [ "$status" -eq 3 ]; then
+          level=error
+          if [ "$STRATA_ON_EXCEED" = warn ]; then level=warning; status=0; fi
+          # One annotation per limit passed; % is escaped as workflow commands require.
+          { grep '^Over limit: ' "$RUNNER_TEMP/strata-pr-delta.err" || true; } | while IFS= read -r line; do
+            message="${line#Over limit: }"
+            echo "::$level title=Strata context limit::${message//%/%25}"
+          done
+        fi
+        exit "$status"

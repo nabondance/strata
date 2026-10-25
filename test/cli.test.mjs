@@ -8,6 +8,7 @@ import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
+import { checkLimits, limitMessages, limitSummary, parseLimits } from "../dist/limits.js";
 import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -191,6 +192,14 @@ test("command line follows common conventions", () => {
       [["diff", repo, "--base", base, "--head", head, "--format", "html"], /--format must be markdown or json/],
       [["diff", repo, "--base", "main", "--head", head], /full Git commit IDs, not main/],
       [["skill", "extra"], /Unexpected argument: extra/],
+      [["diff", repo, "--base", base, "--head", head, "--max-tokens", "10%"], /not a percentage/],
+      [["diff", repo, "--base", base, "--head", head, "--max-tokens", "claude=5"], /does not take an agent name/],
+      [["diff", repo, "--base", base, "--head", head, "--max-up-front-tokens", "bob=5"], /Unknown agent bob/],
+      [["diff", repo, "--base", base, "--head", head, "--max-increase", "1.5"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--max-increase", "5", "--max-increase", "6%"], /set twice/],
+      [["diff", repo, "--base", base, "--head", head, "--on-exceed", "warn"], /--on-exceed requires a limit/],
+      [["diff", repo, "--base", base, "--head", head, "--max-tokens", "1", "--on-exceed", "x"], /fail or warn/],
+      [["analyze", repo, "--max-increase", "5"], /Unknown option '--max-increase'/],
     ]) {
       const result = strata(args);
       assert.equal(result.status, 2, args.join(" "));
@@ -275,6 +284,229 @@ test("command line follows common conventions", () => {
   } finally {
     rmSync(repo, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("limits report a passed number and exit with 3, only when set", () => {
+  const { repo, put, commit } = fixture();
+  const outside = mkdtempSync(join(tmpdir(), "strata-limits-"));
+  try {
+    put("CLAUDE.md", "Root instructions.\n");
+    put("AGENTS.md", "Shared.\n");
+    const base = commit("Add instructions");
+    put("CLAUDE.md", "Root instructions, now quite a bit longer than they were.\n");
+    put(".cursor/rules/style.mdc", "---\nalwaysApply: true\n---\nPrefer small functions.\n");
+    const head = commit("Grow instructions and add Cursor");
+    const diff = (...args) => strata(["diff", repo, "--base", base, "--head", head, ...args]);
+    const plain = compareGitCommits(repo, base, head);
+    const claude = plain.upFront.find((entry) => entry.provider === "claude");
+
+    // Without limits the output and status are unchanged.
+    const none = diff("--format", "json");
+    assert.equal(none.status, 0);
+    assert.equal(JSON.parse(none.stdout).limits, undefined);
+    assert.equal(JSON.parse(none.stdout).schemaVersion, 12);
+
+    const over = diff(
+      "--format",
+      "json",
+      "--max-tokens",
+      String(plain.comparison.afterTokens - 1),
+      "--max-increase",
+      "10%",
+      "--max-up-front-tokens",
+      "100000",
+      "--max-up-front-tokens",
+      `claude=${claude.after.tokens - 1}`,
+      "--max-up-front-increase",
+      "10%",
+    );
+    assert.equal(over.status, 3, over.stderr);
+    const delta = JSON.parse(over.stdout);
+    assert.deepEqual({ ...delta, limits: undefined }, { ...plain, limits: undefined });
+    assert.deepEqual(
+      delta.limits.map(({ name, agent, result }) => [name, agent, result]),
+      [
+        ["max-tokens", null, "over"],
+        ["max-increase", null, "over"],
+        ["max-up-front-tokens", "claude", "over"],
+        ["max-up-front-tokens", "codex", "within"],
+        ["max-up-front-tokens", "cursor", "within"],
+        ["max-up-front-increase", "claude", "over"],
+        ["max-up-front-increase", "codex", "within"],
+        // Cursor had nothing at the base, so a percentage cannot be taken.
+        ["max-up-front-increase", "cursor", "unchecked"],
+      ],
+    );
+    assert.match(
+      over.stderr,
+      /^Over limit: stored instructional text is \d+ tokens, more than the \d+ set with --max-tokens\.$/m,
+    );
+    assert.match(
+      over.stderr,
+      /^Over limit: stored instructional text grew by \d+ tokens \(\+[\d.]+%\), more than the 10% set/m,
+    );
+    assert.match(over.stderr, /^Over limit: Claude Code at session start is \d+ tokens/m);
+    assert.match(over.stderr, /^Note: --max-up-front-increase 10% was not checked for Cursor at session start/m);
+
+    const markdown = diff("--max-increase", "10%");
+    assert.equal(markdown.status, 3);
+    assert.match(markdown.stdout, /\*\*Over 1 of 1 limit set for this run\.\*\*/);
+    assert.match(
+      markdown.stdout,
+      /\| Stored instructional text, increase \| \+\d+ \(\+[\d.]+%\) \| 10% \| \*\*Over\*\* \|/,
+    );
+    assert.match(markdown.stdout, /not that the configuration got worse/);
+
+    // warn reports the same and exits with 0; a written file still holds the table.
+    const file = join(outside, "delta.md");
+    const warned = diff("--max-increase", "10%", "--on-exceed", "warn", "--output", file);
+    assert.equal(warned.status, 0);
+    assert.match(warned.stderr, /^Over limit: /m);
+    assert.match(readFileSync(file, "utf8"), /Over 1 of 1 limit/);
+
+    // A dry run measures nothing, so it says the limits were not checked.
+    const dry = diff("--precise", "--dry-run", "--no-cache", "--max-tokens", "1");
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /Limits were not checked: a dry run measures nothing\./);
+
+    const within = diff("--max-tokens", "100000");
+    assert.equal(within.status, 0);
+    assert.equal(within.stderr, "");
+    assert.match(within.stdout, /Within the 1 limit set for this run\./);
+
+    // analyze checks the latest revision, after writing the report, even with --quiet.
+    const report = join(outside, "report.json");
+    const analyzed = strata(["analyze", repo, "-q", "-f", "json", "-o", report, "--max-up-front-tokens", "cursor=1"]);
+    assert.equal(analyzed.status, 3);
+    assert.equal(analyzed.stdout, `${report}\n`);
+    assert.match(analyzed.stderr, /^Over limit: Cursor at session start is \d+ tokens, more than the 1 set/m);
+    assert.equal(JSON.parse(readFileSync(report, "utf8")).revisions.length, 2);
+    const fine = strata(["analyze", repo, "-o", report, "--max-tokens", "100000"]);
+    assert.equal(fine.status, 0);
+    assert.match(fine.stdout, /Within the 1 limit set for this run\./);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("limits compare at their boundaries", () => {
+  const figures = (before, after) => ({ total: { before, after }, upFront: new Map(), compared: true });
+  const result = (flags, before, after) =>
+    checkLimits(parseLimits(flags), figures(before, after)).map((check) => check.result);
+  assert.deepEqual(result({ "max-tokens": ["100"] }, 0, 100), ["within"]);
+  assert.deepEqual(result({ "max-tokens": ["100"] }, 0, 101), ["over"]);
+  assert.deepEqual(result({ "max-increase": ["10"] }, 100, 110), ["within"]);
+  assert.deepEqual(result({ "max-increase": ["10"] }, 100, 111), ["over"]);
+  assert.deepEqual(result({ "max-increase": ["10%"] }, 200, 220), ["within"]);
+  assert.deepEqual(result({ "max-increase": ["10%"] }, 200, 221), ["over"]);
+  assert.deepEqual(result({ "max-increase": ["0"] }, 200, 150), ["within"]);
+  assert.deepEqual(result({ "max-increase": ["12.5%"] }, 0, 0), ["within"]);
+  assert.deepEqual(result({ "max-increase": ["12.5%"] }, 0, 1), ["unchecked"]);
+  // Percentages compare exactly: 0.57 * 10000 is not exact in floating point.
+  assert.deepEqual(result({ "max-increase": ["0.57%"] }, 10000, 10057), ["within"]);
+  assert.deepEqual(result({ "max-increase": ["0.57%"] }, 10000, 10058), ["over"]);
+  // A share just over the limit never prints as equal to it.
+  const justOver = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(10000, 11001));
+  assert.match(limitMessages(justOver)[0], /grew by 1001 tokens \(\+10\.1%\), more than the 10% set/);
+  // A summary does not call skipped checks a pass.
+  const mixed = checkLimits(parseLimits({ "max-tokens": ["100"], "max-increase": ["10%"] }), figures(0, 50));
+  assert.equal(
+    limitSummary(mixed),
+    "Within 1 of 2 limits set for this run; 1 not checked because the base had no tokens.",
+  );
+  // A limit for one agent that reads nothing is checked as zero tokens; the general limit skips absent agents.
+  const upFront = checkLimits(parseLimits({ "max-up-front-tokens": ["5", "gemini=0"] }), {
+    total: { before: 0, after: 0 },
+    upFront: new Map([["claude", { before: 1, after: 9 }]]),
+    compared: true,
+  });
+  assert.deepEqual(
+    upFront.map(({ agent, after, result }) => [agent, after, result]),
+    [
+      ["claude", 9, "over"],
+      ["gemini", 0, "within"],
+    ],
+  );
+});
+
+test("the Action writes the summary, then annotates and fails or warns on a passed limit", {
+  skip: process.platform === "win32",
+}, () => {
+  // The composite step's script, run under the shell options GitHub uses for `shell: bash`.
+  const action = readFileSync("action.yml", "utf8");
+  const script = action
+    .split("    - name: Compare PR commits")[1]
+    .split("      run: |\n")[1]
+    .split("\n")
+    .map((line) => line.slice(8))
+    .join("\n");
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("CLAUDE.md", "Root.\n");
+    const base = commit("Add instructions");
+    put("CLAUDE.md", "Root instructions, grown by a good amount.\n");
+    const head = commit("Grow instructions");
+    const run = (inputs) => {
+      const runner = mkdtempSync(join(temp, "run-"));
+      const summary = join(runner, "summary.md");
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", script], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_WORKSPACE: repo,
+          GITHUB_ACTION_PATH: resolve("."),
+          RUNNER_TEMP: runner,
+          GITHUB_STEP_SUMMARY: summary,
+          STRATA_BASE: base,
+          STRATA_HEAD: head,
+          STRATA_TOKENIZER: "estimate",
+          STRATA_MODEL: "",
+          STRATA_PRECISE: "false",
+          STRATA_MAX_TOKENS: "",
+          STRATA_MAX_INCREASE: "",
+          STRATA_MAX_UP_FRONT_TOKENS: "",
+          STRATA_MAX_UP_FRONT_INCREASE: "",
+          STRATA_ON_EXCEED: "fail",
+          ...inputs,
+        },
+      });
+      let written = null;
+      try {
+        written = readFileSync(summary, "utf8");
+      } catch {}
+      return { ...result, summary: written };
+    };
+
+    const plain = run({});
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.summary, /^## Strata configuration delta/);
+    assert.doesNotMatch(plain.stdout, /::/);
+
+    const failed = run({ STRATA_MAX_INCREASE: "10%", STRATA_MAX_UP_FRONT_TOKENS: "claude=1, codex=5" });
+    assert.equal(failed.status, 3);
+    assert.match(failed.summary, /\*\*Over 2 of 3 limits set for this run\.\*\*/);
+    assert.match(
+      failed.stdout,
+      /^::error title=Strata context limit::stored instructional text grew by \d+ tokens \(\+[\d.]+%25\), more than the 10%25 set/m,
+    );
+    assert.match(failed.stdout, /^::error title=Strata context limit::Claude Code at session start is \d+ tokens/m);
+
+    const warned = run({ STRATA_MAX_INCREASE: "10%", STRATA_ON_EXCEED: "warn" });
+    assert.equal(warned.status, 0);
+    assert.match(warned.stdout, /^::warning title=Strata context limit::/m);
+    assert.match(warned.summary, /Over 1 of 1 limit/);
+
+    // A real failure fails the step and writes no summary.
+    const invalid = run({ STRATA_MAX_TOKENS: "lots" });
+    assert.equal(invalid.status, 2);
+    assert.equal(invalid.summary, null);
+    assert.equal(run({ STRATA_ON_EXCEED: "maybe" }).status, 1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
   }
 });
 

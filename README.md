@@ -143,7 +143,7 @@ By default Strata estimates tokens as UTF-8 bytes divided by four. For offline O
 
 ### In pull requests
 
-An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments.
+An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments. Optional [limits](docs/pr-action.md#limits), such as `max-up-front-tokens: claude=8000`, fail or warn when a figure passes a number you choose.
 
 <!-- x-release-please-start-version -->
 ```yaml

@@ -17,6 +17,7 @@ import {
   trackedFile,
   versionKey,
 } from "./inventory.js";
+import { type LimitCheck, limitLines } from "./limits.js";
 import { mcpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
@@ -77,7 +78,7 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 11;
+  schemaVersion: 12;
   base: string;
   head: string;
   measurement: Measurement;
@@ -87,6 +88,8 @@ export interface PullRequestDelta {
   /** With `--precise`: how each provider was counted, and its totals at both commits. */
   providerMeasurements?: ProviderMeasurementMetadata[];
   providerTotals?: ProviderTotalDelta[];
+  /** With limits such as `--max-tokens`: each limit checked, in the comparison's measurement. */
+  limits?: LimitCheck[];
 }
 
 export interface CompareOptions {
@@ -142,7 +145,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 11,
+    schemaVersion: 12,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
@@ -347,6 +350,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     `Base \`${delta.base.slice(0, 12)}\` → head \`${delta.head.slice(0, 12)}\``,
     "",
+    ...limitLines(delta.limits ?? []),
     `Stored instructional text: **${signed(comparison.deltaTokens)}** tokens (${comparison.beforeTokens} → ${comparison.afterTokens}); tracked files: **${signed(comparison.deltaFiles)}** (${comparison.beforeFiles} → ${comparison.afterFiles}).`,
     "",
     `Method: ${cell(delta.measurement.method)}. ${cell(delta.measurement.limitations)}`,
