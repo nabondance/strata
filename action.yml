@@ -51,7 +51,7 @@ inputs:
   on-exceed:
     description: >-
       What a limit that is passed does: 'fail' fails the step after writing the summary, 'warn' adds
-      a warning and lets the step pass.
+      a warning and lets the step pass. Used only when a limit is set.
     required: false
     default: fail
 runs:
@@ -83,10 +83,6 @@ runs:
         STRATA_MAX_UP_FRONT_INCREASE: ${{ inputs.max-up-front-increase }}
         STRATA_ON_EXCEED: ${{ inputs.on-exceed }}
       run: |
-        case "$STRATA_ON_EXCEED" in
-          fail | warn) ;;
-          *) echo "::error::on-exceed must be fail or warn"; exit 1 ;;
-        esac
         args=(diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --output "$RUNNER_TEMP/strata-pr-delta.md")
         if [ "$STRATA_PRECISE" = "true" ]; then
           if [ -n "$STRATA_MODEL" ] || [ "$STRATA_TOKENIZER" != "estimate" ]; then
@@ -107,29 +103,14 @@ runs:
         for value in ${STRATA_MAX_UP_FRONT_TOKENS//,/ }; do limits+=(--max-up-front-tokens "$value"); done
         for value in ${STRATA_MAX_UP_FRONT_INCREASE//,/ }; do limits+=(--max-up-front-increase "$value"); done
         set +f
-        if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-exceed "$STRATA_ON_EXCEED"); fi
-        # Files from an earlier run of the Action in the same job must not reach this summary.
-        rm -f "$RUNNER_TEMP/strata-pr-delta.md" "$RUNNER_TEMP/strata-pr-delta.err"
-        # Standard error streams to the log as it comes and is kept for the annotations below.
+        # With a limit set, Strata annotates each limit passed (as an error, or a warning under
+        # on-exceed: warn) and each it could not check, and validates on-exceed itself.
+        if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-exceed "$STRATA_ON_EXCEED" --annotations); fi
         # Status 3 means a limit was passed under on-exceed: fail; the summary is written either way.
+        # A file from an earlier run of the Action in the same job must not reach this summary.
+        rm -f "$RUNNER_TEMP/strata-pr-delta.md"
         status=0
-        { node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" 2>&1 1>&3 3>&- | tee "$RUNNER_TEMP/strata-pr-delta.err" >&2; } 3>&1 || status=$?
+        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" || status=$?
         if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
         cat "$RUNNER_TEMP/strata-pr-delta.md" >> "$GITHUB_STEP_SUMMARY"
-        level=error
-        if [ "$STRATA_ON_EXCEED" = warn ]; then level=warning; fi
-        # One annotation per limit passed, and a warning per limit that could not be checked;
-        # % is escaped as workflow commands require.
-        { grep -E '^(Over limit|Limit not checked): ' "$RUNNER_TEMP/strata-pr-delta.err" || true; } | while IFS= read -r line; do
-          case "$line" in
-            "Over limit: "*)
-              message="${line#Over limit: }"
-              echo "::$level title=Strata context limit::${message//%/%25}"
-              ;;
-            *)
-              message="${line#Limit not checked: }"
-              echo "::warning title=Strata context limit not checked::${message//%/%25}"
-              ;;
-          esac
-        done
         exit "$status"

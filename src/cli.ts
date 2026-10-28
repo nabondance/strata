@@ -11,7 +11,16 @@ import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
-import { checkLimits, type Limit, type LimitName, limitMessages, limitSummary, parseLimits } from "./limits.js";
+import {
+  checkLimits,
+  type Limit,
+  type LimitCheck,
+  type LimitName,
+  limitAnnotations,
+  limitMessages,
+  limitSummary,
+  parseLimits,
+} from "./limits.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import type { Component, Report, Submodule } from "./model.js";
 import {
@@ -81,7 +90,9 @@ const limitsHelp = {
       --max-up-front-tokens [agent=]<n>    What each agent reads at session start; repeat with
                                            ${agentPrefix} for one agent
       --on-exceed <fail|warn>              fail (default) exits with status ${overLimitStatus} once the report
-                                           is written; warn only reports`,
+                                           is written; warn only reports
+      --annotations                        Also print each limit passed or not checked as a GitHub
+                                           Actions annotation`,
   diff: `Limits (off unless set; checked at the head with --tokenizer or --model, never --precise counts):
       --max-tokens <n>                     Stored instructional text
       --max-increase <n|n%>                Growth of stored instructional text from base to head
@@ -90,7 +101,9 @@ const limitsHelp = {
       --max-up-front-increase [agent=]<n|n%>
                                            Growth of what each agent reads at session start
       --on-exceed <fail|warn>              fail (default) exits with status ${overLimitStatus} once the delta
-                                           is written; warn only reports`,
+                                           is written; warn only reports
+      --annotations                        Also print each limit passed or not checked as a GitHub
+                                           Actions annotation`,
 };
 
 const help = {
@@ -348,6 +361,7 @@ const limitOptions = {
   "max-tokens": { type: "string", multiple: true },
   "max-up-front-tokens": { type: "string", multiple: true },
   "on-exceed": { type: "string" },
+  annotations: { type: "boolean" },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
 const increaseLimitOptions = {
@@ -355,13 +369,19 @@ const increaseLimitOptions = {
   "max-up-front-increase": { type: "string", multiple: true },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
-/** The limits set on the command line, and whether passing one fails the run. */
-function limitArguments(
-  values: Partial<Record<LimitName, string[] | undefined>> & { "on-exceed"?: string | undefined },
-): {
+/** The limits set on the command line, whether passing one fails the run, and whether to annotate. */
+interface LimitArguments {
   limits: Limit[];
   fail: boolean;
-} {
+  annotations: boolean;
+}
+
+function limitArguments(
+  values: Partial<Record<LimitName, string[] | undefined>> & {
+    "on-exceed"?: string | undefined;
+    annotations?: boolean | undefined;
+  },
+): LimitArguments {
   let limits: Limit[];
   try {
     limits = parseLimits(values);
@@ -371,13 +391,20 @@ function limitArguments(
   const onExceed = choice("--on-exceed", values["on-exceed"], ["fail", "warn"], "fail");
   if (values["on-exceed"] !== undefined && !limits.length)
     throw new UsageError("--on-exceed requires a limit such as --max-tokens");
-  return { limits, fail: onExceed === "fail" };
+  if (values.annotations && !limits.length) throw new UsageError("--annotations requires a limit such as --max-tokens");
+  return { limits, fail: onExceed === "fail", annotations: values.annotations ?? false };
 }
 
-/** Report passed and unchecked limits on stderr, shown even with --quiet, and set the exit status. */
-function reportLimits(checks: ReturnType<typeof checkLimits>, fail: boolean): void {
+/**
+ * Report passed and unchecked limits on stderr, shown even with --quiet, with GitHub Actions
+ * annotations when asked (the runner reads workflow commands from either stream), and set the exit status.
+ */
+function reportLimits(checks: readonly LimitCheck[], options: LimitArguments): void {
   for (const line of limitMessages(checks)) process.stderr.write(`${line}\n`);
-  if (fail && checks.some((check) => check.result === "over")) process.exitCode = overLimitStatus;
+  if (options.annotations) {
+    for (const line of limitAnnotations(checks, options.fail ? "error" : "warning")) process.stderr.write(`${line}\n`);
+  }
+  if (options.fail && checks.some((check) => check.result === "over")) process.exitCode = overLimitStatus;
 }
 
 async function analyze(args: string[]): Promise<void> {
@@ -438,9 +465,26 @@ async function analyze(args: string[]): Promise<void> {
   } finally {
     saveCache(precise?.cache);
   }
+  const latest = analyzed.revisions.at(-1);
+  // The last revision's files and what each agent reads up front, built once for the notes and limits.
+  const components = latestComponents(analyzed);
+  const upFrontContexts = sessionProviders.flatMap((provider) => {
+    const context = upFrontContext(components, provider, latest?.geminiContextFiles);
+    return hasUpFront(upFrontTotals(context)) ? [context] : [];
+  });
+  // Limits use the local measurement, which a dry run has already taken.
+  const checks = limits.limits.length
+    ? checkLimits(limits.limits, {
+        total: { before: null, after: latest?.estimatedTokens ?? 0 },
+        upFront: new Map(upFrontContexts.map((context) => [context.provider, { before: null, after: context.tokens }])),
+      })
+    : null;
   if (precise?.plan.dryRun) {
     process.stdout.write("Dry run: nothing was sent and no report was written.\n");
-    if (limits.limits.length) process.stdout.write("Limits were not checked: a dry run measures nothing.\n");
+    if (checks) {
+      process.stdout.write(`${limitSummary(checks)}\n`);
+      reportLimits(checks, limits);
+    }
     return;
   }
   const report = values.shareable ? redactReport(analyzed) : analyzed;
@@ -456,7 +500,6 @@ async function analyze(args: string[]): Promise<void> {
   const say = (line: string) => {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
   };
-  const latest = report.revisions.at(-1);
   say(`Analyzed ${report.revisions.length} revisions of ${report.repository}.`);
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
@@ -471,12 +514,6 @@ async function analyze(args: string[]): Promise<void> {
           : ""),
     );
   }
-  // The last revision's files and what each agent reads up front, built once for the notes and limits.
-  const components = latestComponents(report);
-  const upFrontContexts = sessionProviders.flatMap((provider) => {
-    const context = upFrontContext(components, provider, latest?.geminiContextFiles);
-    return hasUpFront(upFrontTotals(context)) ? [context] : [];
-  });
   const upFront = upFrontNote(upFrontContexts);
   if (upFront) say(upFront);
   const age = summarizeInstructionAge(report);
@@ -517,13 +554,9 @@ async function analyze(args: string[]): Promise<void> {
     process.stdout.write(values.quiet ? `${destination}\n` : `Report: ${destination}\n`);
     if (values.open) openReport(destination);
   }
-  if (limits.limits.length) {
-    const checks = checkLimits(limits.limits, {
-      total: { before: null, after: latest?.estimatedTokens ?? 0 },
-      upFront: new Map(upFrontContexts.map((context) => [context.provider, { before: null, after: context.tokens }])),
-    });
+  if (checks) {
     say(limitSummary(checks));
-    reportLimits(checks, limits.fail);
+    reportLimits(checks, limits);
   }
   if (report.shallow) process.stderr.write("Warning: shallow clone; earlier history is unavailable.\n");
   for (const line of submoduleNotes(report.submodules ?? [])) process.stderr.write(`Note: ${line}\n`);
@@ -644,13 +677,15 @@ async function diff(args: string[]): Promise<void> {
   } finally {
     saveCache(precise?.cache);
   }
+  // Limits use the local measurement, which a dry run has already taken.
+  if (limits.limits.length) delta = { ...delta, limits: checkLimits(limits.limits, limitFigures(delta)) };
   if (precise?.plan.dryRun) {
     process.stdout.write("Dry run: nothing was sent and no delta was written.\n");
-    if (limits.limits.length) process.stdout.write("Limits were not checked: a dry run measures nothing.\n");
+    if (delta.limits) {
+      process.stdout.write(`${limitSummary(delta.limits)}\n`);
+      reportLimits(delta.limits, limits);
+    }
     return;
-  }
-  if (limits.limits.length) {
-    delta = { ...delta, limits: checkLimits(limits.limits, limitFigures(delta)) };
   }
   const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
   if (values.output === undefined || values.output === "-") {
@@ -660,7 +695,7 @@ async function diff(args: string[]): Promise<void> {
     writePrivate(destination, content);
     process.stdout.write(`Delta: ${destination}\n`);
   }
-  if (delta.limits) reportLimits(delta.limits, limits.fail);
+  if (delta.limits) reportLimits(delta.limits, limits);
 }
 
 function skill(args: string[]): void {
