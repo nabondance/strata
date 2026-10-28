@@ -65,7 +65,7 @@ The Action can check token limits. None is set by default; each input is off whe
 | Input | Checks |
 | --- | --- |
 | `max-tokens` | Stored instructional text at the head, in tokens |
-| `max-increase` | Its growth from base to head, in tokens or as a percentage such as `10%` |
+| `max-increase` | Its growth from base to head, in tokens or as a percentage such as `10%`, or both, such as `10% 500` |
 | `max-up-front-tokens` | What each agent reads at session start at the head: one number for every agent, or `agent=number` entries separated by spaces or commas |
 | `max-up-front-increase` | Its growth from base to head, in the same form, in tokens or as a percentage |
 | `on-exceed` | `fail` (default) fails the step after the summary is written; `warn` lets it pass |

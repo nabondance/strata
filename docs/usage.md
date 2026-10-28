@@ -74,7 +74,7 @@ Both commands can check token limits you choose. None is set by default, and Str
 | `--max-up-front-tokens [agent=]<n>` | What each agent reads at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
 | `--max-up-front-increase [agent=]<n\|n%>` | Its growth from base to head | `diff` |
 
-A session-start limit without an agent applies to every agent that reads stored text; repeat the flag with `claude=`, `codex=`, `copilot=`, `cursor=`, or `gemini=` to set one agent's limit, which then replaces the general one for that agent. A percentage limit cannot be checked when the base had no tokens, so the run says it was not checked; add a token limit to cover that case. Limits use the run's measurement, never the `--precise` counts.
+A session-start limit without an agent applies to every agent that reads stored text; repeat the flag with `claude=`, `codex=`, `copilot=`, `cursor=`, or `gemini=` to set one agent's limit, which then replaces the general one of the same kind for that agent. Each flag takes one token limit and one percentage for the same figure, such as `--max-increase 10% --max-increase 500`: a percentage limit cannot be checked when the base had no tokens, so the run says it was not checked, and the token limit covers that case. A limit takes at most 15 significant digits. When every limit is a session-start one without an agent and no agent reads stored text, the run says the limits had nothing to check. Limits use the run's measurement, never the `--precise` counts.
 
 ```sh
 strata diff --base <base-commit> --head <head-commit> --max-increase 10% --max-up-front-tokens claude=8000

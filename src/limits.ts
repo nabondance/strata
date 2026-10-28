@@ -12,17 +12,17 @@ export interface Limit {
   name: LimitName;
   /** The one agent a session-start limit applies to; null applies it to every agent, or to the total. */
   agent: SessionProvider | null;
-  value: number;
-  /** Only for increase limits: `value` is a percentage of the base. */
-  percent: boolean;
-  /** `value` as typed, digits only, so a percentage compares exactly. */
+  /** The number as typed, without `%`: at most 15 significant digits, so `Number(digits)` keeps it exactly. */
   digits: string;
+  /** Only for increase limits: `digits` is a percentage of the base. */
+  percent: boolean;
 }
 
 export interface LimitCheck {
   name: LimitName;
   /** The agent whose session-start tokens were checked; null for the stored instructional text total. */
   agent: SessionProvider | null;
+  /** The limit as given; `percent` makes it a percentage of the base. */
   limit: number;
   percent: boolean;
   /** Tokens at the base; null when there is no base, as in `strata analyze`. */
@@ -69,13 +69,17 @@ export function parseLimits(values: Partial<Record<LimitName, readonly string[] 
       }
       if (percent && !isIncrease(name)) throw new Error(`--${name} takes a number of tokens, not a percentage`);
       if (!percent && number!.includes(".")) throw new Error(`--${name} needs a whole number of tokens, not ${raw}`);
+      // Beyond 15 significant digits a number no longer prints back as typed.
+      if (number!.replace(".", "").replace(/^0+/, "").length > 15)
+        throw new Error(`--${name} allows at most 15 significant digits, not ${raw}`);
       const agent = (agentName ?? null) as SessionProvider | null;
-      if (limits.some((limit) => limit.name === name && limit.agent === agent)) {
+      // One token limit and one percentage limit may apply to the same figure: the token limit covers a zero base.
+      if (limits.some((limit) => limit.name === name && limit.agent === agent && limit.percent === !!percent)) {
         throw new Error(
-          `--${name} is set twice${agent ? ` for ${agent}` : takesAgent(name) ? " for every agent" : ""}`,
+          `--${name} is set twice as ${percent ? "a percentage" : "a number of tokens"}${agent ? ` for ${agent}` : takesAgent(name) ? " for every agent" : ""}`,
         );
       }
-      limits.push({ name, agent, value: Number(number), percent: !!percent, digits: number! });
+      limits.push({ name, agent, digits: number!, percent: !!percent });
     }
   }
   return limits;
@@ -85,9 +89,10 @@ function check(limit: Limit, agent: SessionProvider | null, figure: LimitFigure)
   const { before, after } = figure;
   // Increase limits always have a base: `strata analyze`, which has none, does not accept them.
   const increase = after - (before ?? 0);
+  const value = Number(limit.digits);
   let result: LimitCheck["result"];
-  if (!isIncrease(limit.name)) result = after > limit.value ? "over" : "within";
-  else if (!limit.percent) result = increase > limit.value ? "over" : "within";
+  if (!isIncrease(limit.name)) result = after > value ? "over" : "within";
+  else if (!limit.percent) result = increase > value ? "over" : "within";
   else if (!before) result = increase > 0 ? "unchecked" : "within";
   else {
     // Compare whole numbers built from the digits as typed, so 0.57% sits exactly on its boundary.
@@ -96,33 +101,39 @@ function check(limit: Limit, agent: SessionProvider | null, figure: LimitFigure)
     const scale = 10n ** BigInt(fraction.length);
     result = BigInt(increase) * 100n * scale > percent * BigInt(before) ? "over" : "within";
   }
-  return { name: limit.name, agent, limit: limit.value, percent: limit.percent, before, after, result };
+  return { name: limit.name, agent, limit: value, percent: limit.percent, before, after, result };
 }
 
 /**
- * Check each limit. A session-start limit without an agent applies to every agent that reads stored
- * text at either side, except one given its own limit of the same kind; a limit for one agent is
- * checked even when that agent reads nothing, as zero tokens.
+ * Check each limit, tokens before percentages. A session-start limit without an agent applies to every
+ * agent that reads stored text at either side, except one given its own limit of the same kind (tokens
+ * or percentage); a limit for one agent is checked even when that agent reads nothing, as zero tokens.
+ * The result is empty only when every limit is a general session-start one and no agent reads stored text.
  */
 export function checkLimits(limits: readonly Limit[], figures: LimitFigures): LimitCheck[] {
   const checks: LimitCheck[] = [];
   for (const name of limitNames) {
-    const named = limits.filter((limit) => limit.name === name);
-    if (!takesAgent(name)) {
-      for (const limit of named) checks.push(check(limit, null, figures.total));
-      continue;
-    }
-    const general = named.find((limit) => limit.agent === null);
-    for (const agent of sessionProviders) {
-      const limit =
-        named.find((candidate) => candidate.agent === agent) ?? (figures.upFront.has(agent) ? general : undefined);
-      if (!limit) continue;
-      const figure = figures.upFront.get(agent) ?? { before: figures.total.before === null ? null : 0, after: 0 };
-      checks.push(check(limit, agent, figure));
+    for (const percent of [false, true]) {
+      const named = limits.filter((limit) => limit.name === name && limit.percent === percent);
+      if (!takesAgent(name)) {
+        for (const limit of named) checks.push(check(limit, null, figures.total));
+        continue;
+      }
+      const general = named.find((limit) => limit.agent === null);
+      for (const agent of sessionProviders) {
+        const limit =
+          named.find((candidate) => candidate.agent === agent) ?? (figures.upFront.has(agent) ? general : undefined);
+        if (!limit) continue;
+        const figure = figures.upFront.get(agent) ?? { before: figures.total.before === null ? null : 0, after: 0 };
+        checks.push(check(limit, agent, figure));
+      }
     }
   }
   return checks;
 }
+
+/** Said when limits were set but none had a figure to check. */
+const nothingToCheck = "no agent reads stored text, so the session-start limits set for this run had nothing to check";
 
 function subject(check: LimitCheck): string {
   return check.agent === null ? "stored instructional text" : `${sessionProviderNames[check.agent]} at session start`;
@@ -139,23 +150,27 @@ function increase(check: LimitCheck): string {
 }
 
 /**
- * The change as a share of the base to one decimal, such as " (+12.5%)", or nothing when the base had
- * no tokens; the same figure as a comparison's `percentChange`. Growth checked against a percentage
- * rounds toward the result, in whole numbers, so a share over 10% never prints as 10%.
+ * The change as a share of the base, rounded to one decimal, such as " (+12.5%)", or nothing when the
+ * base had no tokens; the same figure as a comparison's `percentChange`. Only when rounding would
+ * contradict a percentage limit's result does it round toward it, so a share over 10% never prints as 10%.
  */
 function share(check: LimitCheck): string {
   const before = check.before ?? 0;
   if (before <= 0) return "";
   const thousandths = (check.after - before) * 1000;
-  const tenths =
-    check.percent && thousandths > 0
-      ? Math.floor(thousandths / before) + (check.result === "over" && thousandths % before ? 1 : 0)
-      : Math.round(thousandths / before);
+  let tenths = Math.round(thousandths / before);
+  if (check.percent && thousandths > 0) {
+    const floor = Math.floor(thousandths / before);
+    const ceil = floor + (thousandths % before ? 1 : 0);
+    if (check.result === "over" && tenths / 10 <= check.limit) tenths = ceil;
+    if (check.result === "within" && tenths / 10 > check.limit) tenths = floor;
+  }
   return ` (${signed(tenths / 10)}%)`;
 }
 
 /** One line per limit that was passed or could not be checked, for the terminal. */
 export function limitMessages(checks: readonly LimitCheck[]): string[] {
+  if (!checks.length) return [`Limit not checked: ${nothingToCheck}.`];
   return checks.flatMap((check) => {
     const what = subject(check);
     if (check.result === "unchecked") {
@@ -172,6 +187,7 @@ export function limitMessages(checks: readonly LimitCheck[]): string[] {
 
 /** A one-line summary of the checks, such as "Over 1 of 3 limits set for this run." */
 export function limitSummary(checks: readonly LimitCheck[]): string {
+  if (!checks.length) return `${nothingToCheck[0]!.toUpperCase()}${nothingToCheck.slice(1)}.`;
   const over = checks.filter((check) => check.result === "over").length;
   const unchecked = checks.filter((check) => check.result === "unchecked").length;
   const within = checks.length - over - unchecked;
@@ -187,9 +203,9 @@ export function limitSummary(checks: readonly LimitCheck[]): string {
   return `${lead} set for this run${unchecked ? `; ${skipped}` : ""}.`;
 }
 
-/** The Markdown table of checks for `strata diff`. */
+/** The Markdown table of checks for `strata diff`; without checks, the line saying why. */
 export function limitLines(checks: readonly LimitCheck[]): string[] {
-  if (!checks.length) return [];
+  if (!checks.length) return [limitSummary(checks), ""];
   const over = checks.some((check) => check.result === "over");
   const summary = limitSummary(checks);
   const rows = checks.map((check) => {

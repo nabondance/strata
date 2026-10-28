@@ -358,7 +358,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     `Base \`${delta.base.slice(0, 12)}\` → head \`${delta.head.slice(0, 12)}\``,
     "",
-    ...limitLines(delta.limits ?? []),
+    ...(delta.limits ? limitLines(delta.limits) : []),
     `Stored instructional text: **${signed(comparison.deltaTokens)}** tokens (${comparison.beforeTokens} → ${comparison.afterTokens}); tracked files: **${signed(comparison.deltaFiles)}** (${comparison.beforeFiles} → ${comparison.afterFiles}).`,
     "",
     `Method: ${cell(delta.measurement.method)}. ${cell(delta.measurement.limitations)}`,
