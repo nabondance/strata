@@ -13,6 +13,7 @@ import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
 import {
   checkLimits,
+  keepsUpFront,
   type Limit,
   type LimitCheck,
   type LimitName,
@@ -128,7 +129,7 @@ Options:
 Limits:
   analyze and diff can fail, or warn, when a token figure passes a limit you set, such as
   --limit-tokens 50000 or --limit-up-front-tokens claude=8000. A passed limit exits with
-  status 3. Run strata help diff for every limit flag.
+  status 3, or only warns with --on-limit warn. Run strata help diff for every limit flag.
 
 Strata reads Git-tracked Claude, Codex, Gemini CLI, Cursor, and GitHub Copilot configuration from
 first-parent history. It never modifies the repository and sends nothing over the network unless
@@ -473,6 +474,12 @@ async function analyze(args: string[]): Promise<void> {
   } finally {
     saveCache(precise?.cache);
   }
+  const dryRunLine = "Dry run: nothing was sent and no report was written.\n";
+  // Without limits a dry run needs nothing more, so it skips replaying the history.
+  if (precise?.plan.dryRun && !limits.limits.length) {
+    process.stdout.write(dryRunLine);
+    return;
+  }
   const latest = analyzed.revisions.at(-1);
   // The last revision's files and what each agent reads up front, built once for the notes and limits.
   const components = latestComponents(analyzed);
@@ -484,16 +491,15 @@ async function analyze(args: string[]): Promise<void> {
   const checks = limits.limits.length
     ? checkLimits(limits.limits, {
         total: { before: null, after: latest?.estimatedTokens ?? 0 },
-        // Only agents that keep text at session start; one that only reads on demand has nothing to limit.
         upFront: new Map(
           upFrontContexts
-            .filter((context) => context.tokens || context.files.length)
+            .filter((context) => keepsUpFront(upFrontTotals(context)))
             .map((context) => [context.provider, { before: null, after: context.tokens }]),
         ),
       })
     : null;
   if (precise?.plan.dryRun) {
-    process.stdout.write("Dry run: nothing was sent and no report was written.\n");
+    process.stdout.write(dryRunLine);
     if (checks) {
       if (!values.quiet) process.stdout.write(`${limitSummary(checks)}\n`);
       reportLimits(checks, limits);
@@ -774,5 +780,6 @@ try {
   const usage = error instanceof UsageError;
   process.stderr.write(`strata: ${error instanceof Error ? error.message : String(error)}\n`);
   if (usage) process.stderr.write("Run strata --help for usage.\n");
-  process.exitCode = usage ? 2 : 1;
+  // A limit already reported as passed keeps its status 3 through a later failure, such as --open.
+  process.exitCode = usage ? 2 : process.exitCode === overLimitStatus ? overLimitStatus : 1;
 }

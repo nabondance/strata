@@ -31,15 +31,25 @@ export interface LimitCheck {
   agent: SessionProvider | null;
   /** Tokens. */
   limit: number;
-  /** Tokens at the base; null when there is no base, as in `strata analyze`, or for `unused`. */
+  /** Tokens at the base; null when there is no base, as in `strata analyze`, or when not applied. */
   before: number | null;
-  /** Tokens at the head, or at the latest revision; null for `unused`. */
+  /** Tokens at the head, or at the latest revision; null when not applied. */
   after: number | null;
   /**
-   * `unused`: a session-start limit without an agent that applied to no agent, because no agent keeps
-   * text at session start except those given their own limit of the same kind.
+   * A session-start limit without an agent that applied to no agent: `no-agent` when no agent keeps
+   * text at session start, `replaced` when each that does has its own limit of the same kind.
    */
-  result: "within" | "over" | "unused";
+  result: "within" | "over" | "no-agent" | "replaced";
+}
+
+const notApplied = (result: LimitCheck["result"]) => result === "no-agent" || result === "replaced";
+
+/**
+ * Whether an agent keeps text at session start: up-front tokens or files. The one rule for which
+ * agents a session-start limit without an agent covers; one that only reads on demand has nothing to limit.
+ */
+export function keepsUpFront(totals: { tokens: number; fileCount: number }): boolean {
+  return totals.tokens > 0 || totals.fileCount > 0;
 }
 
 /** Tokens at both sides; `before` is null when there is no base, as in `strata analyze`. */
@@ -99,7 +109,7 @@ function check(limit: Limit, agent: SessionProvider | null, figure: LimitFigure)
 /**
  * Check each limit. A session-start limit without an agent applies to every agent that keeps text at
  * session start at either side, except one given its own limit of the same kind; when that leaves no
- * agent it gives one `unused` entry, so it is never lost. A limit for one agent is checked even when
+ * agent it gives one `no-agent` or `replaced` entry, so it is never lost. A limit for one agent is checked even when
  * that agent keeps nothing at session start, as zero tokens.
  */
 export function checkLimits(limits: readonly Limit[], figures: LimitFigures): LimitCheck[] {
@@ -121,7 +131,8 @@ export function checkLimits(limits: readonly Limit[], figures: LimitFigures): Li
       checks.push(check(limit, agent, figure));
     }
     if (general && !applied) {
-      checks.push({ name, agent: null, limit: general.value, before: null, after: null, result: "unused" });
+      const result = figures.upFront.size ? "replaced" : "no-agent";
+      checks.push({ name, agent: null, limit: general.value, before: null, after: null, result });
     }
   }
   return checks;
@@ -150,13 +161,12 @@ interface LimitNote {
 function limitNotes(checks: readonly LimitCheck[]): LimitNote[] {
   return checks.flatMap((check): LimitNote[] => {
     if (check.result === "within") return [];
-    if (check.result === "unused") {
-      return [
-        {
-          over: false,
-          text: `--${check.name} ${check.limit} applied to no agent: none keeps text at session start without its own limit.`,
-        },
-      ];
+    if (notApplied(check.result)) {
+      const why =
+        check.result === "no-agent"
+          ? "none keeps text at session start"
+          : "each agent that keeps text at session start has its own limit";
+      return [{ over: false, text: `--${check.name} ${check.limit} applied to no agent: ${why}.` }];
     }
     const what = subject(check);
     const delta = (check.after ?? 0) - (check.before ?? 0);
@@ -192,9 +202,14 @@ export function limitAnnotations(checks: readonly LimitCheck[], level: "error" |
 /** A one-line summary of the checks, such as "Over 1 of 3 limits set for this run." */
 export function limitSummary(checks: readonly LimitCheck[]): string {
   const over = checks.filter((check) => check.result === "over").length;
-  const unused = checks.filter((check) => check.result === "unused").length;
+  const unused = checks.filter((check) => notApplied(check.result)).length;
   const within = checks.length - over - unused;
   const limits = `${checks.length} limit${checks.length === 1 ? "" : "s"}`;
+  if (!over && !within) {
+    return checks.length === 1
+      ? "The 1 limit set for this run applied to no agent."
+      : `None of the ${limits} set for this run applied to an agent.`;
+  }
   const lead = over
     ? `Over ${over} of ${limits}`
     : within === checks.length
@@ -211,7 +226,8 @@ export function limitLines(checks: readonly LimitCheck[]): string[] {
   const results: Record<LimitCheck["result"], string> = {
     over: "**Over**",
     within: "Within",
-    unused: "Not applied: no agent without its own limit",
+    "no-agent": "Not applied: no agent keeps text at session start",
+    replaced: "Not applied: each agent has its own limit",
   };
   const rows = checks.map((check) => {
     const what = subject(check);

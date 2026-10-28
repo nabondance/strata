@@ -430,7 +430,8 @@ test("limits report a passed number and exit with 3, only when set", () => {
       const opened = strata(["analyze", repo, "-o", join(outside, "open.html"), "--open", "--limit-tokens", "1"], {
         env: { ...process.env, PATH: bin },
       });
-      assert.equal(opened.status, 1);
+      // The failure to open is printed, but the passed limit keeps its status.
+      assert.equal(opened.status, 3);
       assert.match(opened.stderr, /^Over limit: stored instructional text[\s\S]*Could not open the report/m);
     }
 
@@ -454,7 +455,7 @@ test("limits report a passed number and exit with 3, only when set", () => {
       assert.match(unused.stdout, /Within 1 of 2 limits set for this run; 1 applied to no agent\./);
       assert.match(
         unused.stderr,
-        /^Limit not applied: --limit-up-front-tokens 5 applied to no agent: none keeps text at session start without its own limit\.$/m,
+        /^Limit not applied: --limit-up-front-tokens 5 applied to no agent: none keeps text at session start\.$/m,
       );
     } finally {
       rmSync(onDemand.repo, { recursive: true, force: true });
@@ -496,17 +497,22 @@ test("limits compare at their boundaries and never drop a limit", () => {
     replaced.map(({ agent, limit, result }) => [agent, limit, result]),
     [
       ["claude", 8000, "within"],
-      [null, 5000, "unused"],
+      [null, 5000, "replaced"],
     ],
   );
   assert.equal(limitSummary(replaced), "Within 1 of 2 limits set for this run; 1 applied to no agent.");
   assert.match(
     limitLines(replaced).join("\n"),
-    /\| Every agent at session start \| — \| 5000 \| Not applied: no agent without its own limit \|/,
+    /\| Every agent at session start \| — \| 5000 \| Not applied: each agent has its own limit \|/,
+  );
+  // When every limit applied to no agent, the summary says so rather than "Within 0 of 1".
+  assert.equal(
+    limitSummary(checkLimits(parseLimits({ "limit-up-front-tokens": ["8000"] }), figures(null, 0))),
+    "The 1 limit set for this run applied to no agent.",
   );
   // With no agent at all, the same.
   assert.deepEqual(checkLimits(parseLimits({ "limit-up-front-tokens": ["8000"] }), figures(null, 0)), [
-    { name: "limit-up-front-tokens", agent: null, limit: 8000, before: null, after: null, result: "unused" },
+    { name: "limit-up-front-tokens", agent: null, limit: 8000, before: null, after: null, result: "no-agent" },
   ]);
   // A limit for one agent that keeps nothing is checked as zero tokens; the general limit skips absent agents.
   const upFront = checkLimits(parseLimits({ "limit-up-front-tokens": ["5", "gemini=0"] }), {
@@ -525,7 +531,7 @@ test("limits compare at their boundaries and never drop a limit", () => {
     "::error title=Strata context limit::stored instructional text grew by 1 token (+33.3%25), more than the 0 set with --limit-increase.",
   ]);
   assert.deepEqual(limitAnnotations(replaced, "error"), [
-    "::warning title=Strata context limit not applied::--limit-up-front-tokens 5000 applied to no agent: none keeps text at session start without its own limit.",
+    "::warning title=Strata context limit not applied::--limit-up-front-tokens 5000 applied to no agent: each agent that keeps text at session start has its own limit.",
   ]);
 });
 

@@ -18,7 +18,7 @@ import {
   trackedFile,
   versionKey,
 } from "./inventory.js";
-import { type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
+import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
 import { mcpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
@@ -161,10 +161,9 @@ export function limitFigures(delta: PullRequestDelta): LimitFigures {
   const { comparison, upFront } = delta;
   return {
     total: { before: comparison.beforeTokens, after: comparison.afterTokens },
-    // Only agents that keep text at session start; one that only reads on demand has nothing to limit.
     upFront: new Map(
       upFront
-        .filter(({ before, after }) => before.tokens || after.tokens || before.fileCount || after.fileCount)
+        .filter(({ before, after }) => keepsUpFront(before) || keepsUpFront(after))
         .map((entry) => [entry.provider, { before: entry.before.tokens, after: entry.after.tokens }]),
     ),
   };
