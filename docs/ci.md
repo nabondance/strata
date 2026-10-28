@@ -137,4 +137,4 @@ The image is public wherever the README is. Add `--shareable` to the render comm
 
 ## Exit status
 
-`strata analyze` and `strata diff` exit with 0 on success, 2 for an invalid command line, 3 when a [limit](usage.md#limits) set with `--max-tokens`, `--max-increase`, `--max-up-front-tokens`, or `--max-up-front-increase` is passed, and 1 for any other failure, such as a missing commit or a path that is not a Git repository. Token growth alone is never a failure: without a limit, a run that measures growth exits with 0. With `--on-exceed warn`, a passed limit is reported and the run exits with 0.
+`strata analyze` and `strata diff` exit with 0 on success, 2 for an invalid command line, 3 when a [limit](usage.md#limits) set with `--limit-tokens`, `--limit-increase`, `--limit-up-front-tokens`, or `--limit-up-front-increase` is passed, and 1 for any other failure, such as a missing commit or a path that is not a Git repository. Token growth alone is never a failure: without a limit, a run that measures growth exits with 0. With `--on-limit warn`, a passed limit is reported and the run exits with 0.

@@ -56,19 +56,19 @@ The Action can check token limits. None is set by default; each input is off whe
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
-          max-increase: 500
-          max-up-front-tokens: claude=8000 codex=6000
-          on-exceed: warn
+          limit-increase: 500
+          limit-up-front-tokens: claude=8000 codex=6000
+          on-limit: warn
 ```
 <!-- x-release-please-end -->
 
 | Input | Checks |
 | --- | --- |
-| `max-tokens` | Stored instructional text at the head |
-| `max-increase` | Its growth from base to head |
-| `max-up-front-tokens` | What each agent keeps at session start at the head: one number for every agent, or `agent=number` entries separated by spaces or commas |
-| `max-up-front-increase` | Its growth from base to head, in the same form |
-| `on-exceed` | `fail` (default) fails the step after the summary is written; `warn` lets it pass. Used only when a limit is set |
+| `limit-tokens` | Stored instructional text at the head |
+| `limit-increase` | Its growth from base to head |
+| `limit-up-front-tokens` | What each agent keeps at session start at the head: one number for every agent, or `agent=number` entries separated by spaces or commas |
+| `limit-up-front-increase` | Its growth from base to head, in the same form |
+| `on-limit` | `fail` (default) fails the step after the summary is written; `warn` lets it pass. Used only when a limit is set |
 
 The job summary starts with a table of every limit and its result, and each limit passed adds an error or warning annotation that names it. A session-start limit that applied to no agent adds a warning but never fails the step. The limits follow `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
 

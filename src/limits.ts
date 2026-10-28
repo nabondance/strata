@@ -6,7 +6,12 @@ import { type SessionProvider, sessionProviderNames, sessionProviders } from "./
  * with a number of tokens the user chose; being over it says nothing about whether the configuration
  * got worse.
  */
-export const limitNames = ["max-tokens", "max-increase", "max-up-front-tokens", "max-up-front-increase"] as const;
+export const limitNames = [
+  "limit-tokens",
+  "limit-increase",
+  "limit-up-front-tokens",
+  "limit-up-front-increase",
+] as const;
 export type LimitName = (typeof limitNames)[number];
 
 export interface Limit {
@@ -50,8 +55,8 @@ export interface LimitFigures {
   upFront: Map<SessionProvider, LimitFigure>;
 }
 
-const takesAgent = (name: LimitName) => name === "max-up-front-tokens" || name === "max-up-front-increase";
-const isIncrease = (name: LimitName) => name === "max-increase" || name === "max-up-front-increase";
+const takesAgent = (name: LimitName) => name === "limit-up-front-tokens" || name === "limit-up-front-increase";
+const isIncrease = (name: LimitName) => name === "limit-increase" || name === "limit-up-front-increase";
 
 /** Read each flag's values, such as `8000` or `claude=8000`. Throws on a malformed or repeated limit. */
 export function parseLimits(values: Partial<Record<LimitName, readonly string[] | undefined>>): Limit[] {
@@ -172,7 +177,7 @@ export function limitMessages(checks: readonly LimitCheck[]): string[] {
 }
 
 /**
- * The same notes as GitHub Actions workflow commands: an error, or a warning under `--on-exceed warn`,
+ * The same notes as GitHub Actions workflow commands: an error, or a warning under `--on-limit warn`,
  * for each limit passed, and a warning for each limit applied to no agent.
  */
 export function limitAnnotations(checks: readonly LimitCheck[], level: "error" | "warning"): string[] {

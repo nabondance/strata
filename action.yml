@@ -24,30 +24,30 @@ inputs:
       locally with gpt-5; the tokenizer and model inputs are not used with precise.
     required: false
     default: 'false'
-  max-tokens:
+  limit-tokens:
     description: >-
       Limit on the stored instructional text at the head, in tokens. Off when empty.
     required: false
     default: ''
-  max-increase:
+  limit-increase:
     description: >-
       Limit on the growth of stored instructional text from base to head, in tokens. Off when empty.
     required: false
     default: ''
-  max-up-front-tokens:
+  limit-up-front-tokens:
     description: >-
       Limit on what each agent keeps at session start at the head, in tokens. Give one number for
       every agent, or agent=number entries separated by spaces or commas, such as 'claude=8000
       codex=6000'. Off when empty.
     required: false
     default: ''
-  max-up-front-increase:
+  limit-up-front-increase:
     description: >-
       Limit on the growth of what each agent keeps at session start, in tokens, in the same form
-      as max-up-front-tokens. Off when empty.
+      as limit-up-front-tokens. Off when empty.
     required: false
     default: ''
-  on-exceed:
+  on-limit:
     description: >-
       What a limit that is passed does: 'fail' fails the step after writing the summary, 'warn' adds
       a warning and lets the step pass. Used only when a limit is set.
@@ -76,11 +76,11 @@ runs:
         STRATA_TOKENIZER: ${{ inputs.tokenizer }}
         STRATA_MODEL: ${{ inputs.model }}
         STRATA_PRECISE: ${{ inputs.precise }}
-        STRATA_MAX_TOKENS: ${{ inputs.max-tokens }}
-        STRATA_MAX_INCREASE: ${{ inputs.max-increase }}
-        STRATA_MAX_UP_FRONT_TOKENS: ${{ inputs.max-up-front-tokens }}
-        STRATA_MAX_UP_FRONT_INCREASE: ${{ inputs.max-up-front-increase }}
-        STRATA_ON_EXCEED: ${{ inputs.on-exceed }}
+        STRATA_LIMIT_TOKENS: ${{ inputs.limit-tokens }}
+        STRATA_LIMIT_INCREASE: ${{ inputs.limit-increase }}
+        STRATA_LIMIT_UP_FRONT_TOKENS: ${{ inputs.limit-up-front-tokens }}
+        STRATA_LIMIT_UP_FRONT_INCREASE: ${{ inputs.limit-up-front-increase }}
+        STRATA_ON_LIMIT: ${{ inputs.on-limit }}
       run: |
         args=(diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --output "$RUNNER_TEMP/strata-pr-delta.md")
         if [ "$STRATA_PRECISE" = "true" ]; then
@@ -97,15 +97,15 @@ runs:
         # Each input holds one value or several separated by spaces or commas; set -f keeps them literal.
         limits=()
         set -f
-        for value in ${STRATA_MAX_TOKENS//,/ }; do limits+=(--max-tokens "$value"); done
-        for value in ${STRATA_MAX_INCREASE//,/ }; do limits+=(--max-increase "$value"); done
-        for value in ${STRATA_MAX_UP_FRONT_TOKENS//,/ }; do limits+=(--max-up-front-tokens "$value"); done
-        for value in ${STRATA_MAX_UP_FRONT_INCREASE//,/ }; do limits+=(--max-up-front-increase "$value"); done
+        for value in ${STRATA_LIMIT_TOKENS//,/ }; do limits+=(--limit-tokens "$value"); done
+        for value in ${STRATA_LIMIT_INCREASE//,/ }; do limits+=(--limit-increase "$value"); done
+        for value in ${STRATA_LIMIT_UP_FRONT_TOKENS//,/ }; do limits+=(--limit-up-front-tokens "$value"); done
+        for value in ${STRATA_LIMIT_UP_FRONT_INCREASE//,/ }; do limits+=(--limit-up-front-increase "$value"); done
         set +f
         # With a limit set, Strata annotates each limit passed (as an error, or a warning under
-        # on-exceed: warn) and each it could not check, and validates on-exceed itself.
-        if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-exceed "$STRATA_ON_EXCEED" --annotations); fi
-        # Status 3 means a limit was passed under on-exceed: fail; the summary is written either way.
+        # on-limit: warn) and each it could not check, and validates on-limit itself.
+        if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-limit "$STRATA_ON_LIMIT" --limit-annotations); fi
+        # Status 3 means a limit was passed under on-limit: fail; the summary is written either way.
         # A file from an earlier run of the Action in the same job must not reach this summary.
         rm -f "$RUNNER_TEMP/strata-pr-delta.md"
         status=0

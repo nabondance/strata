@@ -89,7 +89,7 @@ export interface PullRequestDelta {
   /** With `--precise`: how each provider was counted, and its totals at both commits. */
   providerMeasurements?: ProviderMeasurementMetadata[];
   providerTotals?: ProviderTotalDelta[];
-  /** With limits such as `--max-tokens`: each limit checked, in the comparison's measurement. */
+  /** With limits such as `--limit-tokens`: each limit checked, in the comparison's measurement. */
   limits?: LimitCheck[];
 }
 

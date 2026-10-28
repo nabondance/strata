@@ -79,32 +79,33 @@ const preciseHelp = `Precise counts (opt-in content transfer):
       --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})
       --codex-model <name>   OpenAI model whose encoding counts Codex (default: ${defaultModels.codex})`;
 
-/** Exit status when a limit set with --max-* is passed and --on-exceed is fail. */
+/** Exit status when a limit set with --limit-* is passed and --on-limit is fail. */
 const overLimitStatus = 3;
 
 const agentPrefix = `${sessionProviders.join("=, ")}=`;
 
 const limitsHelp = {
-  analyze: `Limits (off unless set; checked at the latest revision):
-      --max-tokens <n>                     Stored instructional text
-      --max-up-front-tokens [agent=]<n>    What each agent keeps at session start; repeat with
-                                           ${agentPrefix} for one agent
-      --on-exceed <fail|warn>              fail (default) exits with status ${overLimitStatus} once the report
-                                           is written; warn only reports
-      --annotations                        Also print each limit passed or not applied as a GitHub
-                                           Actions annotation
-  Limits are in tokens.`,
-  diff: `Limits (off unless set; checked at the head with --tokenizer or --model, never --precise counts):
-      --max-tokens <n>                     Stored instructional text
-      --max-increase <n>                   Growth of stored instructional text from base to head
-      --max-up-front-tokens [agent=]<n>    What each agent keeps at session start; repeat with
-                                           ${agentPrefix} for one agent
-      --max-up-front-increase [agent=]<n>  Growth of what each agent keeps at session start
-      --on-exceed <fail|warn>              fail (default) exits with status ${overLimitStatus} once the delta
-                                           is written; warn only reports
-      --annotations                        Also print each limit passed or not applied as a GitHub
-                                           Actions annotation
-  Limits are in tokens.`,
+  analyze: `Limits (in tokens; off unless set; checked at the latest revision):
+      --limit-tokens <n>                   Stored instructional text
+      --limit-up-front-tokens [agent=]<n>  What each agent keeps at session start; repeat
+                                           with ${agentPrefix}
+                                           for one agent
+      --on-limit <fail|warn>               fail (default) exits with status ${overLimitStatus} once the
+                                           report is written; warn only reports
+      --limit-annotations                  Also print each limit passed or not applied as a
+                                           GitHub Actions annotation`,
+  diff: `Limits (in tokens; off unless set; checked at the head, never with --precise counts):
+      --limit-tokens <n>                   Stored instructional text
+      --limit-increase <n>                 Growth of stored instructional text from base to head
+      --limit-up-front-tokens [agent=]<n>  What each agent keeps at session start; repeat
+                                           with ${agentPrefix}
+                                           for one agent
+      --limit-up-front-increase [agent=]<n>
+                                           Growth of what each agent keeps at session start
+      --on-limit <fail|warn>               fail (default) exits with status ${overLimitStatus} once the
+                                           delta is written; warn only reports
+      --limit-annotations                  Also print each limit passed or not applied as a
+                                           GitHub Actions annotation`,
 };
 
 const help = {
@@ -123,6 +124,11 @@ Commands:
 Options:
   -h, --help             Show help
   -V, --version          Show the version
+
+Limits:
+  analyze and diff can fail, or warn, when a token figure passes a limit you set, such as
+  --limit-tokens 50000 or --limit-up-front-tokens claude=8000. A passed limit exits with
+  status 3. Run strata help diff for every limit flag.
 
 Strata reads Git-tracked Claude, Codex, Gemini CLI, Cursor, and GitHub Copilot configuration from
 first-parent history. It never modifies the repository and sends nothing over the network unless
@@ -160,7 +166,7 @@ Examples:
   strata analyze --format svg --minimal --output docs/strata-minimal.svg
   strata analyze --format badge --output strata-badge.json
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
-  strata analyze --max-up-front-tokens 8000 --format json --output report.json
+  strata analyze --limit-up-front-tokens 8000 --format json --output report.json
 `,
   diff: `Usage:
   strata diff [repository] --base <commit> --head <commit> [options]
@@ -184,7 +190,7 @@ ${preciseHelp}
 Examples:
   strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)"
   strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)" \\
-    --max-increase 500 --max-up-front-tokens claude=8000
+    --limit-increase 500 --limit-up-front-tokens claude=8000
 `,
   skill: `Usage:
   strata skill [--output <file>]
@@ -359,15 +365,15 @@ function preciseArguments(values: {
 }
 
 const limitOptions = {
-  "max-tokens": { type: "string", multiple: true },
-  "max-up-front-tokens": { type: "string", multiple: true },
-  "on-exceed": { type: "string" },
-  annotations: { type: "boolean" },
+  "limit-tokens": { type: "string", multiple: true },
+  "limit-up-front-tokens": { type: "string", multiple: true },
+  "on-limit": { type: "string" },
+  "limit-annotations": { type: "boolean" },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
 const increaseLimitOptions = {
-  "max-increase": { type: "string", multiple: true },
-  "max-up-front-increase": { type: "string", multiple: true },
+  "limit-increase": { type: "string", multiple: true },
+  "limit-up-front-increase": { type: "string", multiple: true },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
 /** The limits set on the command line, whether passing one fails the run, and whether to annotate. */
@@ -379,8 +385,8 @@ interface LimitArguments {
 
 function limitArguments(
   values: Partial<Record<LimitName, string[] | undefined>> & {
-    "on-exceed"?: string | undefined;
-    annotations?: boolean | undefined;
+    "on-limit"?: string | undefined;
+    "limit-annotations"?: boolean | undefined;
   },
 ): LimitArguments {
   let limits: Limit[];
@@ -389,11 +395,12 @@ function limitArguments(
   } catch (error) {
     throw new UsageError(error instanceof Error ? error.message : String(error));
   }
-  const onExceed = choice("--on-exceed", values["on-exceed"], ["fail", "warn"], "fail");
-  if (values["on-exceed"] !== undefined && !limits.length)
-    throw new UsageError("--on-exceed requires a limit such as --max-tokens");
-  if (values.annotations && !limits.length) throw new UsageError("--annotations requires a limit such as --max-tokens");
-  return { limits, fail: onExceed === "fail", annotations: values.annotations ?? false };
+  const onLimit = choice("--on-limit", values["on-limit"], ["fail", "warn"], "fail");
+  if (values["on-limit"] !== undefined && !limits.length)
+    throw new UsageError("--on-limit requires a limit such as --limit-tokens");
+  if (values["limit-annotations"] && !limits.length)
+    throw new UsageError("--limit-annotations requires a limit such as --limit-tokens");
+  return { limits, fail: onLimit === "fail", annotations: values["limit-annotations"] ?? false };
 }
 
 /**
