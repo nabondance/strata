@@ -161,8 +161,11 @@ export function limitFigures(delta: PullRequestDelta): LimitFigures {
   const { comparison, upFront } = delta;
   return {
     total: { before: comparison.beforeTokens, after: comparison.afterTokens },
+    // Only agents that keep text at session start; one that only reads on demand has nothing to limit.
     upFront: new Map(
-      upFront.map((entry) => [entry.provider, { before: entry.before.tokens, after: entry.after.tokens }]),
+      upFront
+        .filter(({ before, after }) => before.tokens || after.tokens || before.fileCount || after.fileCount)
+        .map((entry) => [entry.provider, { before: entry.before.tokens, after: entry.after.tokens }]),
     ),
   };
 }

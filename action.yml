@@ -31,21 +31,20 @@ inputs:
     default: ''
   max-increase:
     description: >-
-      Limit on the growth of stored instructional text from base to head, in tokens or as a
-      percentage such as 10%. Off when empty.
+      Limit on the growth of stored instructional text from base to head, in tokens. Off when empty.
     required: false
     default: ''
   max-up-front-tokens:
     description: >-
-      Limit on what each agent reads at session start at the head, in tokens. Give one number for
+      Limit on what each agent keeps at session start at the head, in tokens. Give one number for
       every agent, or agent=number entries separated by spaces or commas, such as 'claude=8000
       codex=6000'. Off when empty.
     required: false
     default: ''
   max-up-front-increase:
     description: >-
-      Limit on the growth of what each agent reads at session start, in tokens or as a percentage,
-      in the same form as max-up-front-tokens. Off when empty.
+      Limit on the growth of what each agent keeps at session start, in tokens, in the same form
+      as max-up-front-tokens. Off when empty.
     required: false
     default: ''
   on-exceed:

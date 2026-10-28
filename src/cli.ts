@@ -87,23 +87,24 @@ const agentPrefix = `${sessionProviders.join("=, ")}=`;
 const limitsHelp = {
   analyze: `Limits (off unless set; checked at the latest revision):
       --max-tokens <n>                     Stored instructional text
-      --max-up-front-tokens [agent=]<n>    What each agent reads at session start; repeat with
+      --max-up-front-tokens [agent=]<n>    What each agent keeps at session start; repeat with
                                            ${agentPrefix} for one agent
       --on-exceed <fail|warn>              fail (default) exits with status ${overLimitStatus} once the report
                                            is written; warn only reports
-      --annotations                        Also print each limit passed or not checked as a GitHub
-                                           Actions annotation`,
+      --annotations                        Also print each limit passed or not applied as a GitHub
+                                           Actions annotation
+  Limits are in tokens.`,
   diff: `Limits (off unless set; checked at the head with --tokenizer or --model, never --precise counts):
       --max-tokens <n>                     Stored instructional text
-      --max-increase <n|n%>                Growth of stored instructional text from base to head
-      --max-up-front-tokens [agent=]<n>    What each agent reads at session start; repeat with
+      --max-increase <n>                   Growth of stored instructional text from base to head
+      --max-up-front-tokens [agent=]<n>    What each agent keeps at session start; repeat with
                                            ${agentPrefix} for one agent
-      --max-up-front-increase [agent=]<n|n%>
-                                           Growth of what each agent reads at session start
+      --max-up-front-increase [agent=]<n>  Growth of what each agent keeps at session start
       --on-exceed <fail|warn>              fail (default) exits with status ${overLimitStatus} once the delta
                                            is written; warn only reports
-      --annotations                        Also print each limit passed or not checked as a GitHub
-                                           Actions annotation`,
+      --annotations                        Also print each limit passed or not applied as a GitHub
+                                           Actions annotation
+  Limits are in tokens.`,
 };
 
 const help = {
@@ -183,7 +184,7 @@ ${preciseHelp}
 Examples:
   strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)"
   strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)" \\
-    --max-increase 10% --max-up-front-tokens claude=8000
+    --max-increase 500 --max-up-front-tokens claude=8000
 `,
   skill: `Usage:
   strata skill [--output <file>]
@@ -476,13 +477,18 @@ async function analyze(args: string[]): Promise<void> {
   const checks = limits.limits.length
     ? checkLimits(limits.limits, {
         total: { before: null, after: latest?.estimatedTokens ?? 0 },
-        upFront: new Map(upFrontContexts.map((context) => [context.provider, { before: null, after: context.tokens }])),
+        // Only agents that keep text at session start; one that only reads on demand has nothing to limit.
+        upFront: new Map(
+          upFrontContexts
+            .filter((context) => context.tokens || context.files.length)
+            .map((context) => [context.provider, { before: null, after: context.tokens }]),
+        ),
       })
     : null;
   if (precise?.plan.dryRun) {
     process.stdout.write("Dry run: nothing was sent and no report was written.\n");
     if (checks) {
-      process.stdout.write(`${limitSummary(checks)}\n`);
+      if (!values.quiet) process.stdout.write(`${limitSummary(checks)}\n`);
       reportLimits(checks, limits);
     }
     return;
@@ -539,6 +545,7 @@ async function analyze(args: string[]): Promise<void> {
     for (const host of measured.alsoSentTo ?? [])
       say(`  Instruction text also went to ${host} before that method failed.`);
   }
+  let toOpen: string | undefined;
   if (toStdout) {
     process.stdout.write(content);
   } else {
@@ -552,7 +559,7 @@ async function analyze(args: string[]): Promise<void> {
     if (format === "svg" || format === "badge") writePublic(destination, content);
     else writePrivate(destination, content);
     process.stdout.write(values.quiet ? `${destination}\n` : `Report: ${destination}\n`);
-    if (values.open) openReport(destination);
+    if (values.open) toOpen = destination;
   }
   if (checks) {
     say(limitSummary(checks));
@@ -562,6 +569,8 @@ async function analyze(args: string[]): Promise<void> {
   for (const line of submoduleNotes(report.submodules ?? [])) process.stderr.write(`Note: ${line}\n`);
   const unresolved = unresolvedImportNote(components);
   if (unresolved) process.stderr.write(`Note: ${unresolved}\n`);
+  // Last, so a viewer that fails to open cannot hide the limits or notes above.
+  if (toOpen) openReport(toOpen);
 }
 
 /** The last revision's inventory, replayed as `expandRevisions` does without building every revision's. */

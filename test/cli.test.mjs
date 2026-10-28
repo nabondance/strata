@@ -192,19 +192,29 @@ test("command line follows common conventions", () => {
       [["diff", repo, "--base", base, "--head", head, "--format", "html"], /--format must be markdown or json/],
       [["diff", repo, "--base", "main", "--head", head], /full Git commit IDs, not main/],
       [["skill", "extra"], /Unexpected argument: extra/],
-      [["diff", repo, "--base", base, "--head", head, "--max-tokens", "10%"], /not a percentage/],
+      [["diff", repo, "--base", base, "--head", head, "--max-tokens", "10%"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--max-increase", "1.5"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--max-tokens", "1234567890123456"], /whole number of tokens/],
       [["diff", repo, "--base", base, "--head", head, "--max-tokens", "claude=5"], /does not take an agent name/],
       [["diff", repo, "--base", base, "--head", head, "--max-up-front-tokens", "bob=5"], /Unknown agent bob/],
-      [["diff", repo, "--base", base, "--head", head, "--max-increase", "1.5"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--max-increase", "5", "--max-increase", "6"], /set twice/],
       [
-        ["diff", repo, "--base", base, "--head", head, "--max-increase", "5", "--max-increase", "6"],
-        /--max-increase is set twice as a number of tokens/,
-      ],
-      [
-        ["diff", repo, "--base", base, "--head", head, "--max-tokens", "1234567890123456"],
-        /at most 15 significant digits/,
+        [
+          "diff",
+          repo,
+          "--base",
+          base,
+          "--head",
+          head,
+          "--max-up-front-tokens",
+          "claude=5",
+          "--max-up-front-tokens",
+          "claude=6",
+        ],
+        /set twice for claude/,
       ],
       [["diff", repo, "--base", base, "--head", head, "--on-exceed", "warn"], /--on-exceed requires a limit/],
+      [["diff", repo, "--base", base, "--head", head, "--annotations"], /--annotations requires a limit/],
       [["diff", repo, "--base", base, "--head", head, "--max-tokens", "1", "--on-exceed", "x"], /fail or warn/],
       [["analyze", repo, "--max-increase", "5"], /Unknown option '--max-increase'/],
     ]) {
@@ -320,13 +330,13 @@ test("limits report a passed number and exit with 3, only when set", () => {
       "--max-tokens",
       String(plain.comparison.afterTokens - 1),
       "--max-increase",
-      "10%",
+      "1",
       "--max-up-front-tokens",
       "100000",
       "--max-up-front-tokens",
       `claude=${claude.after.tokens - 1}`,
       "--max-up-front-increase",
-      "10%",
+      "1",
     );
     assert.equal(over.status, 3, over.stderr);
     const delta = JSON.parse(over.stdout);
@@ -341,8 +351,7 @@ test("limits report a passed number and exit with 3, only when set", () => {
         ["max-up-front-tokens", "cursor", "within"],
         ["max-up-front-increase", "claude", "over"],
         ["max-up-front-increase", "codex", "within"],
-        // Cursor had nothing at the base, so a percentage cannot be taken.
-        ["max-up-front-increase", "cursor", "unchecked"],
+        ["max-up-front-increase", "cursor", "over"],
       ],
     );
     assert.match(
@@ -351,31 +360,24 @@ test("limits report a passed number and exit with 3, only when set", () => {
     );
     assert.match(
       over.stderr,
-      /^Over limit: stored instructional text grew by \d+ tokens \(\+[\d.]+%\), more than the 10% set/m,
+      /^Over limit: stored instructional text grew by \d+ tokens \(\+[\d.]+%\), more than the 1 set/m,
     );
     assert.match(over.stderr, /^Over limit: Claude Code at session start is \d+ tokens/m);
-    assert.match(
-      over.stderr,
-      /^Limit not checked: --max-up-front-increase 10% for Cursor at session start, which had no tokens at the base\.$/m,
-    );
-    // The displayed share is the comparison's own percentChange, to one decimal.
-    const total = delta.limits.find((check) => check.name === "max-increase");
-    const shown = Number(/grew by \d+ tokens \(\+([\d.]+)%\)/.exec(over.stderr)[1]);
-    assert.ok(Math.abs(shown - plain.comparison.percentChange) <= 0.1, `${shown} vs ${plain.comparison.percentChange}`);
-    assert.equal(total.before, plain.comparison.beforeTokens);
+    // Cursor had nothing at the base, so its growth has no percentage.
+    assert.match(over.stderr, /^Over limit: Cursor at session start grew by \d+ tokens, more than the 1 set/m);
 
-    const markdown = diff("--max-increase", "10%");
+    const markdown = diff("--max-increase", "1");
     assert.equal(markdown.status, 3);
     assert.match(markdown.stdout, /\*\*Over 1 of 1 limit set for this run\.\*\*/);
     assert.match(
       markdown.stdout,
-      /\| Stored instructional text, increase \| \+\d+ \(\+[\d.]+%\) \| 10% \| \*\*Over\*\* \|/,
+      /\| Stored instructional text, increase \| \+\d+ \(\+[\d.]+%\) \| 1 \| \*\*Over\*\* \|/,
     );
     assert.match(markdown.stdout, /not that the configuration got worse/);
 
     // warn reports the same and exits with 0; a written file still holds the table.
     const file = join(outside, "delta.md");
-    const warned = diff("--max-increase", "10%", "--on-exceed", "warn", "--output", file);
+    const warned = diff("--max-increase", "1", "--on-exceed", "warn", "--output", file);
     assert.equal(warned.status, 0);
     assert.match(warned.stderr, /^Over limit: /m);
     assert.match(readFileSync(file, "utf8"), /Over 1 of 1 limit/);
@@ -385,11 +387,10 @@ test("limits report a passed number and exit with 3, only when set", () => {
     assert.equal(dry.status, 3, dry.stderr);
     assert.match(dry.stdout, /Dry run: nothing was sent[\s\S]*Over 1 of 1 limit set for this run\./);
     assert.match(dry.stderr, /^Over limit: stored instructional text is \d+ tokens/m);
-    // --annotations writes GitHub workflow commands next to the lines, and needs a limit.
+    // --annotations writes GitHub workflow commands next to the lines.
     const annotated = diff("--max-tokens", "1", "--on-exceed", "warn", "--annotations");
     assert.equal(annotated.status, 0);
     assert.match(annotated.stderr, /^::warning title=Strata context limit::stored instructional text is \d+ tokens/m);
-    assert.equal(diff("--annotations").status, 2);
 
     const within = diff("--max-tokens", "100000");
     assert.equal(within.status, 0);
@@ -403,33 +404,47 @@ test("limits report a passed number and exit with 3, only when set", () => {
     assert.equal(analyzed.stdout, `${report}\n`);
     assert.match(analyzed.stderr, /^Over limit: Cursor at session start is \d+ tokens, more than the 1 set/m);
     assert.equal(JSON.parse(readFileSync(report, "utf8")).revisions.length, 2);
-    // With no agent reading stored text, a general session-start limit says it had nothing to check,
-    // even beside a limit that was checked.
-    const empty = fixture();
+    // A quiet dry run prints no summary on standard output.
+    const quietDry = strata(["analyze", repo, "-q", "--precise", "--dry-run", "--no-cache", "--max-tokens", "1"]);
+    assert.equal(quietDry.status, 3);
+    assert.doesNotMatch(quietDry.stdout, /limit set for this run/);
+    // A viewer that fails to open does not hide a passed limit: the limits come first.
+    if (process.platform !== "win32") {
+      // PATH holds only Git, so the default viewer command is missing.
+      const bin = join(outside, "bin");
+      mkdirSync(bin);
+      symlinkSync(execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(), join(bin, "git"));
+      const opened = strata(["analyze", repo, "-o", join(outside, "open.html"), "--open", "--max-tokens", "1"], {
+        env: { ...process.env, PATH: bin },
+      });
+      assert.equal(opened.status, 1);
+      assert.match(opened.stderr, /^Over limit: stored instructional text[\s\S]*Could not open the report/m);
+    }
+
+    // An agent that only reads on demand keeps nothing at session start, so a general
+    // session-start limit applies to no agent, and the run says so beside the limits it checked.
+    const onDemand = fixture();
     try {
-      empty.put("README.md", "No agent configuration.\n");
-      empty.commit("Start");
-      const nothing = strata([
+      onDemand.put(".claude/agents/review.md", "Review the change.\n");
+      onDemand.commit("Add an agent");
+      const unused = strata([
         "analyze",
-        empty.repo,
+        onDemand.repo,
         "-o",
         report,
         "--max-tokens",
-        "100",
+        "100000",
         "--max-up-front-tokens",
         "5",
       ]);
-      assert.equal(nothing.status, 0, nothing.stderr);
+      assert.equal(unused.status, 0, unused.stderr);
+      assert.match(unused.stdout, /Within 1 of 2 limits set for this run; 1 applied to no agent\./);
       assert.match(
-        nothing.stdout,
-        /Within 1 of 2 limits set for this run; 1 had nothing to check because no agent reads stored text\./,
-      );
-      assert.match(
-        nothing.stderr,
-        /^Limit not checked: no agent reads stored text, so --max-up-front-tokens 5 had nothing to check\.$/m,
+        unused.stderr,
+        /^Limit not applied: --max-up-front-tokens 5 applied to no agent: none keeps text at session start without its own limit\.$/m,
       );
     } finally {
-      rmSync(empty.repo, { recursive: true, force: true });
+      rmSync(onDemand.repo, { recursive: true, force: true });
     }
     const fine = strata(["analyze", repo, "-o", report, "--max-tokens", "100000"]);
     assert.equal(fine.status, 0);
@@ -440,98 +455,47 @@ test("limits report a passed number and exit with 3, only when set", () => {
   }
 });
 
-test("limits compare at their boundaries", () => {
-  const figures = (before, after) => ({ total: { before, after }, upFront: new Map() });
+test("limits compare at their boundaries and never drop a limit", () => {
+  const figures = (before, after, upFront = new Map()) => ({ total: { before, after }, upFront });
   const result = (flags, before, after) =>
     checkLimits(parseLimits(flags), figures(before, after)).map((check) => check.result);
   assert.deepEqual(result({ "max-tokens": ["100"] }, 0, 100), ["within"]);
   assert.deepEqual(result({ "max-tokens": ["100"] }, 0, 101), ["over"]);
   assert.deepEqual(result({ "max-increase": ["10"] }, 100, 110), ["within"]);
   assert.deepEqual(result({ "max-increase": ["10"] }, 100, 111), ["over"]);
-  assert.deepEqual(result({ "max-increase": ["10%"] }, 200, 220), ["within"]);
-  assert.deepEqual(result({ "max-increase": ["10%"] }, 200, 221), ["over"]);
   assert.deepEqual(result({ "max-increase": ["0"] }, 200, 150), ["within"]);
-  assert.deepEqual(result({ "max-increase": ["12.5%"] }, 0, 0), ["within"]);
-  assert.deepEqual(result({ "max-increase": ["12.5%"] }, 0, 1), ["unchecked"]);
-  // Percentages compare exactly: 0.57 * 10000 is not exact in floating point.
-  assert.deepEqual(result({ "max-increase": ["0.57%"] }, 10000, 10057), ["within"]);
-  assert.deepEqual(result({ "max-increase": ["0.57%"] }, 10000, 10058), ["over"]);
-  // Tiny percentages keep their digits instead of turning into exponent notation.
-  assert.deepEqual(result({ "max-increase": ["0.00000015%"] }, 1e12, 1e12 + 1500), ["within"]);
-  assert.deepEqual(result({ "max-increase": ["0.00000015%"] }, 1e12, 1e12 + 1501), ["over"]);
-  const tiny = checkLimits(parseLimits({ "max-increase": ["0.00000015%"] }), figures(1e12, 1e12 + 1501));
-  assert.match(limitMessages(tiny)[0], /more than the 0\.00000015% set/);
-  // A decrease rounds to the nearest tenth, not away from zero.
-  const shrink = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(3, 2));
-  assert.match(limitLines(shrink).join("\n"), /\| -1 \(-33\.3%\) \| 10% \| Within \|/);
-  // A share just over the limit never prints as equal to it: it gains a decimal instead.
-  const justOver = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(10000, 11001));
-  assert.match(limitMessages(justOver)[0], /grew by 1001 tokens \(\+10\.01%\), more than the 10% set/);
-  // Every row of one figure prints its share with the same decimals.
-  const pair = checkLimits(parseLimits({ "max-increase": ["500", "10.05%"] }), figures(2000, 2201));
-  const pairRows = limitLines(pair).filter((line) => line.includes("+201"));
-  assert.equal(pairRows.length, 2);
-  for (const row of pairRows) assert.match(row, /\| \+201 \(\+10\.05%\) \|/);
-  // Halves round away from zero either way.
-  assert.match(
-    limitLines(checkLimits(parseLimits({ "max-increase": ["1000"] }), figures(400, 449))).join(""),
-    /\(\+12\.3%\)/,
-  );
-  assert.match(
-    limitLines(checkLimits(parseLimits({ "max-increase": ["1000"] }), figures(400, 351))).join(""),
-    /\(-12\.3%\)/,
-  );
-  // Padding zeros do not count toward the 15 significant digits.
-  assert.deepEqual(result({ "max-increase": ["10.000000000000000%"] }, 1000, 1100), ["within"]);
-  // Annotations escape what workflow commands require.
-  assert.deepEqual(limitAnnotations(justOver, "error"), [
-    "::error title=Strata context limit::stored instructional text grew by 1001 tokens (+10.01%25), more than the 10%25 set with --max-increase.",
+  // One token reads as singular, and the share is rounded to a tenth.
+  const one = checkLimits(parseLimits({ "max-increase": ["0"] }), figures(3, 4));
+  assert.deepEqual(limitMessages(one), [
+    "Over limit: stored instructional text grew by 1 token (+33.3%), more than the 0 set with --max-increase.",
   ]);
-  // A summary does not call skipped checks a pass.
-  const mixed = checkLimits(parseLimits({ "max-tokens": ["100"], "max-increase": ["10%"] }), figures(0, 50));
-  assert.equal(
-    limitSummary(mixed),
-    "Within 1 of 2 limits set for this run; 1 not checked because the base had no tokens.",
-  );
-  // A token limit and a percentage can cover the same figure; the token limit still applies from a zero base.
-  assert.deepEqual(result({ "max-increase": ["10%", "500"] }, 0, 600), ["over", "unchecked"]);
-  assert.deepEqual(result({ "max-increase": ["10%", "500"] }, 1000, 1200), ["within", "over"]);
-  const skipped = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(0, 50));
-  assert.equal(limitSummary(skipped), "The 1 limit set for this run could not be checked: the base had no tokens.");
-  // General session-start limits with no agent reading anything check nothing, and say so.
-  const none = checkLimits(parseLimits({ "max-up-front-tokens": ["8000"] }), figures(null, 0));
-  assert.deepEqual(none, [
-    {
-      name: "max-up-front-tokens",
-      agent: null,
-      limit: 8000,
-      percent: false,
-      before: null,
-      after: null,
-      result: "no-agent",
-    },
-  ]);
-  assert.equal(limitSummary(none), "The 1 limit set for this run could not be checked: no agent reads stored text.");
   assert.match(
-    limitLines(none).join("\n"),
-    /\| Every agent at session start \| — \| 8000 \| Not checked: no agent reads stored text \|/,
+    limitLines(checkLimits(parseLimits({ "max-increase": ["10"] }), figures(3, 2))).join("\n"),
+    /\| -1 \(-33\.3%\) \| 10 \| Within \|/,
   );
-  assert.deepEqual(limitMessages(none), [
-    "Limit not checked: no agent reads stored text, so --max-up-front-tokens 8000 had nothing to check.",
-  ]);
-  // An agent's own limit replaces only the general limit of the same kind.
-  const kinds = checkLimits(parseLimits({ "max-up-front-increase": ["10%", "claude=50"] }), {
-    total: { before: 100, after: 200 },
-    upFront: new Map([["claude", { before: 100, after: 200 }]]),
-  });
+  // An agent's own limit replaces the general one; a general limit left with no agent says so.
+  const claudeOnly = new Map([["claude", { before: 0, after: 7000 }]]);
+  const replaced = checkLimits(
+    parseLimits({ "max-up-front-tokens": ["5000", "claude=8000"] }),
+    figures(0, 7000, claudeOnly),
+  );
   assert.deepEqual(
-    kinds.map(({ agent, limit, percent, result }) => [agent, limit, percent, result]),
+    replaced.map(({ agent, limit, result }) => [agent, limit, result]),
     [
-      ["claude", 50, false, "over"],
-      ["claude", 10, true, "over"],
+      ["claude", 8000, "within"],
+      [null, 5000, "unused"],
     ],
   );
-  // A limit for one agent that reads nothing is checked as zero tokens; the general limit skips absent agents.
+  assert.equal(limitSummary(replaced), "Within 1 of 2 limits set for this run; 1 applied to no agent.");
+  assert.match(
+    limitLines(replaced).join("\n"),
+    /\| Every agent at session start \| — \| 5000 \| Not applied: no agent without its own limit \|/,
+  );
+  // With no agent at all, the same.
+  assert.deepEqual(checkLimits(parseLimits({ "max-up-front-tokens": ["8000"] }), figures(null, 0)), [
+    { name: "max-up-front-tokens", agent: null, limit: 8000, before: null, after: null, result: "unused" },
+  ]);
+  // A limit for one agent that keeps nothing is checked as zero tokens; the general limit skips absent agents.
   const upFront = checkLimits(parseLimits({ "max-up-front-tokens": ["5", "gemini=0"] }), {
     total: { before: 0, after: 0 },
     upFront: new Map([["claude", { before: 1, after: 9 }]]),
@@ -543,6 +507,13 @@ test("limits compare at their boundaries", () => {
       ["gemini", 0, "within"],
     ],
   );
+  // Annotations escape what workflow commands require.
+  assert.deepEqual(limitAnnotations(one, "error"), [
+    "::error title=Strata context limit::stored instructional text grew by 1 token (+33.3%25), more than the 0 set with --max-increase.",
+  ]);
+  assert.deepEqual(limitAnnotations(replaced, "error"), [
+    "::warning title=Strata context limit not applied::--max-up-front-tokens 5000 applied to no agent: none keeps text at session start without its own limit.",
+  ]);
 });
 
 test("the Action writes the summary, then annotates and fails or warns on a passed limit", {
@@ -597,34 +568,30 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     const plain = run({});
     assert.equal(plain.status, 0, plain.stderr);
     assert.match(plain.summary, /^## Strata configuration delta/);
-    assert.doesNotMatch(plain.stdout, /::/);
+    assert.doesNotMatch(plain.stdout + plain.stderr, /::/);
 
-    const failed = run({ STRATA_MAX_INCREASE: "10%", STRATA_MAX_UP_FRONT_TOKENS: "claude=1, codex=5" });
+    const failed = run({ STRATA_MAX_INCREASE: "1", STRATA_MAX_UP_FRONT_TOKENS: "claude=1, codex=5" });
     assert.equal(failed.status, 3);
     assert.match(failed.summary, /\*\*Over 2 of 3 limits set for this run\.\*\*/);
     assert.match(
       failed.stderr,
-      /^::error title=Strata context limit::stored instructional text grew by \d+ tokens \(\+[\d.]+%25\), more than the 10%25 set/m,
+      /^::error title=Strata context limit::stored instructional text grew by \d+ tokens \(\+[\d.]+%25\), more than the 1 set/m,
     );
     assert.match(failed.stderr, /^::error title=Strata context limit::Claude Code at session start is \d+ tokens/m);
-    // Standard error still reaches the log.
     assert.match(failed.stderr, /^Over limit: Claude Code at session start/m);
 
-    const warned = run({ STRATA_MAX_INCREASE: "10%", STRATA_ON_EXCEED: "warn" });
+    const warned = run({ STRATA_MAX_INCREASE: "1", STRATA_ON_EXCEED: "warn" });
     assert.equal(warned.status, 0);
     assert.match(warned.stderr, /^::warning title=Strata context limit::/m);
     assert.match(warned.summary, /Over 1 of 1 limit/);
 
-    // A percentage that cannot be checked warns without failing the step.
-    put(".cursor/rules/style.mdc", "---\nalwaysApply: true\n---\nPrefer small functions.\n");
-    const withCursor = commit("Add an always-apply Cursor rule");
-    const skipped = run({ STRATA_HEAD: withCursor, STRATA_MAX_UP_FRONT_INCREASE: "cursor=10%" });
-    assert.equal(skipped.status, 0, skipped.stderr);
+    // A limit that applied to no agent warns without failing the step.
+    const unused = run({ STRATA_MAX_UP_FRONT_TOKENS: "claude=100000 5" });
+    assert.equal(unused.status, 0, unused.stderr);
     assert.match(
-      skipped.stderr,
-      /^::warning title=Strata context limit not checked::--max-up-front-increase 10%25 for Cursor at session start/m,
+      unused.stderr,
+      /^::warning title=Strata context limit not applied::--max-up-front-tokens 5 applied to no agent/m,
     );
-    assert.match(skipped.summary, /The 1 limit set for this run could not be checked/);
 
     // A real failure fails the step and writes no summary.
     const invalid = run({ STRATA_MAX_TOKENS: "lots" });
