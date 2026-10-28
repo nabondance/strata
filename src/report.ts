@@ -29,6 +29,12 @@ function d3Bundle(): string {
   return embeddedD3;
 }
 
+// The select arrow, drawn inset from the field's edge. Data URIs cannot read CSS variables, so each theme passes its own color.
+function chevron(color: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 8"><path d="M1.5 1.75l4.5 4.5 4.5-4.5" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `url(data:image/svg+xml,${encodeURIComponent(svg)})`;
+}
+
 export function renderHtml(report: Report): string {
   const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
   const serialized = JSON.stringify(report)
@@ -75,8 +81,8 @@ export function renderHtml(report: Report): string {
   <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(markSvg(64))}">
   <style>
     ${displayFontFace}
-    :root { color-scheme: light dark; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --grid: #e4e2d9; --edge: #9fa99d; --hover: #ece9de; --field: #fff; --up: #80590a; --down: #2c6b65; --warn: #8a442c; --clay: ${brandColors.clay}; --bedrock: ${brandColors.bedrock}; --bone: ${brandColors.bone}; --ochre: ${brandColors.ochre}; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
-    @media (prefers-color-scheme: dark) { :root { --paper: #121815; --sheet: #1a221e; --ink: #e7e3d6; --muted: #c2c8bd; --line: #37423c; --grid: #28322d; --edge: #56625b; --hover: #242e29; --field: #131916; --up: ${brandColors.ochre}; --down: #8fbdb7; --warn: #e39072; } }
+    :root { color-scheme: light dark; --paper: #f2efe7; --sheet: #fbfaf6; --ink: #24312c; --muted: #5c6a63; --line: #c9c8be; --grid: #e4e2d9; --edge: #9fa99d; --hover: #ece9de; --field: #fff; --chevron: ${chevron("#5c6a63")}; --up: #80590a; --down: #2c6b65; --warn: #8a442c; --clay: ${brandColors.clay}; --bedrock: ${brandColors.bedrock}; --bone: ${brandColors.bone}; --ochre: ${brandColors.ochre}; font-family: "Avenir Next", "Helvetica Neue", Arial, sans-serif; background: var(--paper); color: var(--ink); }
+    @media (prefers-color-scheme: dark) { :root { --paper: #121815; --sheet: #1a221e; --ink: #e7e3d6; --muted: #c2c8bd; --line: #37423c; --grid: #28322d; --edge: #56625b; --hover: #242e29; --field: #131916; --chevron: ${chevron("#c2c8bd")}; --up: ${brandColors.ochre}; --down: #8fbdb7; --warn: #e39072; } }
     * { box-sizing: border-box; }
     body { margin: 0; }
     header { background: var(--bedrock); color: var(--bone); }
@@ -225,6 +231,7 @@ export function renderHtml(report: Report): string {
     .inventory-controls label { min-width: min(100%, 180px); }
     .inventory-controls label.search { flex: 1 1 240px; }
     :is(.compare-controls, .inventory-controls) :is(select, input) { width: 100%; border: 1px solid var(--edge); border-radius: 0; padding: 10px 11px; background: var(--field); color: var(--ink); font: inherit; }
+    :is(.compare-controls, .inventory-controls) select { appearance: none; padding-right: 38px; background: var(--field) var(--chevron) no-repeat right 14px center / 12px 8px; cursor: pointer; }
     :is(.compare-controls, .inventory-controls) :is(select, input, button):focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
     .inventory-controls button { border: 1px solid var(--edge); border-radius: 0; padding: 10px 13px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
     .inventory-controls button:hover { background: var(--hover); }
