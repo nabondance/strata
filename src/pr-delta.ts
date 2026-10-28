@@ -6,6 +6,7 @@ import {
   compareRevisions,
   type McpServerRef,
 } from "./compare.js";
+import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { git, listTree } from "./git.js";
 import {
@@ -17,7 +18,7 @@ import {
   trackedFile,
   versionKey,
 } from "./inventory.js";
-import { type LimitCheck, limitLines } from "./limits.js";
+import { type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
 import { mcpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
@@ -155,6 +156,17 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
   return { delta, files, measured, snapshots };
 }
 
+/** The figures a comparison's limits are checked against: the stored-text total and each agent's session-start tokens. */
+export function limitFigures(delta: PullRequestDelta): LimitFigures {
+  const { comparison, upFront } = delta;
+  return {
+    total: { before: comparison.beforeTokens, after: comparison.afterTokens },
+    upFront: new Map(
+      upFront.map((entry) => [entry.provider, { before: entry.before.tokens, after: entry.after.tokens }]),
+    ),
+  };
+}
+
 /** Compare two Git commits without checking them out or writing into the target repository. */
 export function compareGitCommits(
   repo: string,
@@ -227,7 +239,6 @@ function cell(value: string): string {
 /** The precise-count table: each provider's totals under the method it was counted with. */
 function providerLines(delta: PullRequestDelta): string[] {
   if (!delta.providerTotals?.length) return [];
-  const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
   const lines = ["| Provider | Counted with | Before | After | Δ tokens |", "| --- | --- | ---: | ---: | ---: |"];
   for (const totals of delta.providerTotals) {
     const measured = delta.providerMeasurements?.find(({ provider }) => provider === totals.provider);
@@ -262,7 +273,6 @@ function listed(listing: SkillListing | null): string {
  */
 function upFrontLines(delta: PullRequestDelta): string[] {
   if (!delta.upFront.length) return [];
-  const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
   const intro =
     "At session start: what each agent reads when a session opens at the repository root, and what it reads only when needed";
   const changed = delta.upFront.filter((entry) => entry.deltaTokens || entry.deltaOnDemandTokens);
@@ -304,7 +314,6 @@ function upFrontLines(delta: PullRequestDelta): string[] {
 function mcpLines(delta: PullRequestDelta): string[] {
   const mcp = delta.comparison.mcp;
   if (!mcp) return [];
-  const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
   const names = (refs: McpServerRef[]) => {
     const shown = refs.slice(0, 10).map((ref) => `${cell(ref.name)} (${cell(ref.path)})`);
     return shown.join(", ") + (refs.length > 10 ? `, and ${refs.length - 10} more` : "");
@@ -325,7 +334,6 @@ function mcpLines(delta: PullRequestDelta): string[] {
 
 export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const comparison = delta.comparison;
-  const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
   const skills = comparison.skillListing;
   const listingLine =
     skills.beforeManifests || skills.afterManifests

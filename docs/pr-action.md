@@ -70,7 +70,7 @@ The Action can check token limits. None is set by default; each input is off whe
 | `max-up-front-increase` | Its growth from base to head, in the same form, in tokens or as a percentage |
 | `on-exceed` | `fail` (default) fails the step after the summary is written; `warn` lets it pass |
 
-The job summary starts with a table of every limit and its result, and each limit passed adds an error or warning annotation that names it. The limits follow `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts, and a percentage limit is not checked for a figure that was zero at the base. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
+The job summary starts with a table of every limit and its result, and each limit passed adds an error or warning annotation that names it. A percentage limit that could not be checked adds a warning but never fails the step. The limits follow `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts, and a percentage limit is not checked for a figure that was zero at the base. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
 
 For local use after building, run:
 

@@ -81,7 +81,7 @@ strata diff --base <base-commit> --head <head-commit> --max-increase 10% --max-u
 strata analyze --max-up-front-tokens 8000 --format json --output report.json
 ```
 
-Each limit passed prints an `Over limit:` line on standard error, also with `--quiet`, and the run exits with status 3 after writing its output. `--on-exceed warn` keeps the lines and exits with 0. `strata diff` also puts a table of every limit and its result at the top of the Markdown and in the JSON's `limits`.
+Each limit passed prints an `Over limit:` line on standard error, and each that could not be checked a `Limit not checked:` line, also with `--quiet`. A run with a limit passed exits with status 3 after writing its output; a limit that could not be checked does not change the status. `--on-exceed warn` keeps the lines and exits with 0. `strata diff` also puts a table of every limit and its result at the top of the Markdown and in the JSON's `limits`.
 
 For pull requests, the opt-in [composite Action](pr-action.md) runs the same comparison and writes the delta to the job summary. It reads Git blobs without checking out either revision or posting a comment. To publish the full history report or a README image from CI, see [Running Strata in CI](ci.md).
 

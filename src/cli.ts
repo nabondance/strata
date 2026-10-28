@@ -11,20 +11,13 @@ import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
-import {
-  checkLimits,
-  type Limit,
-  type LimitFigures,
-  type LimitName,
-  limitMessages,
-  limitSummary,
-  parseLimits,
-} from "./limits.js";
+import { checkLimits, type Limit, type LimitName, limitMessages, limitSummary, parseLimits } from "./limits.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import type { Component, Report, Submodule } from "./model.js";
 import {
   compareGitCommits,
   compareGitCommitsPrecise,
+  limitFigures,
   type PullRequestDelta,
   renderPullRequestDelta,
 } from "./pr-delta.js";
@@ -35,9 +28,9 @@ import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
 import {
   hasUpFront,
-  type SessionProvider,
   sessionProviderNames,
   sessionProviders,
+  type UpFrontContext,
   upFrontContext,
   upFrontTotals,
 } from "./up-front.js";
@@ -478,7 +471,13 @@ async function analyze(args: string[]): Promise<void> {
           : ""),
     );
   }
-  const upFront = upFrontNote(report);
+  // The last revision's files and what each agent reads up front, built once for the notes and limits.
+  const components = latestComponents(report);
+  const upFrontContexts = sessionProviders.flatMap((provider) => {
+    const context = upFrontContext(components, provider, latest?.geminiContextFiles);
+    return hasUpFront(upFrontTotals(context)) ? [context] : [];
+  });
+  const upFront = upFrontNote(upFrontContexts);
   if (upFront) say(upFront);
   const age = summarizeInstructionAge(report);
   if (age) {
@@ -519,13 +518,16 @@ async function analyze(args: string[]): Promise<void> {
     if (values.open) openReport(destination);
   }
   if (limits.limits.length) {
-    const checks = checkLimits(limits.limits, latestFigures(report));
+    const checks = checkLimits(limits.limits, {
+      total: { before: null, after: latest?.estimatedTokens ?? 0 },
+      upFront: new Map(upFrontContexts.map((context) => [context.provider, { before: null, after: context.tokens }])),
+    });
     say(limitSummary(checks));
     reportLimits(checks, limits.fail);
   }
   if (report.shallow) process.stderr.write("Warning: shallow clone; earlier history is unavailable.\n");
   for (const line of submoduleNotes(report.submodules ?? [])) process.stderr.write(`Note: ${line}\n`);
-  const unresolved = unresolvedImportNote(report);
+  const unresolved = unresolvedImportNote(components);
   if (unresolved) process.stderr.write(`Note: ${unresolved}\n`);
 }
 
@@ -542,26 +544,8 @@ function latestComponents(report: Report): Component[] {
   return [...inventory.values()].sort((a, b) => a - b).map((index) => report.components[index]!);
 }
 
-/** The latest revision's figures for limits; there is no base to compare with. */
-function latestFigures(report: Report): LimitFigures {
-  const components = latestComponents(report);
-  const geminiContextFiles = report.revisions.at(-1)?.geminiContextFiles;
-  const upFront = new Map<SessionProvider, { before: null; after: number }>();
-  for (const provider of sessionProviders) {
-    const totals = upFrontTotals(upFrontContext(components, provider, geminiContextFiles));
-    if (hasUpFront(totals)) upFront.set(provider, { before: null, after: totals.tokens });
-  }
-  return { total: { before: null, after: report.revisions.at(-1)?.estimatedTokens ?? 0 }, upFront, compared: false };
-}
-
 /** Each agent's stored text listed up front at the last revision, beside what it reads on demand. */
-function upFrontNote(report: Report): string | null {
-  const components = latestComponents(report);
-  const geminiContextFiles = report.revisions.at(-1)?.geminiContextFiles;
-  const entries = sessionProviders.flatMap((provider) => {
-    const context = upFrontContext(components, provider, geminiContextFiles);
-    return hasUpFront(upFrontTotals(context)) ? [context] : [];
-  });
+function upFrontNote(entries: readonly UpFrontContext[]): string | null {
   if (!entries.length) return null;
   const unresolved = entries.reduce((sum, entry) => sum + entry.unresolved, 0);
   return (
@@ -573,8 +557,7 @@ function upFrontNote(report: Report): string | null {
 }
 
 /** Count the Claude imports the last revision cannot resolve, by reason; paths stay in the report. */
-function unresolvedImportNote(report: Report): string | null {
-  const components = latestComponents(report);
+function unresolvedImportNote(components: readonly Component[]): string | null {
   const links = importLinks(components).filter((link) => link.status !== "resolved");
   if (!links.length) return null;
   const reasons = {
@@ -667,17 +650,7 @@ async function diff(args: string[]): Promise<void> {
     return;
   }
   if (limits.limits.length) {
-    const { comparison, upFront } = delta;
-    delta = {
-      ...delta,
-      limits: checkLimits(limits.limits, {
-        total: { before: comparison.beforeTokens, after: comparison.afterTokens },
-        upFront: new Map(
-          upFront.map((entry) => [entry.provider, { before: entry.before.tokens, after: entry.after.tokens }]),
-        ),
-        compared: true,
-      }),
-    };
+    delta = { ...delta, limits: checkLimits(limits.limits, limitFigures(delta)) };
   }
   const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
   if (values.output === undefined || values.output === "-") {

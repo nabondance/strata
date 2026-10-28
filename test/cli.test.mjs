@@ -8,7 +8,7 @@ import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
-import { checkLimits, limitMessages, limitSummary, parseLimits } from "../dist/limits.js";
+import { checkLimits, limitLines, limitMessages, limitSummary, parseLimits } from "../dist/limits.js";
 import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -347,7 +347,15 @@ test("limits report a passed number and exit with 3, only when set", () => {
       /^Over limit: stored instructional text grew by \d+ tokens \(\+[\d.]+%\), more than the 10% set/m,
     );
     assert.match(over.stderr, /^Over limit: Claude Code at session start is \d+ tokens/m);
-    assert.match(over.stderr, /^Note: --max-up-front-increase 10% was not checked for Cursor at session start/m);
+    assert.match(
+      over.stderr,
+      /^Limit not checked: --max-up-front-increase 10% for Cursor at session start, which had no tokens at the base\.$/m,
+    );
+    // The displayed share is the comparison's own percentChange, to one decimal.
+    const total = delta.limits.find((check) => check.name === "max-increase");
+    const shown = Number(/grew by \d+ tokens \(\+([\d.]+)%\)/.exec(over.stderr)[1]);
+    assert.ok(Math.abs(shown - plain.comparison.percentChange) <= 0.1, `${shown} vs ${plain.comparison.percentChange}`);
+    assert.equal(total.before, plain.comparison.beforeTokens);
 
     const markdown = diff("--max-increase", "10%");
     assert.equal(markdown.status, 3);
@@ -392,7 +400,7 @@ test("limits report a passed number and exit with 3, only when set", () => {
 });
 
 test("limits compare at their boundaries", () => {
-  const figures = (before, after) => ({ total: { before, after }, upFront: new Map(), compared: true });
+  const figures = (before, after) => ({ total: { before, after }, upFront: new Map() });
   const result = (flags, before, after) =>
     checkLimits(parseLimits(flags), figures(before, after)).map((check) => check.result);
   assert.deepEqual(result({ "max-tokens": ["100"] }, 0, 100), ["within"]);
@@ -407,6 +415,14 @@ test("limits compare at their boundaries", () => {
   // Percentages compare exactly: 0.57 * 10000 is not exact in floating point.
   assert.deepEqual(result({ "max-increase": ["0.57%"] }, 10000, 10057), ["within"]);
   assert.deepEqual(result({ "max-increase": ["0.57%"] }, 10000, 10058), ["over"]);
+  // Tiny percentages keep their digits instead of turning into exponent notation.
+  assert.deepEqual(result({ "max-increase": ["0.00000015%"] }, 1e12, 1e12 + 1500), ["within"]);
+  assert.deepEqual(result({ "max-increase": ["0.00000015%"] }, 1e12, 1e12 + 1501), ["over"]);
+  const tiny = checkLimits(parseLimits({ "max-increase": ["0.00000015%"] }), figures(1e12, 1e12 + 1501));
+  assert.match(limitMessages(tiny)[0], /more than the 0\.00000015% set/);
+  // A decrease rounds to the nearest tenth, not away from zero.
+  const shrink = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(3, 2));
+  assert.match(limitLines(shrink).join("\n"), /\| -1 \(-33\.3%\) \| 10% \| Within \|/);
   // A share just over the limit never prints as equal to it.
   const justOver = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(10000, 11001));
   assert.match(limitMessages(justOver)[0], /grew by 1001 tokens \(\+10\.1%\), more than the 10% set/);
@@ -416,11 +432,12 @@ test("limits compare at their boundaries", () => {
     limitSummary(mixed),
     "Within 1 of 2 limits set for this run; 1 not checked because the base had no tokens.",
   );
+  const skipped = checkLimits(parseLimits({ "max-increase": ["10%"] }), figures(0, 50));
+  assert.equal(limitSummary(skipped), "The 1 limit set for this run was not checked: the base had no tokens.");
   // A limit for one agent that reads nothing is checked as zero tokens; the general limit skips absent agents.
   const upFront = checkLimits(parseLimits({ "max-up-front-tokens": ["5", "gemini=0"] }), {
     total: { before: 0, after: 0 },
     upFront: new Map([["claude", { before: 1, after: 9 }]]),
-    compared: true,
   });
   assert.deepEqual(
     upFront.map(({ agent, after, result }) => [agent, after, result]),
@@ -498,6 +515,17 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     assert.equal(warned.status, 0);
     assert.match(warned.stdout, /^::warning title=Strata context limit::/m);
     assert.match(warned.summary, /Over 1 of 1 limit/);
+
+    // A percentage that cannot be checked warns without failing the step.
+    put(".cursor/rules/style.mdc", "---\nalwaysApply: true\n---\nPrefer small functions.\n");
+    const withCursor = commit("Add an always-apply Cursor rule");
+    const skipped = run({ STRATA_HEAD: withCursor, STRATA_MAX_UP_FRONT_INCREASE: "cursor=10%" });
+    assert.equal(skipped.status, 0, skipped.stderr);
+    assert.match(
+      skipped.stdout,
+      /^::warning title=Strata context limit not checked::--max-up-front-increase 10%25 for Cursor at session start/m,
+    );
+    assert.match(skipped.summary, /The 1 limit set for this run was not checked/);
 
     // A real failure fails the step and writes no summary.
     const invalid = run({ STRATA_MAX_TOKENS: "lots" });

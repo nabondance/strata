@@ -115,13 +115,20 @@ runs:
         if [ "$status" -eq 0 ] || [ "$status" -eq 3 ]; then
           cat "$RUNNER_TEMP/strata-pr-delta.md" >> "$GITHUB_STEP_SUMMARY"
         fi
-        if [ "$status" -eq 3 ]; then
-          level=error
-          if [ "$STRATA_ON_EXCEED" = warn ]; then level=warning; status=0; fi
-          # One annotation per limit passed; % is escaped as workflow commands require.
-          { grep '^Over limit: ' "$RUNNER_TEMP/strata-pr-delta.err" || true; } | while IFS= read -r line; do
-            message="${line#Over limit: }"
-            echo "::$level title=Strata context limit::${message//%/%25}"
-          done
-        fi
+        level=error
+        if [ "$status" -eq 3 ] && [ "$STRATA_ON_EXCEED" = warn ]; then level=warning; status=0; fi
+        # One annotation per limit passed, and a warning per limit that could not be checked;
+        # % is escaped as workflow commands require.
+        { grep -E '^(Over limit|Limit not checked): ' "$RUNNER_TEMP/strata-pr-delta.err" || true; } | while IFS= read -r line; do
+          case "$line" in
+            "Over limit: "*)
+              message="${line#Over limit: }"
+              echo "::$level title=Strata context limit::${message//%/%25}"
+              ;;
+            *)
+              message="${line#Limit not checked: }"
+              echo "::warning title=Strata context limit not checked::${message//%/%25}"
+              ;;
+          esac
+        done
         exit "$status"
