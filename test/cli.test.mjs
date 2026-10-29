@@ -8,7 +8,15 @@ import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
-import { checkLimits, limitAnnotations, limitLines, limitMessages, limitSummary, parseLimits } from "../dist/limits.js";
+import {
+  checkLimits,
+  limitAnnotations,
+  limitLines,
+  limitMessages,
+  limitResult,
+  limitSummary,
+  parseLimits,
+} from "../dist/limits.js";
 import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -531,6 +539,14 @@ test("limits compare at their boundaries and never drop a limit", () => {
     ],
   );
   assert.equal(limitSummary(replaced), "Within 1 of 2 limits set for this run; 1 applied to no agent.");
+  // The overall result counts only the limits that were checked.
+  assert.equal(limitResult(replaced), "within");
+  assert.equal(limitResult(undefined), "none");
+  assert.equal(limitResult(checkLimits(parseLimits({ "limit-up-front-tokens": ["8000"] }), figures(null, 0))), "none");
+  assert.equal(
+    limitResult(checkLimits(parseLimits({ "limit-up-front-tokens": ["claude=1"] }), figures(0, 7000, claudeOnly))),
+    "over",
+  );
   assert.match(
     limitLines(replaced).join("\n"),
     /\| Every agent at session start \| — \| 5000 \| Not applied: each agent has its own limit \|/,

@@ -220,17 +220,19 @@ runs:
         node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" || status=$?
         if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
         cat "$markdown" >> "$GITHUB_STEP_SUMMARY"
+        # limit-result comes from Strata's own rule for which limits were checked.
         # shellcheck disable=SC2016 # The single-quoted script is JavaScript.
-        node -e '
-          const [markdown, json] = process.argv.slice(1);
-          const delta = JSON.parse(require("node:fs").readFileSync(json, "utf8"));
-          // Limits that applied to no agent were not checked, so they count as none.
-          const checked = (delta.limits ?? []).filter((check) => check.result === "over" || check.result === "within");
-          const result = !checked.length ? "none" : checked.some((check) => check.result === "over") ? "over" : "within";
+        node --input-type=module -e '
+          import { readFileSync } from "node:fs";
+          import { pathToFileURL } from "node:url";
+          const [limits, markdown, json] = process.argv.slice(1);
+          const { limitResult } = await import(pathToFileURL(limits).href);
+          const delta = JSON.parse(readFileSync(json, "utf8"));
+          const result = limitResult(delta.limits);
           console.log(`tokens=${delta.comparison.afterTokens}`);
           console.log(`delta-tokens=${delta.comparison.deltaTokens}`);
           console.log(`limit-result=${result}`);
           console.log(`summary-file=${markdown}`);
           console.log(`json-file=${json}`);
-        ' "$markdown" "$json" >> "$GITHUB_OUTPUT"
+        ' "$GITHUB_ACTION_PATH/dist/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
         exit "$status"
