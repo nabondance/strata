@@ -2,7 +2,14 @@
 
 This page covers the CLI's output options, how to read the HTML report, and the shape of the JSON. For the short version, see the [README](../README.md).
 
-Strata reads tracked Git blobs from a repository's first-parent history and creates a local report of how recognized agent configuration changed over time. It does not inspect the repository's working tree or send its contents anywhere. Instructional text gets a labeled stored-text token measurement; structured configuration and supporting resources are measured in source bytes. These measurements do not show what an agent loaded in a session. Reports include paths and measurements, never file contents.
+Strata reads a repository's Git history and writes a local report of how its agent configuration changed over time. A few terms used on this page:
+
+- **First-parent history:** the chain of commits you get by following each commit's first parent back from the branch tip. It includes merge commits but skips the commits that came in only through a merge's other parent. Strata follows this history.
+- **Blob:** a file version as Git stores it. Strata reads tracked blobs only. It never looks at the repository's working tree, and, without `--precise`, it sends no content anywhere.
+- **Stored-text tokens:** the token measurement Strata gives instruction files. The report names the method used.
+- **Source-only:** structured configuration and supporting resources, measured in source bytes instead of tokens.
+
+These measurements do not show what an agent loaded in a session. Reports include paths and measurements, never file contents.
 
 ## Analyze a repository
 
@@ -10,7 +17,16 @@ Strata reads tracked Git blobs from a repository's first-parent history and crea
 strata analyze /path/to/git/repository
 ```
 
-The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path. Use `--open` to open an HTML report or SVG image with the default application or `--output report.html` (`-o`) to choose a destination. For machine-readable output, use `--format json` (`-f json`), and `--output -` to write the report to standard output for another program. Progress and the summary go to stderr in that case; `--quiet` silences both and prints only the report path.
+The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path.
+
+| Option | What it does |
+| --- | --- |
+| `--output <file>` (`-o`) | Write the report to this file. `--output -` writes it to standard output, for another program to read. |
+| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`. |
+| `--open` | Open the HTML report or SVG image with the default application. |
+| `--quiet` (`-q`) | Print only the report path, with no progress or summary. |
+
+With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both.
 
 ```sh
 strata analyze /path/to/repository --open
@@ -18,7 +34,9 @@ strata analyze /path/to/repository --format json --output report.json
 strata analyze --format json --output - | jq '.revisions[] | [.date, .estimatedTokens]'
 ```
 
-For a picture of the history to put in a README, use `--format svg`. The image shows stored-text tokens per category through time, with the latest totals. It contains the repository and branch names, dates, and totals, but no paths, commit IDs, or file contents; `--shareable` also replaces the repository and branch names.
+### An image for a README
+
+For a picture of the history to put in a README, use `--format svg`. The image shows stored-text tokens per category through time, with the latest totals. It contains the repository and branch names, dates, and totals, but no paths, commit IDs, or file contents. `--shareable` also replaces the repository and branch names.
 
 ```sh
 strata analyze /path/to/repository --format svg --output docs/strata.svg
@@ -36,9 +54,13 @@ strata analyze /path/to/repository --format svg --minimal --output docs/strata-m
 
 Both images are Strata's own repository.
 
-Then reference it from the README as `![Agent context through time](docs/strata.svg)`. To keep it current without committing it by hand, see [Running Strata in CI](ci.md#readme-image).
+Then reference the image from the README as `![Agent context through time](docs/strata.svg)`. To keep it current without committing it by hand, see [Running Strata in CI](ci.md#readme-image).
 
-For a badge instead of a chart, `--format badge` writes the latest total as [shields.io endpoint JSON](https://shields.io/badges/endpoint-badge): `agent context | ≈1,151 tokens`, where `≈` marks an estimate and disappears under an encoding-exact tokenizer. It names nothing from the repository. Publish the file somewhere public and point shields at it:
+### A badge
+
+For a badge instead of a chart, `--format badge` writes the latest total as [shields.io endpoint JSON](https://shields.io/badges/endpoint-badge). The badge reads `agent context | ≈1,151 tokens`. The `≈` marks an estimate; it disappears when you count with an exact encoding (`--model` or an `openai-*` `--tokenizer`). The badge names nothing from the repository.
+
+Publish the file somewhere public and point shields.io at it:
 
 ```sh
 strata analyze /path/to/repository --format badge --output strata-badge.json
@@ -48,20 +70,35 @@ strata analyze /path/to/repository --format badge --output strata-badge.json
 ![Agent context](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repository>/<branch>/strata-badge.json)
 ```
 
-Shields' `label`, `color`, and `style` query parameters restyle it. [Running Strata in CI](ci.md#readme-image) publishes the badge next to the image.
+Shields' `label`, `color`, and `style` query parameters change its look. [Running Strata in CI](ci.md#readme-image) publishes the badge next to the image.
 
-Strata exits with status 0 on success, 2 when the command line is invalid, 3 when a [limit](#limits) you set is passed, and 1 for any other failure, such as a path that is not a Git repository.
+### Exit status
+
+| Status | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Any other failure, such as a path that is not a Git repository |
+| 2 | The command line is invalid |
+| 3 | A [limit](#limits) you set was passed |
 
 ## Compare two commits
 
-Compare two full commit IDs with `diff`. It reads both revisions directly from Git and prints a Markdown summary by default; choose `--format json` for structured data or `--output` to save the result. `--json-output <file>` also writes the JSON from the same comparison, to a different file, so one run gives both, without counting twice under `--precise`.
+`diff` compares two commits, given as full commit IDs. It reads both revisions directly from Git and prints a Markdown summary by default.
+
+- `--format json` gives structured data instead.
+- `--output` saves the result to a file.
+- `--json-output <file>` also writes the JSON from the same comparison to a second file. One run then gives both formats, without counting twice under `--precise`.
 
 ```sh
 strata diff /path/to/repository --base <base-commit> --head <head-commit>
 strata diff /path/to/repository --base <base-commit> --head <head-commit> --format json --output delta.json
 ```
 
-When either commit has a skill manifest, the summary also reports the change in listed skill tokens (the frontmatter name and description an agent keeps in context before a skill is used) and, for each changed manifest, its listing change. When either commit has an MCP file, a line names the MCP servers the change adds or removes. A table gives, for each agent whose figures changed, the stored text it lists up front at a session started at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions) and the rest it reads on demand.
+Besides the token and file changes, the summary can include:
+
+- **Listed skill tokens**, when either commit has a skill manifest (a skill's `SKILL.md`). These are the frontmatter name and description an agent keeps in context before a skill is used. The summary gives the total change and, for each changed manifest, its own change.
+- **MCP servers**, when either commit has an MCP file: a line names the servers the change adds or removes.
+- **Up-front and on-demand text**, in a table with one row per agent whose figures changed. For a session started at the repository root, it gives the stored text the agent keeps up front (root instructions, rules that load at launch, Claude imports, and skill names and descriptions) and the rest, which it reads on demand.
 
 ### Limits
 
@@ -74,42 +111,90 @@ Both commands can check token limits you choose. None is set by default, and Str
 | `--limit-up-front-tokens [agent=]<n>` | What each agent keeps at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
 | `--limit-up-front-increase [agent=]<n>` | Its growth from base to head | `diff` |
 
-A session-start limit without an agent applies to every agent that keeps text at session start; repeat the flag with `claude=`, `codex=`, `copilot=`, `cursor=`, or `gemini=` to set one agent's limit, which then replaces the general one for that agent. If that leaves the general limit with no agent, for example because no agent keeps text at session start, the run says it was not applied. Limits use the run's measurement, never the `--precise` counts. The percentage change is shown beside each increase but is never a limit.
+Limits use the run's own measurement, never the `--precise` counts. The percentage change is shown beside each increase, but it is never a limit.
+
+#### Limits for one agent
+
+A session-start limit without an agent applies to every agent that keeps text at session start. To set one agent's limit, repeat the flag with `claude=`, `codex=`, `copilot=`, `cursor=`, or `gemini=`. That limit then replaces the general one for that agent.
+
+If no agent is left for the general limit, for example because no agent keeps text at session start, the run says the limit was not applied.
+
 
 ```sh
 strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
 strata analyze --limit-up-front-tokens 8000 --format json --output report.json
 ```
 
-Each limit passed prints an `Over limit:` line on standard error, and each limit not applied a `Limit not applied:` line, also with `--quiet`. A run with a limit passed exits with status 3 after writing its output, and before `--open` opens it. `--on-limit warn` keeps the lines and exits with 0. `--limit-annotations` also prints each line as a GitHub Actions annotation: an error for a limit passed (a warning under `--on-limit warn`) and a warning for one not applied. A `--precise --dry-run` checks limits too, since they use the local measurement it has already taken. `strata diff` also puts a table of every limit and its result at the top of the Markdown and in the JSON's `limits`.
+#### What a run prints and returns
 
-For pull requests, the opt-in [composite Action](pr-action.md) runs the same comparison and writes the delta to the job summary. It reads Git blobs without checking out either revision or posting a comment. To publish the full history report or a README image from CI, see [Running Strata in CI](ci.md).
+- Each limit passed prints an `Over limit:` line on standard error. Each limit not applied prints a `Limit not applied:` line. Both appear even with `--quiet`.
+- A run with a limit passed exits with status 3. It still writes its output first, and exits before `--open` opens it.
+- `--on-limit warn` keeps the lines but exits with 0.
+- `--limit-annotations` also prints each line as a GitHub Actions annotation: an error for a limit passed (a warning under `--on-limit warn`), and a warning for a limit not applied.
+- `--precise --dry-run` checks limits too, since they use the local measurement it has already taken.
+- `strata diff` also puts a table of every limit and its result at the top of the Markdown, and in the JSON's `limits`.
+
+For pull requests, the opt-in [composite Action](pr-action.md) runs the same comparison and writes the delta to the job summary. It reads Git blobs without checking out either revision, and it posts no comment. To publish the full history report or a README image from CI, see [Running Strata in CI](ci.md).
 
 ## Token measurement
 
-The default `--tokenizer estimate` divides instructional text's UTF-8 byte length by four. For offline OpenAI text-encoding counts, use `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base`, or select a supported model with `--model gpt-4o` (also `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`). Use either `--model` or `--tokenizer`, not both. The chosen method applies consistently across the history and measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
+Strata measures instructional text with one of these methods. Choose either `--model` or `--tokenizer`, not both.
+
+| Option | Method |
+| --- | --- |
+| `--tokenizer estimate` (default) | The text's UTF-8 byte length divided by four |
+| `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base` | An OpenAI text encoding, counted offline |
+| `--model <name>` | The encoding of a supported OpenAI model: `gpt-4o`, `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`. Dated or variant names of these, such as `gpt-4o-mini` or `gpt-5-codex`, also work. |
+
+The chosen method applies to the whole history. It measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
 
 ### Precise counts
 
-`strata analyze --precise` counts each provider's instructions with the most precise method it can find, with no other flag:
+`strata analyze --precise` counts each provider's instructions with the most precise method it can find. It needs no other flag. It tries these methods in order:
 
 1. **A signed-in account.** For Claude, an `ant auth login` profile from the Anthropic CLI, or, with neither that nor `ANTHROPIC_API_KEY`, a ready `gcloud` account on Vertex AI with Claude enabled. For Gemini, a `gcloud` account with a project set (`gcloud config set project`, or `GOOGLE_CLOUD_PROJECT`), counted through Vertex AI in `GOOGLE_CLOUD_LOCATION` (default `global`). See [signing in](#signing-in-for-precise-counts) below.
 2. **An API key** in the environment: `ANTHROPIC_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
 3. **A local exact tokenizer.** Codex instructions always use the OpenAI encoding of `--codex-model` (default `gpt-5`) and are never sent. Claude and Gemini have none.
 4. **The byte estimate.**
 
-Only providers with recognized instructions somewhere in the history are counted: a repository with only Gemini files never runs `ant`, and one with only Claude files never asks for a Gemini key and runs `gcloud` only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available. The defaults are `claude-opus-5-5` and `gemini-3.8-flash`; override them with `--claude-model` and `--gemini-model`. **What leaves the machine:** when step 1 or 2 applies, Strata sends the text of each recognized Claude or Gemini instruction file version to that provider's token-count endpoint. Before it does, it prints the host and the number of file versions; the run ends with each provider's method and anything it skipped. Settings and skill resources are never sent, nor are blank files, and Codex is counted on this machine. A file version that is not valid UTF-8 text cannot be counted as text, so its providers use the byte estimate and send nothing. Markdown that a Claude `@path` import reaches is a Claude instruction file and is sent like one. A shared file such as `AGENTS.md` is sent to Claude's or Gemini's endpoint when Strata counts it as read by that provider. Without `--precise`, nothing is sent. Reports record the method, its accuracy, the credential source, and the receiving host, never a key or token. The older `--provider-api` flag still works but is deprecated.
+Strata counts only providers that have recognized instructions somewhere in the history:
 
-- **Message wrapper.** A count endpoint counts a whole request, so each file's count includes a few tokens for wrapping it in a message: about 8 for Claude. Strata counts a one-letter message once per model, takes its count less one as the wrapper, and subtracts that from every file, so counts describe the stored text and add up across files. The report records it as `wrapperTokens`.
-- **Rate limits.** A rate-limited, overloaded, or failed request is retried up to six times with backoff, waiting as long as the endpoint's `retry-after` asks. Only a method that still fails falls back to the next one. If it had already sent some files, the report and run output still name that host (`alsoSentTo`).
-- **Cache.** Remote counts are kept per endpoint, model, and Git blob in `provider-counts.json` under `STRATA_CACHE_DIR`, or the user cache directory (`~/Library/Caches/strata` on macOS, `$XDG_CACHE_HOME/strata` or `~/.cache/strata` on Linux, `%LOCALAPPDATA%\strata` on Windows). A later run sends only file versions it has not counted before and says how many came from the cache. A `-latest` model alias, which moves to new models, is not cached. The file holds blob IDs, model names, and counts, never paths or text, and is readable by the owner only. `--no-cache` neither reads nor writes it; delete the file to clear it.
-- **Dry run.** `strata analyze --precise --dry-run` prints, for each provider, the method it would use, how many file versions it would send and where, and what it would skip, then stops without sending anything or writing a report.
-- **In the HTML report.** The "How tokens are counted" toggle names each provider's method on one line (the provider's API count, exact on this machine, or the estimate) and opens to a short table with the model, where the text was counted, and the credential, or why the estimate was used; hover a row for the full description. "All files" adds providers together, so it always uses the estimate. A provider tab opens on that provider's own counts when it has them, with a switch back to the byte estimate. The chart, totals, treemap, and comparison follow the selected count, and the provider's row in the table is bold.
+- A repository with only Gemini files never runs `ant`.
+- A repository with only Claude files never asks for a Gemini key. It runs `gcloud` only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available.
+
+The default models are `claude-opus-5-5` and `gemini-3.8-flash`. Override them with `--claude-model` and `--gemini-model`. The older `--provider-api` flag still works but is deprecated.
+
+#### What leaves the machine
+
+Without `--precise`, nothing is sent. With it:
+
+- **What is sent.** When step 1 or 2 applies, Strata sends the text of each recognized Claude or Gemini instruction file version to that provider's token-count endpoint.
+- **What you are told.** Before sending, Strata prints the host and the number of file versions. The run ends with each provider's method and anything it skipped.
+- **What is never sent.** Settings, skill resources, and blank files. Codex is counted on this machine.
+- **Files that are not text.** A file version that is not valid UTF-8 text cannot be counted as text. Its providers use the byte estimate for it and send nothing.
+- **Imported and shared files.** Markdown that a Claude `@path` import reaches is a Claude instruction file and is sent like one. A shared file such as `AGENTS.md` is sent to Claude's or Gemini's endpoint when Strata counts it as read by that provider.
+- **What reports record.** The method, its accuracy, the credential source, and the receiving host, never a key or token.
+
+#### How precise counting works
+
+- **Message wrapper.** A count endpoint counts a whole request, so each file's count includes a few tokens for wrapping it in a message: about 8 for Claude. Strata counts a one-letter message once per model and takes that count, less one, as the wrapper. It subtracts the wrapper from every file, so counts describe the stored text and add up across files. The report records it as `wrapperTokens`.
+- **Rate limits.** A request that is rate-limited, hits an overloaded server, or fails is retried up to six times, waiting longer each time and as long as the endpoint's `retry-after` asks. Only a method that still fails falls back to the next one. If it had already sent some files, the report and run output still name that host (`alsoSentTo`).
+- **Cache.** Remote counts are kept per endpoint, model, and Git blob in `provider-counts.json`, in `STRATA_CACHE_DIR` or else the user cache directory:
+  - macOS: `~/Library/Caches/strata`
+  - Linux: `$XDG_CACHE_HOME/strata` or `~/.cache/strata`
+  - Windows: `%LOCALAPPDATA%\strata`
+
+  A later run sends only the file versions it has not counted before, and says how many came from the cache. A `-latest` model alias is not cached, because it moves to new models. The file holds blob IDs, model names, and counts, never paths or text, and only its owner can read it. `--no-cache` neither reads nor writes it. Delete the file to clear it.
+- **Dry run.** `strata analyze --precise --dry-run` prints, for each provider, the method it would use, how many file versions it would send and where, and what it would skip. Then it stops, without sending anything or writing a report.
+- **In the HTML report.** The "How tokens are counted" toggle names each provider's method on one line: the provider's API count, exact on this machine, or the estimate. It opens to a short table with the model, where the text was counted, and the credential, or why the estimate was used; hover a row for the full description.
+  - "All files" adds providers together, so it always uses the estimate.
+  - A provider tab opens on that provider's own counts when it has them, with a switch back to the byte estimate.
+  - The chart, totals, treemap, and comparison follow the selected count, and the provider's row in the table is bold.
 - **Pull requests.** `strata diff --precise` adds each provider's totals at the base and head commits, and the [GitHub Action](pr-action.md) takes `precise: 'true'`.
 
 #### Signing in for precise counts
 
-Strata does not install or sign in to provider CLIs. It asks an installed CLI for a short-lived access token and never reads credential files. If a CLI is missing, `--precise` falls back to the next method and the run says so, with the install command:
+Strata does not install or sign in to provider CLIs. It asks an installed CLI for a short-lived access token and never reads credential files. If a CLI is missing, `--precise` falls back to the next method, and the run says so, with the install command:
 
 ```text
 Claude: 1231 tokens latest, byte estimate.
@@ -124,17 +209,22 @@ ant auth login                       # opens a browser
 ant auth status                      # shows the active profile
 ```
 
-`ant auth login` signs in to a Claude Platform (API Console) organization and workspace, not to a Claude.ai Pro or Max subscription, so an account there is needed. A Claude Code login is not used: Anthropic does not permit other tools to use it.
+`ant auth login` signs in to a Claude Platform (API Console) organization and workspace, not to a Claude.ai Pro or Max subscription, so you need an account there. A Claude Code login is not used: Anthropic does not permit other tools to use it.
 
-**Gemini, and Claude through Google Cloud.** Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), then run `gcloud auth login` and `gcloud config set project <project>` for a project with the Vertex AI API enabled. Claude is counted this way only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available, and only if the project has Claude enabled in Model Garden; someone who only uses Claude and has no ready `gcloud` is never asked about it. Vertex AI answers only for a project with billing enabled, even though token counts are free; without billing, the count fails with `BILLING_DISABLED` and Strata moves on. To count Gemini without billing, create a key in [Google AI Studio](https://aistudio.google.com/apikey), whose free tier covers token counts, and set `GEMINI_API_KEY`. A Gemini CLI login is not used: its terms forbid third-party tools from using it.
+**Gemini, and Claude through Google Cloud.** Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install). Then run `gcloud auth login` and `gcloud config set project <project>` for a project with the Vertex AI API enabled.
+
+- Claude is counted this way only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available, and only if the project has Claude enabled in Model Garden. Someone who only uses Claude and has no ready `gcloud` is never asked about it.
+- Vertex AI answers only for a project with billing enabled, even though token counts are free. Without billing, the count fails with `BILLING_DISABLED` and Strata moves on to the next method.
+- To count Gemini without billing, create a key in [Google AI Studio](https://aistudio.google.com/apikey), whose free tier covers token counts, and set `GEMINI_API_KEY`.
+- A Gemini CLI login is not used: its terms forbid third-party tools from using it.
 
 ## Shareable reports
 
-For HTML or JSON analysis output, `--shareable` replaces repository and branch names, file paths, skill directory names, MCP server names, commit IDs, and blob IDs with deterministic aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
+In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and file paths, skill directory names, MCP server names, commit IDs, and blob IDs with numbered aliases. The aliases are deterministic, so the same history always gets the same aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
 
 ## The interpretation skill
 
-To print the bundled interpretation skill, which teaches a coding agent to read `analyze` JSON and HTML reports, `diff` JSON and Markdown, the SVG image, and the badge, or to save it at a chosen path:
+Strata comes with a skill that teaches a coding agent to read its output: `analyze` JSON and HTML reports, `diff` JSON and Markdown, the SVG image, and the badge. Print it, or save it at a path you choose:
 
 ```sh
 strata skill
@@ -145,12 +235,75 @@ The `skill` command refuses to overwrite an existing file.
 
 ## Reading the HTML report
 
-The comparison starts against the previous revision, so it lists what the selected revision changed. Select any baseline and target revision to compare signed estimated-token and file-count changes by provider, category, and component, with the change in listed skill tokens beside them when either revision has a skill. The timeline controls the target revision. For histories longer than 100 revisions, the chart groups adjacent revisions into at most 100 bars; each bar shows its group's last revision, while the slider still reaches every charted commit. The chart and slider start at the first revision with tracked configuration in the current view; earlier revisions stay available in the baseline and target selectors. Comparison is based on stored files at those two points; a moved file may appear as a removal and an addition.
+### Timeline and comparison
 
-The report opens on **All files**, counting each tracked file once. Provider tabs show a provider's files together with the shared files it reads (`AGENTS.md` for Claude and Codex; `.agents/skills` for Codex and Gemini CLI). The Cursor tab adds `AGENTS.md`, `.agents/skills`, and `.claude/skills` only at revisions that track Cursor configuration; a repository with no Cursor files has no Cursor tab. The Copilot tab works the same way for the other tools' files GitHub Copilot reads (`AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`, `.claude/agents`, `.claude/rules`, `.claude/skills`, `.agents/skills`, and `.mcp.json`), only at revisions that track Copilot configuration such as `.github/copilot-instructions.md`. The Gemini CLI tab includes `AGENTS.md` and `GEMINI.md` as the revision's `.gemini/settings.json` `context.fileName` names them, `GEMINI.md` alone by default; shared files can appear in multiple provider tabs, so the tab totals should not be added together. The Cursor tab labels the root `.cursorrules` `rules (legacy)`, and the Copilot tab labels a `.chatmode.md` in `.github/agents` `agents (legacy)`; Cursor and Copilot files always use the report's measurement, since `--precise` has no count for either. These are stored-file views, not measurements of what an agent actually loaded. The selected view applies to the chart, summary, treemap, skill bundles, comparison, and inventory. The tracked-components table can also be filtered by provider, category, and a case-insensitive path search. Those inventory filters stay active as you move along the timeline and reset when you change provider tabs.
+- **Comparison.** Select a baseline and a target revision to compare them. The comparison shows signed changes (`+` or `-`) in estimated tokens and file counts, by provider, category, and component. When either revision has a skill, the change in listed skill tokens is shown beside them. It starts against the previous revision, so it lists what the selected revision changed.
+- **Timeline.** The timeline sets the target revision. For histories longer than 100 revisions, the chart groups neighboring revisions into at most 100 bars. Each bar shows its group's last revision, while the slider still reaches every charted commit.
+- **Where the chart starts.** The chart and slider start at the first revision with tracked configuration in the current view. Earlier revisions stay available in the baseline and target selectors.
+- **Moved files.** The comparison is based on the stored files at those two points, so a moved file may appear as a removal and an addition.
 
-The treemap shows the selected revision's instructional components with rectangle area proportional to each stored-text token estimate and color by category. Rectangles of files that the selected revision added, edited, or renamed are outlined. Hover or focus any rectangle for its full path and token count; select it to locate its file in the inventory. Source-only and zero-token files stay in the inventory and receive no invented area. The **Configuration map** lists the same revision's files in their folders, each with a bar for its share of the stored-text tokens, and draws a line for each Claude `@path` import Strata resolves, with the arrow at the imported file. Those are the imports on chains that start at a `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md`, up to four hops, as in the **Claude imports** panel. A folder holding only one folder shares its row, so `.claude/skills/review` takes one line. Large maps start with deeper folders closed; select a folder, or use the arrow keys, to open or close it, and select a file to locate it in the inventory. Hover or focus a row to light its import lines and read what it imports and what imports it. Unresolved imports, including those beyond four hops, are counted on the importing row and listed in the **Claude imports** panel, not drawn. The map follows the provider tab; an import whose other file is outside the view has no line. A folder only holds its files, and a line does not show that a session loaded a file. The **At session start** panel separates, for each agent, the stored text it keeps from the start of a session at the repository root from what it reads on demand; in a provider tab it also lists the files that agent keeps up front. It always uses the report's measurement. The skill-bundle table gives each manifest's stored tokens beside its listed tokens, the frontmatter name and description an agent keeps in context before the skill is used; its heading totals both. The **MCP servers** panel lists the servers the selected revision's MCP and settings files define, by name, with whether each starts a local process or connects to a URL and the file that defines it; it follows the provider tab, and the comparison counts servers added and removed. A defined server is not a loaded one, and Strata never starts one, so the tool definitions a server sends are not measured. The **Instruction age** panel stacks each revision's instruction text by the period it was added, oldest at the bottom, so you can see how much of the text has stayed since early on and how much was rewritten. Lines are matched by their exact text in every instruction file, so a line moved into a skill keeps its age while a reworded one starts again, and text removed and later restored counts as new. It is weighed by bytes, always covers all files, and groups text by author date. "Compare revisions" also gives the share of the baseline's instruction text still present at the target. The skill-bundle and tracked-components tables are collapsed under their headings; open one to see its first rows and expand it to the full list.
+### Provider tabs
+
+The report opens on **All files**, which counts each tracked file once. Each provider tab shows that provider's own files plus the shared files and other tools' files it reads:
+
+| Tab | Also shows |
+| --- | --- |
+| Claude Code | `AGENTS.md` |
+| Codex | `AGENTS.md`, `.agents/skills` |
+| Gemini CLI | `.agents/skills`. `AGENTS.md` and `GEMINI.md` appear as the revision's `.gemini/settings.json` `context.fileName` names them; by default, `GEMINI.md` alone. |
+| Cursor | `AGENTS.md`, `.agents/skills`, `.claude/skills`, only at revisions that track Cursor configuration |
+| GitHub Copilot | `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`, `.claude/agents`, `.claude/rules`, `.claude/skills`, `.agents/skills`, `.mcp.json`, only at revisions that track Copilot configuration such as `.github/copilot-instructions.md` |
+
+- A repository with no Cursor files has no Cursor tab.
+- Shared files can appear in several provider tabs, so do not add the tab totals together.
+- The Cursor tab labels the root `.cursorrules` `rules (legacy)`. The Copilot tab labels a `.chatmode.md` in `.github/agents` `agents (legacy)`.
+- Cursor and Copilot files always use the report's measurement, since `--precise` has no count for either.
+- These are views of stored files, not measurements of what an agent actually loaded.
+
+The selected view applies to the chart, summary, treemap, skill bundles, comparison, and inventory. The tracked-components table (the inventory) can also be filtered by provider, category, and a path search that ignores case. Those inventory filters stay active as you move along the timeline, and reset when you change provider tabs.
+
+### Treemap
+
+The treemap shows the selected revision's instruction files as rectangles. Each rectangle's area is proportional to the file's stored-text token estimate, and its color shows its category.
+
+- Rectangles of files that the selected revision added, edited, or renamed are outlined.
+- Hover or focus a rectangle for its full path and token count. Select it to find its file in the inventory.
+- Source-only and zero-token files stay in the inventory and get no area: source-only files have no token count, and zero-token files have nothing to size.
+
+### Configuration map
+
+The **Configuration map** lists the same revision's files in their folders. Each file has a bar for its share of the stored-text tokens.
+
+- **Import lines.** The map draws a line for each Claude `@path` import Strata resolves, with the arrow at the imported file. These are the imports on chains that start at a `CLAUDE.md`, `CLAUDE.local.md`, or `AGENTS.md`, up to four hops (one file importing the next), as in the **Claude imports** panel.
+- **Folders.** A folder holding only one folder shares its row, so `.claude/skills/review` takes one line. Large maps start with deeper folders closed. Select a folder, or use the arrow keys, to open or close it. Select a file to find it in the inventory.
+- **Hover.** Hover or focus a row to highlight its import lines and read what it imports and what imports it.
+- **Unresolved imports**, including those beyond four hops, are counted on the importing row and listed in the **Claude imports** panel, not drawn.
+- **Provider tabs.** The map follows the provider tab. An import whose other file is outside the view has no line.
+
+A folder only holds its files, and a line does not show that a session loaded a file.
+
+### Other panels
+
+- **At session start.** For each agent, this panel separates the stored text it keeps from the start of a session at the repository root from what it reads on demand. In a provider tab, it also lists the files that agent keeps up front. It always uses the report's measurement.
+- **Skill bundles.** The skill-bundle table gives each manifest's stored tokens beside its listed tokens: the frontmatter name and description an agent keeps in context before the skill is used. Its heading totals both.
+- **MCP servers.** This panel lists, by name, the servers that the selected revision's MCP and settings files define. For each, it shows whether it starts a local process or connects to a URL, and which file defines it. It follows the provider tab, and the comparison counts servers added and removed. A defined server is not a loaded one, and Strata never starts one, so the tool definitions a server sends are not measured.
+- **Instruction age.** This panel stacks each revision's instruction text by the period it was added, oldest at the bottom. It shows how much of the text has stayed since early on and how much was rewritten.
+  - Lines are matched by their exact text in every instruction file. A line moved into a skill keeps its age, a reworded line starts again, and text removed and later restored counts as new.
+  - It is weighed by bytes, always covers all files, and groups text by author date.
+  - "Compare revisions" also gives the share of the baseline's instruction text still present at the target.
+
+The skill-bundle and tracked-components tables are collapsed under their headings. Open one to see its first rows, and expand it to see the full list.
 
 ## The JSON report
 
-JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 19 and that replay rule, up-front context, Claude imports, MCP servers, instruction age, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish. It also covers the `strata diff` JSON (schema version 12) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+- **Components.** JSON reports store each distinct file version once, in a top-level `components` list.
+- **Revisions.** Every revision carries its totals and its `changes`. Each change points at the component now at that path.
+- **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. This keeps reports small on long histories.
+
+The bundled interpretation skill explains schema version 19 and that replay rule, and also:
+
+- up-front context, Claude imports, MCP servers, and instruction age;
+- stored-text measurement methods, source-only files, skill bundles, and shareable aliases;
+- the limits of what JSON can establish.
+
+It also covers the `strata diff` JSON (schema version 12) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.

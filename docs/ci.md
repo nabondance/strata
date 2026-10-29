@@ -1,12 +1,18 @@
 # Running Strata in CI
 
-Strata needs only Node.js, Git, and a checkout with history (the pull-request Action fetches the two commits it needs). It reads tracked Git blobs, so it never depends on build output in the working tree and never writes to the repository. There are three ways to use it in CI:
+Strata needs only Node.js, Git, and a checkout with history. (The pull-request Action fetches the two commits it needs by itself.) Strata reads the files as Git stores them, not the working tree, so it never depends on build output and never writes to the repository.
 
-- **Pull-request delta**: the composite Action runs `strata diff` on GitHub's merge commit for the PR and the base it merges into, fetching those the checkout lacks, and writes a Markdown summary of the change in stored configuration to the job summary. It is one step after `actions/checkout`. See [the PR delta guide](pr-action.md).
-- **Full history report**: a workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact. See [below](#full-history-report-as-an-artifact).
-- **README image and badge**: a workflow renders the history as an SVG image, plus a token-total badge, and publishes them to a dedicated branch for a README to display. See [below](#readme-image).
+There are three ways to use it in CI:
 
-None of them runs unless you add a workflow to the repository you want to analyze. Strata's own repository runs the [pull-request delta](../.github/workflows/strata-pr-delta.yml) and the [README image](../.github/workflows/strata-image.yml) workflows on itself; they build from the checkout instead of running the published package, which is the only difference from the examples below.
+| Use | What it does | Guide |
+| --- | --- | --- |
+| **Pull-request delta** | The Action runs `strata diff` and writes a Markdown summary of how the pull request changes stored configuration to the job summary. It compares GitHub's merge commit for the pull request with the base it merges into, and fetches those commits if the checkout lacks them. It is one step after `actions/checkout`. | [The PR delta guide](pr-action.md) |
+| **Full history report** | A workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact (a file kept with the workflow run). | [Below](#full-history-report-as-an-artifact) |
+| **README image and badge** | A workflow renders the history as an SVG image, plus a badge with the token total, and publishes them to a dedicated branch for a README to display. | [Below](#readme-image) |
+
+None of them runs unless you add a workflow to the repository you want to analyze.
+
+Strata's own repository runs the [pull-request delta](../.github/workflows/strata-pr-delta.yml) and the [README image](../.github/workflows/strata-image.yml) workflows on itself. The only difference from the examples below is that they build Strata from the checkout instead of running the published package.
 
 ## Full history report as an artifact
 
@@ -45,29 +51,66 @@ jobs:
 
 Download `strata-report` from the workflow run and open `report.html` in a browser; it works offline. The JSON report suits scripts, and `strata skill` prints guidance for agents that interpret it.
 
-Strata creates the output directory itself. The examples pin each action to a commit SHA, as this repository's own workflows do; review and update those pins like any other dependency. `persist-credentials: false` keeps the job token out of the checkout's Git configuration, since nothing in the job pushes.
+Notes on the example:
+
+- Strata creates the output directory itself.
+- Each action is pinned to a commit SHA, as this repository's own workflows do. Review and update those pins like any other dependency.
+- `persist-credentials: false` keeps the job token out of the checkout's Git configuration, since nothing in the job pushes.
 
 ### Checkout depth
 
-Use `fetch-depth: 0`. Strata replays first-parent history, and the default shallow checkout contains only one commit. On a shallow clone, Strata still writes a report but warns on stderr, and the report states that earlier history is missing.
+Use `fetch-depth: 0`, which downloads the full history. The default checkout is shallow: it contains only one commit. On a shallow clone, Strata still writes a report, but it warns on stderr and the report states that earlier history is missing.
 
-Strata analyzes the first-parent history of the checked-out commit, whether the checkout is on a branch or a detached HEAD; a detached checkout is labeled `detached HEAD` instead of a branch name. On a `pull_request` event the checked-out commit is GitHub's temporary merge commit, so run the full report and the image on pushes to the default branch and use the [PR delta](pr-action.md) for pull requests.
+Strata follows the first-parent history of the checked-out commit. It walks back from that commit through each commit's first parent. For a merge commit, the first parent is the tip of the branch that received the merge, so the commits of a merged side branch are not visited one by one.
+
+This works whether the checkout is on a branch or on a detached HEAD (a commit checked out without a branch). A detached checkout is labeled `detached HEAD` instead of a branch name.
+
+On a `pull_request` event, the checked-out commit is GitHub's temporary merge commit. So run the full report and the image on pushes to the default branch, and use the [PR delta](pr-action.md) for pull requests.
 
 ### Measurement
 
-The default `--tokenizer estimate` needs no network access. `--tokenizer openai-o200k_base` or `--model gpt-4o` also count offline. `--precise` (add `--no-cache` on ephemeral runners) sends recognized instruction text to the Claude and Gemini token-count APIs when it finds `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), or a signed-in `gcloud` account in the job, and falls back to the estimate for a provider without one. Leave it off unless that content transfer is acceptable.
+| Flag | Network | Notes |
+| --- | --- | --- |
+| `--tokenizer estimate` | None | The default |
+| `--tokenizer openai-o200k_base` or `--model gpt-4o` | None | Counts offline with an OpenAI encoding |
+| `--precise` | Sends recognized instruction text to the Claude and Gemini token-count APIs | Add `--no-cache` on runners that are discarded after each job |
+
+`--precise` uses a provider's API when it finds `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), or a signed-in `gcloud` account in the job. It falls back to the estimate for a provider without one. Leave it off unless sending that content is acceptable.
 
 ### Who can see the report
 
-HTML and JSON reports contain file paths, commit IDs, dates, measurements, and the names of the MCP servers tracked files define, never other file contents. Anyone with read access to the repository can download workflow artifacts; for a public repository, that includes any signed-in GitHub user. Add `--shareable` to the `analyze` commands to replace repository names, paths, commit IDs, blob IDs, and MCP server names with aliases, and set `retention-days` on `upload-artifact` if the default retention is too long.
+HTML and JSON reports contain file paths, commit IDs, dates, measurements, and the names of the MCP servers that tracked files define. They never contain other file contents.
+
+Anyone with read access to the repository can download workflow artifacts. For a public repository, that includes any signed-in GitHub user. To limit what they see:
+
+- Add `--shareable` to the `analyze` commands. It replaces repository names, paths, commit IDs, blob IDs, and MCP server names with aliases.
+- Set `retention-days` on `upload-artifact` if the default retention is too long.
 
 ## README image
 
-`--format svg` writes a static image of the stored-instruction history: one colored layer per category, the latest totals, and the measurement label. It holds no paths, commit IDs, or file contents, only the repository and branch names, dates, category labels, and totals. It has no script or external resources, so GitHub displays it in a README. Add `--minimal` for the layers alone, without text, axes, or legend.
+`--format svg` writes a static image of the stored-instruction history: one colored layer per category, the latest totals, and the measurement label.
 
-The simplest option is to render it locally and commit it, for example to `docs/strata.svg`, and reference it with `![Agent context through time](docs/strata.svg)`. The image then changes only when you regenerate it.
+- It holds no paths, commit IDs, or file contents. It shows only the repository and branch names, dates, category labels, and totals.
+- It has no script or external resources, so GitHub displays it in a README.
+- Add `--minimal` for the layers alone, without text, axes, or legend.
 
-To keep it current automatically, the workflow below renders the image on every push to `main`, together with a `strata-badge.json` file for a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge) showing the latest total, and force-pushes both as the single commit of a `strata-image` branch. This keeps the image out of `main`'s history and keeps `strata-image` at one commit. Rendering runs with read-only permissions. A separate job, which runs no project or dependency code, gets `contents: write` to push the image with the job's `GITHUB_TOKEN`. A push made with that token does not trigger other workflows.
+### Commit the image
+
+The simplest option is to render the image locally and commit it, for example to `docs/strata.svg`, and reference it with `![Agent context through time](docs/strata.svg)`. The image then changes only when you regenerate it.
+
+### Publish it from a workflow
+
+To keep the image current automatically, the workflow below runs on every push to `main`. It:
+
+1. renders the image, together with a `strata-badge.json` file for a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge) that shows the latest total;
+2. force-pushes both files as the single commit of a `strata-image` branch.
+
+This keeps the image out of `main`'s history, and keeps `strata-image` at one commit.
+
+Permissions are split between two jobs:
+
+- The `render` job runs with read-only permissions.
+- The `publish` job runs no project or dependency code. It alone gets `contents: write`, to push the image with the job's `GITHUB_TOKEN`. A push made with that token does not trigger other workflows.
 
 ```yaml
 name: Agent context image
@@ -129,12 +172,25 @@ In the README of a public repository, reference the published files:
 ![Agent context](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repository>/strata-image/strata-badge.json)
 ```
 
-The badge reads `agent context | ≈1,151 tokens`; `≈` marks the default estimate and is absent under an encoding-exact tokenizer. The JSON holds that number only, no repository name, path, or commit ID. Shields caches it for a few minutes.
+The badge reads `agent context | ≈1,151 tokens`. The `≈` marks the default estimate; it is absent when the tokenizer counts an exact encoding. The JSON holds that number only, with no repository name, path, or commit ID. Shields caches it for a few minutes.
 
-GitHub caches images, so a new version can take a few minutes to appear. Raw URLs of a private repository need authentication and do not display in its README; commit the image to the repository instead.
+GitHub also caches images, so a new version can take a few minutes to appear.
+
+In a private repository, raw URLs need authentication and do not display in the README. Commit the image to the repository instead.
 
 The image is public wherever the README is. Add `--shareable` to the render command to replace the repository and branch names; the dates and totals stay visible.
 
 ## Exit status
 
-`strata analyze` and `strata diff` exit with 0 on success, 2 for an invalid command line, 3 when a [limit](usage.md#limits) set with `--limit-tokens`, `--limit-increase`, `--limit-up-front-tokens`, or `--limit-up-front-increase` is passed, and 1 for any other failure, such as a missing commit or a path that is not a Git repository. Token growth alone is never a failure: without a limit, a run that measures growth exits with 0. With `--on-limit warn`, a passed limit is reported and the run exits with 0. A failure after a passed limit was reported, such as `--open` failing, keeps status 3; its error is still printed.
+`strata analyze` and `strata diff` exit with these statuses:
+
+| Status | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Any other failure, such as a missing commit or a path that is not a Git repository |
+| 2 | Invalid command line |
+| 3 | A [limit](usage.md#limits) set with `--limit-tokens`, `--limit-increase`, `--limit-up-front-tokens`, or `--limit-up-front-increase` is passed |
+
+- Token growth alone is never a failure: without a limit, a run that measures growth exits with 0.
+- With `--on-limit warn`, a passed limit is reported and the run exits with 0.
+- If something fails after a passed limit was reported, such as `--open` failing, the status stays 3, and the error is still printed.
