@@ -94,7 +94,7 @@ Other path rules:
 
 ### Shared files and readers
 
-A *component* is one tracked file as the report lists it. A shared component lists in `readers` the providers documented as reading its path. A reader can still depend on a runtime condition Strata does not resolve.
+A *component* is one version of a tracked file, as the report's `components` table lists it. A shared component lists in `readers` the providers documented as reading its path. A reader can still depend on a runtime condition Strata does not resolve.
 
 - `AGENTS.md` is marked shared because both [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) and, conditionally, [Claude Code](https://code.claude.com/docs/en/memory) can read it. Claude's default may prefer `CLAUDE.md`, and Codex overrides may take the place of `AGENTS.md`. Strata does not resolve those runtime conditions.
 - Gemini CLI reads `AGENTS.md` only when its settings name it in `context.fileName`. Strata resolves that one condition per revision; see [Gemini CLI context files](#gemini-cli-context-files).
@@ -251,7 +251,7 @@ Strata reads an import where Claude Code reads one:
 
 - Expansion follows the shortest chain to each file.
 - A file four hops from a starting file is loaded, but its own imports, external ones included, are `depth-limit`. An external one keeps its `external` flag, so the HTML report and the command line still say it points outside the repository.
-- An import of a path where the revision has no tracked regular file is `missing`. This includes a symlink, a submodule, or a directory.
+- An import of a path where the revision has no tracked regular file is `missing`. An import of a symlink, a submodule, or a directory is `missing` too.
 - An import of a directory does not bring in the files under it. For the repository root, or a path ending in `/`, no history is read at all.
 - Imports Claude Code would skip for other reasons, such as an unapproved external import or a non-text file, are not modeled.
 
@@ -272,7 +272,7 @@ Imported files are Claude's only. Copilot also reads `CLAUDE.md`, but its docume
 
 Each version of an instruction file, or of Markdown an import reaches, stores its `imports`:
 
-- Each import has a 1-based `line` and the repository path it names, as `target`. A target named more than once is stored once, at its first line.
+- Each import has a 1-based `line` and the repository path it names, as `target`. A repository target named more than once is stored once, at its first line; each external import is kept.
 - `target` is null, with `external: true`, for an import outside the repository.
 - `target` is null, without `external`, for an import that names a path no regular file has anywhere in the analyzed history. Such an import is often prose, such as `ask @alice`, so its text is not stored.
 - A report never holds the import text itself.
@@ -323,11 +323,11 @@ The deprecated `--provider-api` requires named models and both API keys. The def
 
 ### Report fields
 
-The report is schema version 19. Each field below first appeared in the version shown; [the decision record](decisions.md#report-contract-and-privacy) describes each version's change.
+The report is schema version 19. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
 
 | Field | Meaning | Since version |
 | --- | --- | --- |
-| `providerTokenCounts` on components, `providerTokenTotals` on revisions | provider counts from `--precise`, kept apart from the default estimate | 8 |
+| `providerTokenCounts` on instructional components, `providerTokenTotals` on revisions | provider counts from `--precise`, kept apart from the default estimate | 8 |
 | `privacy.mode` | `local`, or `shareable` for a report with aliased identifiers | 9 or earlier |
 | `measurement` (`family`, `accuracy`, `encoding`, `model`, `implementation`) | how the report's token figures were measured | 9 or earlier |
 | `skill` (`root`, `role`) on skill components | the skill directory a file belongs to, and whether it is the manifest or a resource | 9 or earlier |
@@ -343,7 +343,7 @@ The report is schema version 19. Each field below first appeared in the version 
 | `imported`, `imports`, `importRoot` | files Claude `@path` imports reach, the imports each file holds, and the files expansion starts from | 16 |
 | `upFront` on root instruction files and root rules | stored text a provider keeps from the start of a session | 17 |
 | `mcp` on MCP files and on settings files that define MCP servers | the names and transports of the servers they define | 18 |
-| `lineAgeMethod`, `lineAge` on revisions that added or removed instruction lines | instruction age | 19 |
+| top-level `lineAgeMethod`; `lineAge` on revisions that added or removed instruction lines | how instruction age is matched; instruction age | 19 |
 
 ### Figures that are never added together
 

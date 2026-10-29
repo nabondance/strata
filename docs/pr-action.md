@@ -39,7 +39,7 @@ jobs:
 
 The summary contains commit IDs, file paths, category deltas, and up to 25 changed components. It contains no source text. Anyone who can see the workflow run can read those names and paths, so check that this is acceptable before you enable it in a sensitive repository.
 
-The Action needs only the `contents: read` permission. It does not need `pull-requests: write`, and Strata's process gets no token.
+The Action needs only the `contents: read` permission. It does not need `pull-requests: write`, and Strata's process needs no token.
 
 ## Commits
 
@@ -54,7 +54,7 @@ When you leave the `base` and `head` inputs empty, the Action picks the commits 
 
 ### Why the merge commit
 
-For a pull request, GitHub builds a temporary merge commit that merges the pull request into its base branch. This is the commit `actions/checkout` checks out. Its first parent is the base branch's tip. Comparing the two shows exactly what merging the pull request would change.
+For a pull request, GitHub builds a temporary merge commit that merges the pull request into its base branch. On `pull_request`, this is the commit `actions/checkout` checks out. Its first parent is the base branch's tip. Comparing the two shows exactly what merging the pull request would change.
 
 Comparing the base tip with the pull request's last commit would be wrong. If the base branch changed after the pull request branched from it, those changes would also be counted, reversed, as if the pull request had made them. This is why the summary's head is the merge commit, not the pull request's last commit.
 
@@ -68,11 +68,13 @@ On `pull_request_target`, the merge commit comes from the event payload, and it 
 
 In these cases the Action compares the base tip with the pull request's head and says so in a warning.
 
-On `push`, a push that creates or deletes a branch or tag has no commit on one side. The Action adds a notice and skips it.
+### Pushes that create or delete a branch or tag
+
+A push that creates or deletes a branch or tag has no commit on one side. The Action adds a notice and skips it.
 
 ### Other events
 
-On any other event, such as `workflow_dispatch` or `schedule`, set both inputs to full commit IDs (all 40 characters). Setting them on the events above also overrides the event's commits.
+On any other event, such as `workflow_dispatch` or `schedule`, set both inputs to full commit IDs (40 hexadecimal characters, or 64 in a SHA-256 repository). Setting them on the events above also overrides the event's commits.
 
 ```yaml
 on:
@@ -148,7 +150,7 @@ For precise totals per provider, set `precise: 'true'` and give the step the API
 - Claude is counted with `ANTHROPIC_API_KEY`.
 - Gemini is counted with `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
 - Codex is counted locally for `gpt-5`, so its text is not sent.
-- A provider without a key falls back to the estimate.
+- A provider with neither a key nor a signed-in `gcloud` (see below) falls back to the estimate.
 
 <!-- x-release-please-start-version -->
 ```yaml

@@ -4,8 +4,8 @@ This page covers the CLI's output options, how to read the HTML report, and the 
 
 Strata reads a repository's Git history and writes a local report of how its agent configuration changed over time. A few terms used on this page:
 
-- **First-parent history:** the commits made on the branch itself, including its merge commits, without the commits inside each merged branch. Strata follows this history.
-- **Blob:** a file version as Git stores it. Strata reads tracked blobs only. It never looks at the repository's working tree, and it sends no content anywhere.
+- **First-parent history:** the chain of commits you get by following each commit's first parent back from the branch tip. It includes merge commits but skips the commits that came in only through a merge's other parent. Strata follows this history.
+- **Blob:** a file version as Git stores it. Strata reads tracked blobs only. It never looks at the repository's working tree, and, without `--precise`, it sends no content anywhere.
 - **Stored-text tokens:** the token measurement Strata gives instruction files. The report names the method used.
 - **Source-only:** structured configuration and supporting resources, measured in source bytes instead of tokens.
 
@@ -26,7 +26,7 @@ The repository argument defaults to the current directory. By default, Strata wr
 | `--open` | Open the HTML report or SVG image with the default application. |
 | `--quiet` (`-q`) | Print only the report path, with no progress or summary. |
 
-With `--output -`, progress and the summary go to standard error instead, and `--quiet` silences both.
+With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both.
 
 ```sh
 strata analyze /path/to/repository --open
@@ -111,13 +111,14 @@ Both commands can check token limits you choose. None is set by default, and Str
 | `--limit-up-front-tokens [agent=]<n>` | What each agent keeps at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
 | `--limit-up-front-increase [agent=]<n>` | Its growth from base to head | `diff` |
 
+Limits use the run's own measurement, never the `--precise` counts. The percentage change is shown beside each increase, but it is never a limit.
+
 #### Limits for one agent
 
 A session-start limit without an agent applies to every agent that keeps text at session start. To set one agent's limit, repeat the flag with `claude=`, `codex=`, `copilot=`, `cursor=`, or `gemini=`. That limit then replaces the general one for that agent.
 
 If no agent is left for the general limit, for example because no agent keeps text at session start, the run says the limit was not applied.
 
-Limits use the run's own measurement, never the `--precise` counts. The percentage change is shown beside each increase, but it is never a limit.
 
 ```sh
 strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
@@ -219,7 +220,7 @@ ant auth status                      # shows the active profile
 
 ## Shareable reports
 
-In every `analyze` format, `--shareable` replaces these with numbered aliases: repository and branch names, file paths, skill directory names, MCP server names, commit IDs, and blob IDs. The aliases are deterministic, so the same history always gets the same aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
+In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and file paths, skill directory names, MCP server names, commit IDs, and blob IDs with numbered aliases. The aliases are deterministic, so the same history always gets the same aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
 
 ## The interpretation skill
 
@@ -243,7 +244,7 @@ The `skill` command refuses to overwrite an existing file.
 
 ### Provider tabs
 
-The report opens on **All files**, which counts each tracked file once. Each provider tab shows that provider's files together with the shared files, and other tools' files, it reads:
+The report opens on **All files**, which counts each tracked file once. Each provider tab shows that provider's own files plus the shared files and other tools' files it reads:
 
 | Tab | Also shows |
 | --- | --- |
@@ -267,7 +268,7 @@ The treemap shows the selected revision's instruction files as rectangles. Each 
 
 - Rectangles of files that the selected revision added, edited, or renamed are outlined.
 - Hover or focus a rectangle for its full path and token count. Select it to find its file in the inventory.
-- Source-only and zero-token files stay in the inventory and get no area, since Strata gives them no token count.
+- Source-only and zero-token files stay in the inventory and get no area: source-only files have no token count, and zero-token files have nothing to size.
 
 ### Configuration map
 

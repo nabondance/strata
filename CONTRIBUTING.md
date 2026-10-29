@@ -28,7 +28,7 @@ Every change must respect these rules:
 
 - Keep analyzed repositories read-only.
 - Reports must work offline and keep source text out of default outputs.
-- Describe token counts as estimates of stored text, without implying they are the tokens of an actual session or a bill.
+- Describe token counts as counts of stored text, without implying they are the tokens of an actual session or a bill.
 - Do not include private repository paths, prompt content, or credentials in issues or test fixtures.
 
 ## Agent-assisted development
@@ -59,9 +59,9 @@ Do not edit `CHANGELOG.md` or the version in `package.json` by hand.
 
 CI runs again on every push to `main`, because two pull requests that pass alone can still break it together. Then:
 
-1. Once CI passes on a `main` commit, [release-please](https://github.com/googleapis/release-please) opens or updates a release pull request. It bumps the version and writes the changelog from the `feat` and `fix` commits since the last release.
+1. Once CI passes on a `main` commit, [release-please](https://github.com/googleapis/release-please) opens or updates a release pull request. It bumps the version and writes the changelog from the `feat` and `fix` commits since the last release. The release workflow approves its checks; see [below](#approving-the-release-pull-requests-checks).
 2. Merging that pull request creates the `vX.Y.Z` tag and the GitHub release. A release is tagged only once CI passes on the release commit itself. If CI failed there, re-run it on that commit; the release is tagged when it passes.
-3. The tag starts the publish workflow. It runs the checks, smoke-tests the packed tarball, and publishes it to npm with trusted publishing, so no npm token is stored. To retry a failed publish, run `gh workflow run publish.yml --ref vX.Y.Z`.
+3. The release workflow then starts the publish workflow on that tag. It runs the checks, smoke-tests the packed tarball, and publishes it to npm with trusted publishing, so no npm token is stored. To retry a failed publish, run `gh workflow run publish.yml --ref vX.Y.Z`.
 4. The release workflow also moves the major tag (`v0`) to the new release, since workflows can use the Action as `nabondance/strata@v0`. If GitHub refuses, the run warns with the command to move it by hand. `publish.yml` runs only for `vX.Y.Z` tags, so the `v0` tag never publishes.
 
 ### Approving the release pull request's checks

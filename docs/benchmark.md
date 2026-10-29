@@ -10,7 +10,7 @@ The benchmark times **analysis only**. It does not include fixture creation, com
 
 The output reports the revision count, the latest revision's component count and estimated tokens, analysis seconds, and revisions per second. A *revision* is one commit in the analyzed history; a *component* is one tracked configuration file.
 
-## Git process count
+## Analysis time: per-commit Git processes vs. streamed log
 
 Measured on 2026-10-09, macOS arm64, Node 24.21.0, Git 2.48.1, default estimate mode:
 

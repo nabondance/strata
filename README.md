@@ -49,7 +49,7 @@ The images on this page are Strata's report on its own repository.
 
 ## How it works
 
-1. **Strata reads your branch's history, oldest commit first.** It follows the first-parent history: the commits made on the branch itself and its merge commits, without stepping into the commits of each merged branch.
+1. **Strata reads your branch's history, oldest commit first.** It follows the first-parent history: the chain you get by following each commit's first parent back from the branch tip. That includes merge commits but skips the commits that came in only through a merge's other parent.
 2. **At each commit, it reads the files as Git stored them** (Git calls these stored file versions *blobs*). It never looks at the files in your working tree.
 3. **It measures the files that match a known agent-configuration path:**
    - Instruction files get an estimate of their tokens, called *stored-text tokens*.
@@ -242,7 +242,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 **Does the total equal what my agent loads into context?** No. Strata counts everything tracked, including skills and nested instructions that load only when needed. The total is an upper bound on the stored instructions, not a measurement of a session. The report also shows two smaller figures:
 
 - **For skills:** the part an agent keeps in context before a skill is used, which is the name and description at the top of the skill file (its *frontmatter*).
-- **For each agent:** what it keeps from the start of a session opened at the repository root, apart from what it reads later on demand. The first part is the root instructions, rules that load at launch, Claude imports, and skill names and descriptions.
+- **For each agent:** what it keeps from the start of a session opened at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions), shown separately from what it reads later on demand.
 
 **Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, paths, and commit IDs with aliases. Check the report before you send it.
 

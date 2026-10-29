@@ -7,7 +7,7 @@ These terms are used throughout:
 | Term | Meaning |
 | --- | --- |
 | Revision | One commit on the analyzed branch's first-parent history, stored as one entry in the report's `revisions`. |
-| First-parent history | The chain of commits found by following each commit's first parent back from the branch tip. A merge commit's first parent is the branch it merged into, so the commits of a merged branch are not separate revisions: the merge is one change. |
+| First-parent history | The chain of commits found by following each commit's first parent back from the branch tip. A merge commit's first parent is the commit the receiving branch pointed to before the merge, so the commits of a merged branch are not separate revisions: the merge is one change. |
 | Blob | The content of one file version as Git stores it. A blob ID identifies that content. |
 | Component | One distinct file version, a path paired with a blob, listed once in the report's `components` table. |
 | Instructional file | A file whose text Strata measures in tokens, such as `CLAUDE.md`, a rule, or a skill manifest (`estimatedTokens` is not null). |
@@ -64,6 +64,8 @@ The default and local modes make no network request and transfer no content. Str
 | Gemini (default `gemini-3.8-flash`, `--gemini-model`) | `gcloud` account with a project (`GOOGLE_CLOUD_PROJECT` or `gcloud config`), through `gcloud auth print-access-token`; Vertex AI `countTokens` in `GOOGLE_CLOUD_LOCATION` (default `global`) | `GEMINI_API_KEY` or `GOOGLE_API_KEY`; Gemini API `countTokens` | none exists | byte estimate |
 | Codex (default `gpt-5`, `--codex-model`) | not used | not used | `js-tiktoken` encoding for the model | byte estimate |
 
+`strata diff --precise` uses the same methods and reports each provider's totals at the base and head commits. PR delta schema version 5 added `providerMeasurements` and `providerTotals` for this.
+
 #### Which providers and credentials are used
 
 - A provider with no recognized instructions anywhere in the analyzed history is skipped entirely. Its CLI is not run, no credential is looked up, and the report has no count column or metadata for it.
@@ -104,7 +106,6 @@ Remote counts are cached between runs:
 - A model name ending in `-latest` is an alias that moves to new models, so its counts are not cached.
 - The cache file is readable by its owner only and holds no paths or text.
 
-`strata diff --precise` uses the same methods and reports each provider's totals at the base and head commits. PR delta schema version 5 added `providerMeasurements` and `providerTotals` for this.
 
 ### Deprecated `--provider-api`
 
@@ -470,7 +471,9 @@ Totals always state how many unresolved manifests they leave out, so fixing a br
 - the agent's own wrapper around each entry;
 - the path Codex lists beside each skill;
 - Codex shortening descriptions to fit `skills.max_context_tokens`;
-- Claude Code dropping descriptions of its least-used skills when the whole listing exceeds its budget (1% of the context window by default, changed with `skillListingBudgetFraction` or `SLASH_COMMAND_TOOL_CHAR_BUDGET`), its per-entry cap changed with `skillListingMaxDescChars`, and `skillOverrides` set to `name-only`;
+- Claude Code dropping descriptions of its least-used skills when the whole listing exceeds its budget (1% of the context window by default, changed with `skillListingBudgetFraction` or `SLASH_COMMAND_TOOL_CHAR_BUDGET`);
+- Claude Code's per-entry cap, changed with `skillListingMaxDescChars`;
+- `skillOverrides` set to `name-only`;
 - skills disabled outside the repository or by `agents/openai.yaml`;
 - precedence between skills of the same name;
 - user or plugin skills.
@@ -505,7 +508,7 @@ The boundary follows each tool's documentation:
 | Tool | Up front at the repository root | Read later or conditionally |
 | --- | --- | --- |
 | Claude Code ([memory](https://code.claude.com/docs/en/memory)) | `CLAUDE.md`, `.claude/CLAUDE.md`, and `CLAUDE.local.md` in the starting directory and above, with their imports; rules in `.claude/rules` without `paths` frontmatter. By default, a root `AGENTS.md` only when none of those three files exists at the root, or when an import reaches it. | files in subdirectories, path-scoped rules, and rules in nested `.claude/rules` folders, when it works there |
-| Codex ([AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)) | at the root, a non-empty `AGENTS.override.md` instead of `AGENTS.md` | nested files below the starting directory are not read |
+| Codex ([AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)) | the root `AGENTS.md`, or a non-empty `AGENTS.override.md` in its place | none: nested files below the starting directory are not read |
 | Gemini CLI ([context files](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md)) | context files in the workspace directory and its parents at startup, so only the root `GEMINI.md` and, when `context.fileName` names it, `AGENTS.md` | context files in subdirectories, when a tool touches them |
 | Cursor ([rules](https://cursor.com/docs/rules)) | the root `AGENTS.md` and rules with `alwaysApply: true`, applied to every chat | other rules, by glob, by agent request, or by mention |
 | Copilot ([repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)) | `.github/copilot-instructions.md`, applied to every request in the repository; the root `AGENTS.md`, `CLAUDE.md` (and `.claude/CLAUDE.md`, as Strata's Copilot readers do), and `GEMINI.md` | `.instructions.md` files, only for files their `applyTo` matches; the nearest nested `AGENTS.md` wins for work in its folder |
@@ -685,13 +688,12 @@ The HTML report draws a treemap of the selected revision from the component meas
 
 ### Labels
 
-Interior labels use the skill directory name or the file name. They are checked against their rendered space, and again on resize:
+Interior labels use the skill directory name or the file name. They are checked against their rendered space, and again on resize. Names break only at hyphens, never mid-word. When a label does not fit:
 
-1. Names break only at hyphens, never mid-word.
-2. When both lines do not fit, the token count is removed.
-3. Then the name is reduced.
-4. Then it is cut to one small line ending in an ellipsis.
-5. It is removed only when even that cannot fit.
+1. When both lines do not fit, the token count is removed.
+2. Then the name is reduced.
+3. Then it is cut to one small line ending in an ellipsis.
+4. It is removed only when even that cannot fit.
 
 A tall, narrow rectangle sets its name top to bottom rather than breaking it mid-word.
 
@@ -832,7 +834,7 @@ Its JSON has its own schema version, currently 12. Compared components carry the
 | 11 | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each. |
 | 12 | `limits` when a [limit](#limits) is set. |
 
-With `--precise`, `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads.
+`strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 
 The Markdown output is intended for a local file or an opt-in GitHub Actions job summary. Paths and commit IDs are visible, but source text is not. The composite Action does not post comments; it fails or warns only on a limit set in its inputs.
 
@@ -861,11 +863,13 @@ Limits are opt-in. Nothing is checked unless a limit is given, and none is set b
 - `--limit-annotations` adds a GitHub Actions workflow command for each `Over limit:` line (`error`, or `warning` under `--on-limit warn`) and a `warning` for each `Limit not applied:` line. They are built from the checks rather than from the text, with `%`, CR, and LF escaped.
 - A `--precise --dry-run` still takes the local measurement, so it checks limits and exits as a full run would.
 - `strata analyze` adds nothing to its report, whose schema is unchanged.
-- `strata diff` puts a table of every limit at the top of its Markdown, and adds the `limits` array to its JSON (schema version 12). Each entry has:
+- `strata diff` puts a table of every limit at the top of its Markdown.
+
+`strata diff` also adds the `limits` array to its JSON (schema version 12). Each entry has:
 
 | Field | Value |
 | --- | --- |
-| `name` | the limit |
+| `name` | the option without its dashes, such as `limit-tokens` |
 | `agent` | the agent, or `null` for the total and when not applied |
 | `limit` | the number set |
 | `before` | the base value, or `null` for `analyze` and when not applied |

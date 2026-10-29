@@ -25,7 +25,7 @@ Copilot also reads files that Strata already assigns to other providers: `AGENTS
 - **Category**: the kind of configuration a file is, such as `instructions`, `rules`, `commands`, `agents`, `skills`, `settings`, `tools`, or `other`.
 - **Component**: one tracked file in the report, counted once.
 - **Stored instructional text**: prose an agent may read. Strata gives it a token estimate.
-- **Source bytes only** (source-only): Strata records the file's size but gives it no token count, because it is structured configuration such as JSON, not prompt text.
+- **Source bytes only** (source-only): Strata records the file's size but gives it no token count, because it is structured configuration, a supporting resource, or a file the tool does not read as prompt text.
 - **Readers**: the providers documented as reading a file. A file can list readers besides its own provider.
 - **Listing**: a skill's frontmatter `name` and `description`, which an agent keeps in context before it uses the skill. Strata measures it separately.
 - **Frontmatter**: the YAML block between `---` lines at the top of a Markdown file.

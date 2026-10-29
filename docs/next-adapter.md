@@ -9,7 +9,14 @@ Studied 2026-10-08. Cursor was chosen as the next provider for two reasons:
 
 The adapter adds provider `cursor` without counting the shared `AGENTS.md` twice.
 
-Terms used below: a *provider* is the tool a file belongs to; a *category* is the kind of configuration (`rules`, `commands`, `tools`, and so on); *stored instructional text* is prose Strata gives a token estimate; *source bytes only* means Strata records the file's size but no token count, because it is structured configuration. *Readers* are the providers documented as reading a file. *Legacy* marks a format the tool still reads but documents as replaced.
+Terms used below:
+
+- A *provider* is the tool a file belongs to.
+- A *category* is the kind of configuration (`rules`, `commands`, `tools`, and so on).
+- *Stored instructional text* is prose Strata gives a token estimate.
+- *Source bytes only* means Strata records the file's size but no token count, because it is structured configuration, a supporting resource, or a file the tool does not read as prompt text.
+- *Readers* are the providers documented as reading a file.
+- *Legacy* marks a format the tool still reads but documents as replaced.
 
 | Tracked path | Classification | Evidence and boundary |
 | --- | --- | --- |

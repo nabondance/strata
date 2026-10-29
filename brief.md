@@ -60,18 +60,18 @@ A stacked chart of token history by component: root instructions, skills, agents
 
 The structure of the configuration at the selected revision. Nodes can reflect token size and change over time.
 
-Show a relationship, such as an agent referring to a skill, only when the configuration or its content gives evidence for it. Two files sitting in the same directory does not mean one uses the other at runtime.
+Show a relationship, such as an agent referring to a skill, only when the configuration or its content gives evidence for it. A file's place in a directory alone does not mean an agent uses it at runtime.
 
 ### Survival
 
 An analysis, inspired by git-of-theseus, of how much configuration from an older point in history still remains later. This is deeper than comparing total token counts. It needs:
 
-- A defined method for tracing each line of text back to when it was written.
+- A defined method for attributing text or lines to the point in history they came from.
 - A way to handle instructions that were moved or copied.
 
 ### Changes
 
-Additions, deletions, and token changes from one revision to the next: a new skill, a removed agent, root instructions shrinking, a possible reorganization. Treat a “refactor” label as a guess unless evidence establishes it.
+Additions, deletions, and token changes from one revision to the next: a new skill, a removed agent, root instructions shrinking, a possible reorganization. Treat a “refactor” label as inferred unless evidence establishes it.
 
 ## Measurements discussed
 
@@ -99,7 +99,7 @@ MCP and hook configuration can matter to the structure without being prompt cont
 
 ## Ecosystem coverage discussed
 
-The design is a generic internal model, with one adapter per agent's conventions. An adapter is the part that knows which files a given tool uses.
+One idea discussed: a generic internal model, with one adapter per agent's conventions. An adapter is the part that knows which files a given tool uses.
 
 | Ecosystem | Candidate configuration inputs |
 | --- | --- |
@@ -143,7 +143,7 @@ This is an idea, not a built integration. A token increase on its own should not
 
 ## Research references from the conversation
 
-These references and descriptions came from the earlier assistant's research. They have not been checked again for this document, and claims that a tool lacks a feature are provisional.
+These references and descriptions came from the earlier assistant's research. They have not been checked again independently for this document, and claims that a tool lacks a feature are provisional.
 
 | Project | URL | Discussed relevance |
 | --- | --- | --- |
@@ -187,7 +187,7 @@ Earlier search results reportedly found no npm packages named context-strata, ag
 - Whether the first output should be a standalone HTML file or a local server.
 - How exports handle file content and confidentiality, and options to include content explicitly.
 - License, implementation stack, and supported Node and platform versions if using npx.
-- Exact scope of the first minimal version (MVP), and its test fixtures.
+- Exact scope of the first minimum viable product (MVP), and its test fixtures.
 
 ## Immediate next steps
 

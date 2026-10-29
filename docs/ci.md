@@ -61,7 +61,7 @@ Notes on the example:
 
 Use `fetch-depth: 0`, which downloads the full history. The default checkout is shallow: it contains only one commit. On a shallow clone, Strata still writes a report, but it warns on stderr and the report states that earlier history is missing.
 
-Strata follows the first-parent history of the checked-out commit. It walks back from that commit through each commit's first parent. For a merge commit, the first parent is the branch that received the merge, so the commits of a merged side branch are not visited one by one.
+Strata follows the first-parent history of the checked-out commit. It walks back from that commit through each commit's first parent. For a merge commit, the first parent is the tip of the branch that received the merge, so the commits of a merged side branch are not visited one by one.
 
 This works whether the checkout is on a branch or on a detached HEAD (a commit checked out without a branch). A detached checkout is labeled `detached HEAD` instead of a branch name.
 
@@ -193,4 +193,4 @@ The image is public wherever the README is. Add `--shareable` to the render comm
 
 - Token growth alone is never a failure: without a limit, a run that measures growth exits with 0.
 - With `--on-limit warn`, a passed limit is reported and the run exits with 0.
-- If something fails after a passed limit was reported, such as `--open`, the status stays 3, and the error is still printed.
+- If something fails after a passed limit was reported, such as `--open` failing, the status stays 3, and the error is still printed.
