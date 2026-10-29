@@ -1,6 +1,6 @@
 # Opt-in pull-request delta
 
-The repository provides a composite GitHub Action and a local `strata diff` command. To upload the full history report from CI instead, see [Running Strata in CI](ci.md). Neither runs automatically in a repository that has not added a workflow. The Action reads the checked-out repository's tracked blobs at the supplied base and head commit IDs, applies the selected measurement to instructional text, and appends a Markdown delta to the job summary. It does not modify the target repository, post a PR comment, or treat token growth as a failure. It sends no source text anywhere unless `precise: 'true'` is set, as described below.
+The repository provides a composite GitHub Action and a local `strata diff` command. To upload the full history report from CI instead, see [Running Strata in CI](ci.md). Neither runs automatically in a repository that has not added a workflow. The Action reads the checked-out repository's tracked blobs at the supplied base and head commit IDs, applies the selected measurement to instructional text, and appends a Markdown delta to the job summary. It does not modify the target repository or post a PR comment, and token growth never fails it unless you set a [limit](#limits). It sends no source text anywhere unless `precise: 'true'` is set, as described below.
 
 Example workflow in the **repository you want to analyze**:
 
@@ -46,6 +46,32 @@ For precise per-provider totals, set `precise: 'true'` and give the step the key
 
 A job that authenticates `gcloud` first, for example with `google-github-actions/auth`, can count through Vertex AI instead of a Gemini key. Pull requests from forks do not receive secrets, so their counts fall back to the estimate. The summary then gains a table of each provider's totals at both commits and the host that counted them.
 
+## Limits
+
+The Action can check token limits. None is set by default; each input is off when empty, and every limit is a whole number of tokens.
+
+<!-- x-release-please-start-version -->
+```yaml
+      - uses: nabondance/strata@v0.5.0
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          limit-increase: 500
+          limit-up-front-tokens: claude=8000 codex=6000
+          on-limit: warn
+```
+<!-- x-release-please-end -->
+
+| Input | Checks |
+| --- | --- |
+| `limit-tokens` | Stored instructional text at the head |
+| `limit-increase` | Its growth from base to head |
+| `limit-up-front-tokens` | What each agent keeps at session start at the head: one number for every agent, or `agent=number` entries separated by spaces or commas |
+| `limit-up-front-increase` | Its growth from base to head, in the same form |
+| `on-limit` | `fail` (default) fails the step after the summary is written; `warn` lets it pass. Used only when a limit is set |
+
+The job summary starts with a table of every limit and its result, and each limit passed adds an error or warning annotation that names it. A session-start limit that applied to no agent adds a warning but never fails the step. The limits follow `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
+
 For local use after building, run:
 
 ```sh
@@ -53,6 +79,6 @@ node dist/cli.js diff /path/to/repo --base <full-commit-id> --head <full-commit-
 node dist/cli.js diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --format json --output delta.json
 ```
 
-The JSON delta has its own schema version 11 and the report's measurement metadata. When either commit has a skill manifest, the summary also gives the change in listed skill tokens, the names and descriptions an agent keeps in context before a skill is used, and a `Δ listed` column for changed manifests; they are measured separately from the stored-text change and must not be added to it, and the summary counts manifests whose frontmatter Strata could not read, which the listing total leaves out. A table gives, for each agent whose figures changed, the stored text listed up front at a session started at the repository root and the rest it reads on demand. When either commit has a file that can define MCP servers, a line gives the servers the tracked files define at both commits and names those added or removed; a defined server is not a loaded one, and its tool definitions are not measured. Component matching uses provider, category, and path, so a rename can appear as removal plus addition. Files that Claude `@path` imports reach are included, so adding or dropping an import can list a file as added or removed although it did not change; the table marks such files "(imported)". The same measurement mode is applied to both endpoints. This compares stored configuration in Git, not loaded session context or billing tokens.
+The JSON delta has its own schema version 12 and the report's measurement metadata. When either commit has a skill manifest, the summary also gives the change in listed skill tokens, the names and descriptions an agent keeps in context before a skill is used, and a `Δ listed` column for changed manifests; they are measured separately from the stored-text change and must not be added to it, and the summary counts manifests whose frontmatter Strata could not read, which the listing total leaves out. A table gives, for each agent whose figures changed, the stored text listed up front at a session started at the repository root and the rest it reads on demand. When either commit has a file that can define MCP servers, a line gives the servers the tracked files define at both commits and names those added or removed; a defined server is not a loaded one, and its tool definitions are not measured. Component matching uses provider, category, and path, so a rename can appear as removal plus addition. Files that Claude `@path` imports reach are included, so adding or dropping an import can list a file as added or removed although it did not change; the table marks such files "(imported)". The same measurement mode is applied to both endpoints. This compares stored configuration in Git, not loaded session context or billing tokens.
 
 Strata's [manual Action smoke workflow](https://github.com/nabondance/strata/actions/workflows/action-smoke.yml) tests the composite Action against two commits in this repository. Its first [run](https://github.com/nabondance/strata/actions/runs/37747127783) succeeded on 2026-10-08 and wrote the model-labeled summary. This validates the Action on GitHub's runner; it does not test every downstream repository or fork layout.

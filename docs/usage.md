@@ -50,7 +50,7 @@ strata analyze /path/to/repository --format badge --output strata-badge.json
 
 Shields' `label`, `color`, and `style` query parameters restyle it. [Running Strata in CI](ci.md#readme-image) publishes the badge next to the image.
 
-Strata exits with status 0 on success, 2 when the command line is invalid, and 1 for any other failure, such as a path that is not a Git repository.
+Strata exits with status 0 on success, 2 when the command line is invalid, 3 when a [limit](#limits) you set is passed, and 1 for any other failure, such as a path that is not a Git repository.
 
 ## Compare two commits
 
@@ -62,6 +62,26 @@ strata diff /path/to/repository --base <base-commit> --head <head-commit> --form
 ```
 
 When either commit has a skill manifest, the summary also reports the change in listed skill tokens (the frontmatter name and description an agent keeps in context before a skill is used) and, for each changed manifest, its listing change. When either commit has an MCP file, a line names the MCP servers the change adds or removes. A table gives, for each agent whose figures changed, the stored text it lists up front at a session started at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions) and the rest it reads on demand.
+
+### Limits
+
+Both commands can check token limits you choose. None is set by default, and Strata never treats growth as a failure on its own: a limit says only that a figure passed the number you gave it. Every limit is a whole number of tokens.
+
+| Flag | Checks | Commands |
+| --- | --- | --- |
+| `--limit-tokens <n>` | Stored instructional text at the head, or at the latest revision | `diff`, `analyze` |
+| `--limit-increase <n>` | Its growth from base to head | `diff` |
+| `--limit-up-front-tokens [agent=]<n>` | What each agent keeps at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
+| `--limit-up-front-increase [agent=]<n>` | Its growth from base to head | `diff` |
+
+A session-start limit without an agent applies to every agent that keeps text at session start; repeat the flag with `claude=`, `codex=`, `copilot=`, `cursor=`, or `gemini=` to set one agent's limit, which then replaces the general one for that agent. If that leaves the general limit with no agent, for example because no agent keeps text at session start, the run says it was not applied. Limits use the run's measurement, never the `--precise` counts. The percentage change is shown beside each increase but is never a limit.
+
+```sh
+strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
+strata analyze --limit-up-front-tokens 8000 --format json --output report.json
+```
+
+Each limit passed prints an `Over limit:` line on standard error, and each limit not applied a `Limit not applied:` line, also with `--quiet`. A run with a limit passed exits with status 3 after writing its output, and before `--open` opens it. `--on-limit warn` keeps the lines and exits with 0. `--limit-annotations` also prints each line as a GitHub Actions annotation: an error for a limit passed (a warning under `--on-limit warn`) and a warning for one not applied. A `--precise --dry-run` checks limits too, since they use the local measurement it has already taken. `strata diff` also puts a table of every limit and its result at the top of the Markdown and in the JSON's `limits`.
 
 For pull requests, the opt-in [composite Action](pr-action.md) runs the same comparison and writes the delta to the job summary. It reads Git blobs without checking out either revision or posting a comment. To publish the full history report or a README image from CI, see [Running Strata in CI](ci.md).
 
@@ -133,4 +153,4 @@ The treemap shows the selected revision's instructional components with rectangl
 
 ## The JSON report
 
-JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 19 and that replay rule, up-front context, Claude imports, MCP servers, instruction age, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish. It also covers the `strata diff` JSON (schema version 11) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+JSON reports store each distinct file version once in a top-level `components` list; every revision carries its totals and its `changes`, each pointing at the component now at that path. Replaying the changes in order rebuilds the files present at any revision, which keeps reports small on long histories. The bundled interpretation skill explains schema version 19 and that replay rule, up-front context, Claude imports, MCP servers, instruction age, stored-text measurement methods, source-only files, skill bundles, shareable aliases, and the limits of what JSON can establish. It also covers the `strata diff` JSON (schema version 12) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.

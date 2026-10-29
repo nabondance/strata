@@ -539,7 +539,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 11);
+    assert.equal(prDelta.schemaVersion, 12);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -1644,7 +1644,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     // `strata diff` uses the same labels; a .claude/skills change stays in Claude's row.
     const delta = compareGitCommits(repo, added, migrated);
-    assert.equal(delta.schemaVersion, 11);
+    assert.equal(delta.schemaVersion, 12);
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");
@@ -1990,7 +1990,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
 
     // `strata diff` uses the same labels; a CLAUDE.md change stays in Claude's row.
     const delta = compareGitCommits(repo, adopted, migrated);
-    assert.equal(delta.schemaVersion, 11);
+    assert.equal(delta.schemaVersion, 12);
     const chatmode = delta.comparison.components.find((c) => c.path === ".github/agents/legacy.chatmode.md");
     assert.deepEqual([chatmode.kind, chatmode.provider, chatmode.legacy], ["removed", "copilot", true]);
     const row = (key) => delta.comparison.byProvider.find((group) => group.key === key);
@@ -2853,7 +2853,7 @@ test("lists the MCP servers tracked files define, without storing their commands
 
     // `strata diff` says which servers a change adds or removes, and that defining one does not load it.
     const delta = compareGitCommits(repo, before, head);
-    assert.equal(delta.schemaVersion, 11);
+    assert.equal(delta.schemaVersion, 12);
     const markdown = renderPullRequestDelta(delta);
     assert.match(
       markdown,

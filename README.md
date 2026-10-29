@@ -131,9 +131,13 @@ npx context-strata analyze --format badge --output strata-badge.json
 
 # What changed between two commits
 npx context-strata diff --base <base-commit> --head <head-commit>
+
+# The same, exiting with status 3 if instructions grew by more than 500 tokens
+# or Claude Code keeps more than 8,000 tokens at session start
+npx context-strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
 ```
 
-Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` for every option.
+Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` for every option. [Limits](docs/usage.md#limits) are off unless you set them, and growth alone never fails a run.
 
 To try changes before they are released, install the [canary build](https://github.com/nabondance/strata/releases/tag/canary) of the latest `main` with `npm install --global https://github.com/nabondance/strata/releases/download/canary/context-strata.tgz`, and run it again to update. It passes the same checks as a release, but its report format can change before the next version.
 
@@ -143,7 +147,7 @@ By default Strata estimates tokens as UTF-8 bytes divided by four. For offline O
 
 ### In pull requests
 
-An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments.
+An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It needs only `contents: read` and posts no comments. Optional [limits](docs/pr-action.md#limits), such as `limit-up-front-tokens: claude=8000`, fail or warn when a figure passes a number you choose.
 
 <!-- x-release-please-start-version -->
 ```yaml

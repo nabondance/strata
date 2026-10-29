@@ -8,6 +8,7 @@ import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
+import { checkLimits, limitAnnotations, limitLines, limitMessages, limitSummary, parseLimits } from "../dist/limits.js";
 import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -166,6 +167,19 @@ test("command line follows common conventions", () => {
       assert.equal(strata(["help", command]).stdout, commandHelp.stdout);
       assert.equal(commandHelp.stderr, "");
     }
+    // Limits are named in the main help and listed in full in each command's help.
+    assert.match(mainHelp.stdout, /--limit-tokens 50000/);
+    const diffHelp = strata(["diff", "--help"]).stdout;
+    for (const flag of [
+      "--limit-tokens",
+      "--limit-increase",
+      "--limit-up-front-tokens",
+      "--limit-up-front-increase",
+      "--on-limit",
+      "--limit-annotations",
+    ])
+      assert.match(diffHelp, new RegExp(`${flag} `));
+    assert.match(strata(["analyze", "--help"]).stdout, /--limit-up-front-tokens \[agent=\]<n>/);
     // The British spelling runs the same command, and help says so.
     assert.match(mainHelp.stdout, /analyse is an alias/);
     assert.equal(strata(["analyse", "--help"]).stdout, strata(["analyze", "--help"]).stdout);
@@ -191,6 +205,31 @@ test("command line follows common conventions", () => {
       [["diff", repo, "--base", base, "--head", head, "--format", "html"], /--format must be markdown or json/],
       [["diff", repo, "--base", "main", "--head", head], /full Git commit IDs, not main/],
       [["skill", "extra"], /Unexpected argument: extra/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-tokens", "10%"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-increase", "1.5"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-tokens", "1234567890123456"], /whole number of tokens/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-tokens", "claude=5"], /does not take an agent name/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-up-front-tokens", "bob=5"], /Unknown agent bob/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-increase", "5", "--limit-increase", "6"], /set twice/],
+      [
+        [
+          "diff",
+          repo,
+          "--base",
+          base,
+          "--head",
+          head,
+          "--limit-up-front-tokens",
+          "claude=5",
+          "--limit-up-front-tokens",
+          "claude=6",
+        ],
+        /set twice for claude/,
+      ],
+      [["diff", repo, "--base", base, "--head", head, "--on-limit", "warn"], /--on-limit requires a limit/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-annotations"], /--limit-annotations requires a limit/],
+      [["diff", repo, "--base", base, "--head", head, "--limit-tokens", "1", "--on-limit", "x"], /fail or warn/],
+      [["analyze", repo, "--limit-increase", "5"], /Unknown option '--limit-increase'/],
     ]) {
       const result = strata(args);
       assert.equal(result.status, 2, args.join(" "));
@@ -275,6 +314,314 @@ test("command line follows common conventions", () => {
   } finally {
     rmSync(repo, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("limits report a passed number and exit with 3, only when set", () => {
+  const { repo, put, commit } = fixture();
+  const outside = mkdtempSync(join(tmpdir(), "strata-limits-"));
+  try {
+    put("CLAUDE.md", "Root instructions.\n");
+    put("AGENTS.md", "Shared.\n");
+    const base = commit("Add instructions");
+    put("CLAUDE.md", "Root instructions, now quite a bit longer than they were.\n");
+    put(".cursor/rules/style.mdc", "---\nalwaysApply: true\n---\nPrefer small functions.\n");
+    const head = commit("Grow instructions and add Cursor");
+    const diff = (...args) => strata(["diff", repo, "--base", base, "--head", head, ...args]);
+    const plain = compareGitCommits(repo, base, head);
+    const claude = plain.upFront.find((entry) => entry.provider === "claude");
+
+    // Without limits the output and status are unchanged.
+    const none = diff("--format", "json");
+    assert.equal(none.status, 0);
+    assert.equal(JSON.parse(none.stdout).limits, undefined);
+    assert.equal(JSON.parse(none.stdout).schemaVersion, 12);
+
+    const over = diff(
+      "--format",
+      "json",
+      "--limit-tokens",
+      String(plain.comparison.afterTokens - 1),
+      "--limit-increase",
+      "1",
+      "--limit-up-front-tokens",
+      "100000",
+      "--limit-up-front-tokens",
+      `claude=${claude.after.tokens - 1}`,
+      "--limit-up-front-increase",
+      "1",
+    );
+    assert.equal(over.status, 3, over.stderr);
+    const delta = JSON.parse(over.stdout);
+    assert.deepEqual({ ...delta, limits: undefined }, { ...plain, limits: undefined });
+    assert.deepEqual(
+      delta.limits.map(({ name, agent, result }) => [name, agent, result]),
+      [
+        ["limit-tokens", null, "over"],
+        ["limit-increase", null, "over"],
+        ["limit-up-front-tokens", "claude", "over"],
+        ["limit-up-front-tokens", "codex", "within"],
+        ["limit-up-front-tokens", "cursor", "within"],
+        ["limit-up-front-increase", "claude", "over"],
+        ["limit-up-front-increase", "codex", "within"],
+        ["limit-up-front-increase", "cursor", "over"],
+      ],
+    );
+    assert.match(
+      over.stderr,
+      /^Over limit: stored instructional text is \d+ tokens, more than the \d+ set with --limit-tokens\.$/m,
+    );
+    assert.match(
+      over.stderr,
+      /^Over limit: stored instructional text grew by \d+ tokens \(\+[\d.]+%\), more than the 1 set/m,
+    );
+    assert.match(over.stderr, /^Over limit: Claude Code at session start is \d+ tokens/m);
+    // Cursor had nothing at the base, so its growth has no percentage.
+    assert.match(over.stderr, /^Over limit: Cursor at session start grew by \d+ tokens, more than the 1 set/m);
+
+    const markdown = diff("--limit-increase", "1");
+    assert.equal(markdown.status, 3);
+    assert.match(markdown.stdout, /\*\*Over 1 of 1 limit set for this run\.\*\*/);
+    assert.match(
+      markdown.stdout,
+      /\| Stored instructional text, increase \| \+\d+ \(\+[\d.]+%\) \| 1 \| \*\*Over\*\* \|/,
+    );
+    assert.match(markdown.stdout, /not that the configuration got worse/);
+
+    // warn reports the same and exits with 0; a written file still holds the table.
+    const file = join(outside, "delta.md");
+    const warned = diff("--limit-increase", "1", "--on-limit", "warn", "--output", file);
+    assert.equal(warned.status, 0);
+    assert.match(warned.stderr, /^Over limit: /m);
+    assert.match(readFileSync(file, "utf8"), /Over 1 of 1 limit/);
+
+    // A dry run has taken the local measurement limits use, so it checks them.
+    const dry = diff("--precise", "--dry-run", "--no-cache", "--limit-tokens", "1");
+    assert.equal(dry.status, 3, dry.stderr);
+    assert.match(dry.stdout, /Dry run: nothing was sent[\s\S]*Over 1 of 1 limit set for this run\./);
+    assert.match(dry.stderr, /^Over limit: stored instructional text is \d+ tokens/m);
+    // --limit-annotations writes GitHub workflow commands next to the lines.
+    const annotated = diff("--limit-tokens", "1", "--on-limit", "warn", "--limit-annotations");
+    assert.equal(annotated.status, 0);
+    assert.match(annotated.stderr, /^::warning title=Strata context limit::stored instructional text is \d+ tokens/m);
+
+    const within = diff("--limit-tokens", "100000");
+    assert.equal(within.status, 0);
+    assert.equal(within.stderr, "");
+    assert.match(within.stdout, /Within the 1 limit set for this run\./);
+
+    // analyze checks the latest revision, after writing the report, even with --quiet.
+    const report = join(outside, "report.json");
+    const analyzed = strata(["analyze", repo, "-q", "-f", "json", "-o", report, "--limit-up-front-tokens", "cursor=1"]);
+    assert.equal(analyzed.status, 3);
+    assert.equal(analyzed.stdout, `${report}\n`);
+    assert.match(analyzed.stderr, /^Over limit: Cursor at session start is \d+ tokens, more than the 1 set/m);
+    assert.equal(JSON.parse(readFileSync(report, "utf8")).revisions.length, 2);
+    // A quiet dry run prints no summary on standard output.
+    const quietDry = strata(["analyze", repo, "-q", "--precise", "--dry-run", "--no-cache", "--limit-tokens", "1"]);
+    assert.equal(quietDry.status, 3);
+    assert.doesNotMatch(quietDry.stdout, /limit set for this run/);
+    // A viewer that fails to open does not hide a passed limit: the limits come first.
+    if (process.platform !== "win32") {
+      // PATH holds only Git, so the default viewer command is missing.
+      const bin = join(outside, "bin");
+      mkdirSync(bin);
+      symlinkSync(execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(), join(bin, "git"));
+      const opened = strata(["analyze", repo, "-o", join(outside, "open.html"), "--open", "--limit-tokens", "1"], {
+        env: { ...process.env, PATH: bin },
+      });
+      // The failure to open is printed, but the passed limit keeps its status.
+      assert.equal(opened.status, 3);
+      assert.match(opened.stderr, /^Over limit: stored instructional text[\s\S]*Could not open the report/m);
+    }
+
+    // An agent that only reads on demand keeps nothing at session start, so a general
+    // session-start limit applies to no agent, and the run says so beside the limits it checked.
+    const onDemand = fixture();
+    try {
+      onDemand.put(".claude/agents/review.md", "Review the change.\n");
+      onDemand.commit("Add an agent");
+      const unused = strata([
+        "analyze",
+        onDemand.repo,
+        "-o",
+        report,
+        "--limit-tokens",
+        "100000",
+        "--limit-up-front-tokens",
+        "5",
+      ]);
+      assert.equal(unused.status, 0, unused.stderr);
+      assert.match(unused.stdout, /Within 1 of 2 limits set for this run; 1 applied to no agent\./);
+      assert.match(
+        unused.stderr,
+        /^Limit not applied: --limit-up-front-tokens 5 applied to no agent: none keeps text at session start\.$/m,
+      );
+    } finally {
+      rmSync(onDemand.repo, { recursive: true, force: true });
+    }
+    const fine = strata(["analyze", repo, "-o", report, "--limit-tokens", "100000"]);
+    assert.equal(fine.status, 0);
+    assert.match(fine.stdout, /Within the 1 limit set for this run\./);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("limits compare at their boundaries and never drop a limit", () => {
+  const figures = (before, after, upFront = new Map()) => ({ total: { before, after }, upFront });
+  const result = (flags, before, after) =>
+    checkLimits(parseLimits(flags), figures(before, after)).map((check) => check.result);
+  assert.deepEqual(result({ "limit-tokens": ["100"] }, 0, 100), ["within"]);
+  assert.deepEqual(result({ "limit-tokens": ["100"] }, 0, 101), ["over"]);
+  assert.deepEqual(result({ "limit-increase": ["10"] }, 100, 110), ["within"]);
+  assert.deepEqual(result({ "limit-increase": ["10"] }, 100, 111), ["over"]);
+  assert.deepEqual(result({ "limit-increase": ["0"] }, 200, 150), ["within"]);
+  // One token reads as singular, and the share is rounded to a tenth.
+  const one = checkLimits(parseLimits({ "limit-increase": ["0"] }), figures(3, 4));
+  assert.deepEqual(limitMessages(one), [
+    "Over limit: stored instructional text grew by 1 token (+33.3%), more than the 0 set with --limit-increase.",
+  ]);
+  assert.match(
+    limitLines(checkLimits(parseLimits({ "limit-increase": ["10"] }), figures(3, 2))).join("\n"),
+    /\| -1 \(-33\.3%\) \| 10 \| Within \|/,
+  );
+  // An agent's own limit replaces the general one; a general limit left with no agent says so.
+  const claudeOnly = new Map([["claude", { before: 0, after: 7000 }]]);
+  const replaced = checkLimits(
+    parseLimits({ "limit-up-front-tokens": ["5000", "claude=8000"] }),
+    figures(0, 7000, claudeOnly),
+  );
+  assert.deepEqual(
+    replaced.map(({ agent, limit, result }) => [agent, limit, result]),
+    [
+      ["claude", 8000, "within"],
+      [null, 5000, "replaced"],
+    ],
+  );
+  assert.equal(limitSummary(replaced), "Within 1 of 2 limits set for this run; 1 applied to no agent.");
+  assert.match(
+    limitLines(replaced).join("\n"),
+    /\| Every agent at session start \| — \| 5000 \| Not applied: each agent has its own limit \|/,
+  );
+  // When every limit applied to no agent, the summary says so rather than "Within 0 of 1".
+  assert.equal(
+    limitSummary(checkLimits(parseLimits({ "limit-up-front-tokens": ["8000"] }), figures(null, 0))),
+    "The 1 limit set for this run applied to no agent.",
+  );
+  // With no agent at all, the same.
+  assert.deepEqual(checkLimits(parseLimits({ "limit-up-front-tokens": ["8000"] }), figures(null, 0)), [
+    { name: "limit-up-front-tokens", agent: null, limit: 8000, before: null, after: null, result: "no-agent" },
+  ]);
+  // A limit for one agent that keeps nothing is checked as zero tokens; the general limit skips absent agents.
+  const upFront = checkLimits(parseLimits({ "limit-up-front-tokens": ["5", "gemini=0"] }), {
+    total: { before: 0, after: 0 },
+    upFront: new Map([["claude", { before: 1, after: 9 }]]),
+  });
+  assert.deepEqual(
+    upFront.map(({ agent, after, result }) => [agent, after, result]),
+    [
+      ["claude", 9, "over"],
+      ["gemini", 0, "within"],
+    ],
+  );
+  // Annotations escape what workflow commands require.
+  assert.deepEqual(limitAnnotations(one, "error"), [
+    "::error title=Strata context limit::stored instructional text grew by 1 token (+33.3%25), more than the 0 set with --limit-increase.",
+  ]);
+  assert.deepEqual(limitAnnotations(replaced, "error"), [
+    "::warning title=Strata context limit not applied::--limit-up-front-tokens 5000 applied to no agent: each agent that keeps text at session start has its own limit.",
+  ]);
+});
+
+test("the Action writes the summary, then annotates and fails or warns on a passed limit", {
+  skip: process.platform === "win32",
+}, () => {
+  // The composite step's script, run under the shell options GitHub uses for `shell: bash`.
+  const action = readFileSync("action.yml", "utf8");
+  const script = action
+    .split("    - name: Compare PR commits")[1]
+    .split("      run: |\n")[1]
+    .split("\n")
+    .map((line) => line.slice(8))
+    .join("\n");
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("CLAUDE.md", "Root.\n");
+    const base = commit("Add instructions");
+    put("CLAUDE.md", "Root instructions, grown by a good amount.\n");
+    const head = commit("Grow instructions");
+    const run = (inputs) => {
+      const runner = mkdtempSync(join(temp, "run-"));
+      const summary = join(runner, "summary.md");
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", script], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_WORKSPACE: repo,
+          GITHUB_ACTION_PATH: resolve("."),
+          RUNNER_TEMP: runner,
+          GITHUB_STEP_SUMMARY: summary,
+          STRATA_BASE: base,
+          STRATA_HEAD: head,
+          STRATA_TOKENIZER: "estimate",
+          STRATA_MODEL: "",
+          STRATA_PRECISE: "false",
+          STRATA_LIMIT_TOKENS: "",
+          STRATA_LIMIT_INCREASE: "",
+          STRATA_LIMIT_UP_FRONT_TOKENS: "",
+          STRATA_LIMIT_UP_FRONT_INCREASE: "",
+          STRATA_ON_LIMIT: "fail",
+          ...inputs,
+        },
+      });
+      let written = null;
+      try {
+        written = readFileSync(summary, "utf8");
+      } catch {}
+      return { ...result, summary: written };
+    };
+
+    const plain = run({});
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.summary, /^## Strata configuration delta/);
+    assert.doesNotMatch(plain.stdout + plain.stderr, /::/);
+
+    const failed = run({ STRATA_LIMIT_INCREASE: "1", STRATA_LIMIT_UP_FRONT_TOKENS: "claude=1, codex=5" });
+    assert.equal(failed.status, 3);
+    assert.match(failed.summary, /\*\*Over 2 of 3 limits set for this run\.\*\*/);
+    assert.match(
+      failed.stderr,
+      /^::error title=Strata context limit::stored instructional text grew by \d+ tokens \(\+[\d.]+%25\), more than the 1 set/m,
+    );
+    assert.match(failed.stderr, /^::error title=Strata context limit::Claude Code at session start is \d+ tokens/m);
+    assert.match(failed.stderr, /^Over limit: Claude Code at session start/m);
+
+    const warned = run({ STRATA_LIMIT_INCREASE: "1", STRATA_ON_LIMIT: "warn" });
+    assert.equal(warned.status, 0);
+    assert.match(warned.stderr, /^::warning title=Strata context limit::/m);
+    assert.match(warned.summary, /Over 1 of 1 limit/);
+
+    // A limit that applied to no agent warns without failing the step.
+    const unused = run({ STRATA_LIMIT_UP_FRONT_TOKENS: "claude=100000 5" });
+    assert.equal(unused.status, 0, unused.stderr);
+    assert.match(
+      unused.stderr,
+      /^::warning title=Strata context limit not applied::--limit-up-front-tokens 5 applied to no agent/m,
+    );
+
+    // A real failure fails the step and writes no summary.
+    const invalid = run({ STRATA_LIMIT_TOKENS: "lots" });
+    assert.equal(invalid.status, 2);
+    assert.equal(invalid.summary, null);
+    // on-limit matters only with a limit: Strata validates it then, and ignores it otherwise.
+    assert.equal(run({ STRATA_ON_LIMIT: "maybe", STRATA_LIMIT_TOKENS: "100000" }).status, 2);
+    assert.equal(run({ STRATA_ON_LIMIT: "" }).status, 0);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
   }
 });
 

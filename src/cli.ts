@@ -11,11 +11,23 @@ import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
+import {
+  checkLimits,
+  keepsUpFront,
+  type Limit,
+  type LimitCheck,
+  type LimitName,
+  limitAnnotations,
+  limitMessages,
+  limitSummary,
+  parseLimits,
+} from "./limits.js";
 import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import type { Component, Report, Submodule } from "./model.js";
 import {
   compareGitCommits,
   compareGitCommitsPrecise,
+  limitFigures,
   type PullRequestDelta,
   renderPullRequestDelta,
 } from "./pr-delta.js";
@@ -24,7 +36,14 @@ import { redactReport } from "./privacy.js";
 import type { CountedProvider, ProviderCountOptions, ProviderCountPlan } from "./provider-count.js";
 import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
-import { hasUpFront, sessionProviderNames, sessionProviders, upFrontContext, upFrontTotals } from "./up-front.js";
+import {
+  hasUpFront,
+  sessionProviderNames,
+  sessionProviders,
+  type UpFrontContext,
+  upFrontContext,
+  upFrontTotals,
+} from "./up-front.js";
 
 const providerLabel: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
 
@@ -61,6 +80,35 @@ const preciseHelp = `Precise counts (opt-in content transfer):
       --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})
       --codex-model <name>   OpenAI model whose encoding counts Codex (default: ${defaultModels.codex})`;
 
+/** Exit status when a limit set with --limit-* is passed and --on-limit is fail. */
+const overLimitStatus = 3;
+
+const agentPrefix = `${sessionProviders.join("=, ")}=`;
+
+const limitsHelp = {
+  analyze: `Limits (in tokens; off unless set; checked at the latest revision):
+      --limit-tokens <n>                   Stored instructional text
+      --limit-up-front-tokens [agent=]<n>  What each agent keeps at session start; repeat
+                                           with ${agentPrefix}
+                                           for one agent
+      --on-limit <fail|warn>               fail (default) exits with status ${overLimitStatus} once the
+                                           report is written; warn only reports
+      --limit-annotations                  Also print each limit passed or not applied as a
+                                           GitHub Actions annotation`,
+  diff: `Limits (in tokens; off unless set; checked at the head, never with --precise counts):
+      --limit-tokens <n>                   Stored instructional text
+      --limit-increase <n>                 Growth of stored instructional text from base to head
+      --limit-up-front-tokens [agent=]<n>  What each agent keeps at session start; repeat
+                                           with ${agentPrefix}
+                                           for one agent
+      --limit-up-front-increase [agent=]<n>
+                                           Growth of what each agent keeps at session start
+      --on-limit <fail|warn>               fail (default) exits with status ${overLimitStatus} once the
+                                           delta is written; warn only reports
+      --limit-annotations                  Also print each limit passed or not applied as a
+                                           GitHub Actions annotation`,
+};
+
 const help = {
   main: `Strata — see how your agent context evolved across Git history.
 
@@ -77,6 +125,11 @@ Commands:
 Options:
   -h, --help             Show help
   -V, --version          Show the version
+
+Limits:
+  analyze and diff can fail, or warn, when a token figure passes a limit you set, such as
+  --limit-tokens 50000 or --limit-up-front-tokens claude=8000. A passed limit exits with
+  status 3, or only warns with --on-limit warn. Run strata help diff for every limit flag.
 
 Strata reads Git-tracked Claude, Codex, Gemini CLI, Cursor, and GitHub Copilot configuration from
 first-parent history. It never modifies the repository and sends nothing over the network unless
@@ -99,6 +152,8 @@ Output:
 
 ${measurementHelp}
 
+${limitsHelp.analyze}
+
 ${preciseHelp}
       --provider-api         Deprecated: use --precise. Requires both model flags and API keys,
                              and fails instead of falling back.
@@ -112,6 +167,7 @@ Examples:
   strata analyze --format svg --minimal --output docs/strata-minimal.svg
   strata analyze --format badge --output strata-badge.json
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
+  strata analyze --limit-up-front-tokens 8000 --format json --output report.json
 `,
   diff: `Usage:
   strata diff [repository] --base <commit> --head <commit> [options]
@@ -128,10 +184,14 @@ Options:
 
 ${measurementHelp}
 
+${limitsHelp.diff}
+
 ${preciseHelp}
 
-Example:
+Examples:
   strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)"
+  strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)" \\
+    --limit-increase 500 --limit-up-front-tokens claude=8000
 `,
   skill: `Usage:
   strata skill [--output <file>]
@@ -305,6 +365,57 @@ function preciseArguments(values: {
   };
 }
 
+const limitOptions = {
+  "limit-tokens": { type: "string", multiple: true },
+  "limit-up-front-tokens": { type: "string", multiple: true },
+  "on-limit": { type: "string" },
+  "limit-annotations": { type: "boolean" },
+} as const satisfies NonNullable<ParseArgsConfig["options"]>;
+
+const increaseLimitOptions = {
+  "limit-increase": { type: "string", multiple: true },
+  "limit-up-front-increase": { type: "string", multiple: true },
+} as const satisfies NonNullable<ParseArgsConfig["options"]>;
+
+/** The limits set on the command line, whether passing one fails the run, and whether to annotate. */
+interface LimitArguments {
+  limits: Limit[];
+  fail: boolean;
+  annotations: boolean;
+}
+
+function limitArguments(
+  values: Partial<Record<LimitName, string[] | undefined>> & {
+    "on-limit"?: string | undefined;
+    "limit-annotations"?: boolean | undefined;
+  },
+): LimitArguments {
+  let limits: Limit[];
+  try {
+    limits = parseLimits(values);
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error));
+  }
+  const onLimit = choice("--on-limit", values["on-limit"], ["fail", "warn"], "fail");
+  if (values["on-limit"] !== undefined && !limits.length)
+    throw new UsageError("--on-limit requires a limit such as --limit-tokens");
+  if (values["limit-annotations"] && !limits.length)
+    throw new UsageError("--limit-annotations requires a limit such as --limit-tokens");
+  return { limits, fail: onLimit === "fail", annotations: values["limit-annotations"] ?? false };
+}
+
+/**
+ * Report passed and unchecked limits on stderr, shown even with --quiet, with GitHub Actions
+ * annotations when asked (the runner reads workflow commands from either stream), and set the exit status.
+ */
+function reportLimits(checks: readonly LimitCheck[], options: LimitArguments): void {
+  for (const line of limitMessages(checks)) process.stderr.write(`${line}\n`);
+  if (options.annotations) {
+    for (const line of limitAnnotations(checks, options.fail ? "error" : "warning")) process.stderr.write(`${line}\n`);
+  }
+  if (options.fail && checks.some((check) => check.result === "over")) process.exitCode = overLimitStatus;
+}
+
 async function analyze(args: string[]): Promise<void> {
   const { values, positionals } = parse(args, {
     output: { type: "string", short: "o" },
@@ -316,9 +427,11 @@ async function analyze(args: string[]): Promise<void> {
     tokenizer: { type: "string" },
     model: { type: "string" },
     ...preciseOptions,
+    ...limitOptions,
     "provider-api": { type: "boolean" },
   });
   const repository = repositoryArgument(positionals);
+  const limits = limitArguments(values);
   const format = choice("--format", values.format, ["html", "json", "svg", "badge"], "html");
   const toStdout = values.output === "-";
   if (values.minimal && format !== "svg") throw new UsageError("--minimal requires --format svg");
@@ -361,8 +474,36 @@ async function analyze(args: string[]): Promise<void> {
   } finally {
     saveCache(precise?.cache);
   }
+  const dryRunLine = "Dry run: nothing was sent and no report was written.\n";
+  // Without limits a dry run needs nothing more, so it skips replaying the history.
+  if (precise?.plan.dryRun && !limits.limits.length) {
+    process.stdout.write(dryRunLine);
+    return;
+  }
+  const latest = analyzed.revisions.at(-1);
+  // The last revision's files and what each agent reads up front, built once for the notes and limits.
+  const components = latestComponents(analyzed);
+  const upFrontContexts = sessionProviders.flatMap((provider) => {
+    const context = upFrontContext(components, provider, latest?.geminiContextFiles);
+    return hasUpFront(upFrontTotals(context)) ? [context] : [];
+  });
+  // Limits use the local measurement, which a dry run has already taken.
+  const checks = limits.limits.length
+    ? checkLimits(limits.limits, {
+        total: { before: null, after: latest?.estimatedTokens ?? 0 },
+        upFront: new Map(
+          upFrontContexts
+            .filter((context) => keepsUpFront(upFrontTotals(context)))
+            .map((context) => [context.provider, { before: null, after: context.tokens }]),
+        ),
+      })
+    : null;
   if (precise?.plan.dryRun) {
-    process.stdout.write("Dry run: nothing was sent and no report was written.\n");
+    process.stdout.write(dryRunLine);
+    if (checks) {
+      if (!values.quiet) process.stdout.write(`${limitSummary(checks)}\n`);
+      reportLimits(checks, limits);
+    }
     return;
   }
   const report = values.shareable ? redactReport(analyzed) : analyzed;
@@ -378,7 +519,6 @@ async function analyze(args: string[]): Promise<void> {
   const say = (line: string) => {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
   };
-  const latest = report.revisions.at(-1);
   say(`Analyzed ${report.revisions.length} revisions of ${report.repository}.`);
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
@@ -393,7 +533,7 @@ async function analyze(args: string[]): Promise<void> {
           : ""),
     );
   }
-  const upFront = upFrontNote(report);
+  const upFront = upFrontNote(upFrontContexts);
   if (upFront) say(upFront);
   const age = summarizeInstructionAge(report);
   if (age) {
@@ -418,6 +558,7 @@ async function analyze(args: string[]): Promise<void> {
     for (const host of measured.alsoSentTo ?? [])
       say(`  Instruction text also went to ${host} before that method failed.`);
   }
+  let toOpen: string | undefined;
   if (toStdout) {
     process.stdout.write(content);
   } else {
@@ -431,12 +572,18 @@ async function analyze(args: string[]): Promise<void> {
     if (format === "svg" || format === "badge") writePublic(destination, content);
     else writePrivate(destination, content);
     process.stdout.write(values.quiet ? `${destination}\n` : `Report: ${destination}\n`);
-    if (values.open) openReport(destination);
+    if (values.open) toOpen = destination;
+  }
+  if (checks) {
+    say(limitSummary(checks));
+    reportLimits(checks, limits);
   }
   if (report.shallow) process.stderr.write("Warning: shallow clone; earlier history is unavailable.\n");
   for (const line of submoduleNotes(report.submodules ?? [])) process.stderr.write(`Note: ${line}\n`);
-  const unresolved = unresolvedImportNote(report);
+  const unresolved = unresolvedImportNote(components);
   if (unresolved) process.stderr.write(`Note: ${unresolved}\n`);
+  // Last, so a viewer that fails to open cannot hide the limits or notes above.
+  if (toOpen) openReport(toOpen);
 }
 
 /** The last revision's inventory, replayed as `expandRevisions` does without building every revision's. */
@@ -453,13 +600,7 @@ function latestComponents(report: Report): Component[] {
 }
 
 /** Each agent's stored text listed up front at the last revision, beside what it reads on demand. */
-function upFrontNote(report: Report): string | null {
-  const components = latestComponents(report);
-  const geminiContextFiles = report.revisions.at(-1)?.geminiContextFiles;
-  const entries = sessionProviders.flatMap((provider) => {
-    const context = upFrontContext(components, provider, geminiContextFiles);
-    return hasUpFront(upFrontTotals(context)) ? [context] : [];
-  });
+function upFrontNote(entries: readonly UpFrontContext[]): string | null {
   if (!entries.length) return null;
   const unresolved = entries.reduce((sum, entry) => sum + entry.unresolved, 0);
   return (
@@ -471,8 +612,7 @@ function upFrontNote(report: Report): string | null {
 }
 
 /** Count the Claude imports the last revision cannot resolve, by reason; paths stay in the report. */
-function unresolvedImportNote(report: Report): string | null {
-  const components = latestComponents(report);
+function unresolvedImportNote(components: readonly Component[]): string | null {
   const links = importLinks(components).filter((link) => link.status !== "resolved");
   if (!links.length) return null;
   const reasons = {
@@ -535,8 +675,11 @@ async function diff(args: string[]): Promise<void> {
     tokenizer: { type: "string" },
     model: { type: "string" },
     ...preciseOptions,
+    ...limitOptions,
+    ...increaseLimitOptions,
   });
   const repository = repositoryArgument(positionals);
+  const limits = limitArguments(values);
   if (!values.base || !values.head) throw new UsageError("diff requires --base <commit> and --head <commit>");
   for (const id of [values.base, values.head]) {
     if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new UsageError(`Base and head must be full Git commit IDs, not ${id}`);
@@ -556,8 +699,14 @@ async function diff(args: string[]): Promise<void> {
   } finally {
     saveCache(precise?.cache);
   }
+  // Limits use the local measurement, which a dry run has already taken.
+  if (limits.limits.length) delta = { ...delta, limits: checkLimits(limits.limits, limitFigures(delta)) };
   if (precise?.plan.dryRun) {
     process.stdout.write("Dry run: nothing was sent and no delta was written.\n");
+    if (delta.limits) {
+      process.stdout.write(`${limitSummary(delta.limits)}\n`);
+      reportLimits(delta.limits, limits);
+    }
     return;
   }
   const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
@@ -568,6 +717,7 @@ async function diff(args: string[]): Promise<void> {
     writePrivate(destination, content);
     process.stdout.write(`Delta: ${destination}\n`);
   }
+  if (delta.limits) reportLimits(delta.limits, limits);
 }
 
 function skill(args: string[]): void {
@@ -619,7 +769,8 @@ async function main(args: string[]): Promise<void> {
 
 // A closed pipe (for example `strata ... | head`) is a normal way for output to end.
 process.stdout.on("error", (error: NodeJS.ErrnoException) => {
-  if (error.code === "EPIPE") process.exit(0);
+  // Keep a status already set, such as 3 for a passed limit.
+  if (error.code === "EPIPE") process.exit(process.exitCode ?? 0);
   throw error;
 });
 
@@ -629,5 +780,6 @@ try {
   const usage = error instanceof UsageError;
   process.stderr.write(`strata: ${error instanceof Error ? error.message : String(error)}\n`);
   if (usage) process.stderr.write("Run strata --help for usage.\n");
-  process.exitCode = usage ? 2 : 1;
+  // A limit already reported as passed keeps its status 3 through a later failure, such as --open.
+  process.exitCode = usage ? 2 : process.exitCode === overLimitStatus ? overLimitStatus : 1;
 }
