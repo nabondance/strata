@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square" alt="license">
   <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
+  <a href="https://github.com/marketplace/actions/strata-agent-context-check"><img src="https://img.shields.io/badge/marketplace-GitHub%20Action-blue?style=flat-square&logo=github" alt="GitHub Action on the Marketplace"></a>
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
   <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
   <img src="https://img.shields.io/badge/runs-offline-blue?style=flat-square" alt="runs offline">
@@ -147,7 +148,7 @@ By default Strata estimates tokens as UTF-8 bytes divided by four. For offline O
 
 ### In pull requests
 
-An opt-in [GitHub Action](docs/pr-action.md) writes the configuration delta of a pull request to the job summary. It is one step after `actions/checkout`: it finds the pull request's commits itself and fetches those the checkout lacks. It needs only `contents: read` and posts no comments. Optional [limits](docs/pr-action.md#limits), such as `limit-up-front-tokens: claude=8000`, fail or warn when a figure passes a number you choose, and its [outputs](docs/pr-action.md#outputs) give later steps the totals.
+An opt-in GitHub Action, [Strata agent context check](https://github.com/marketplace/actions/strata-agent-context-check) on the Marketplace ([guide](docs/pr-action.md)), writes the configuration delta of a pull request to the job summary. It is one step after `actions/checkout`: it finds the pull request's commits itself and fetches those the checkout lacks. It needs only `contents: read` and posts no comments. Optional [limits](docs/pr-action.md#limits), such as `limit-up-front-tokens: claude=8000`, fail or warn when a figure passes a number you choose, and its [outputs](docs/pr-action.md#outputs) give later steps the totals.
 
 <!-- x-release-please-start-version -->
 ```yaml
