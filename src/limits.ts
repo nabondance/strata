@@ -199,6 +199,16 @@ export function limitAnnotations(checks: readonly LimitCheck[], level: "error" |
   );
 }
 
+/**
+ * The overall result of a run's checks: `over` when a limit was passed, `within` when every limit
+ * checked was met, and `none` when no limit was checked, because none was set or none applied.
+ */
+export function limitResult(checks: readonly LimitCheck[] | undefined): "none" | "within" | "over" {
+  const checked = (checks ?? []).filter((check) => !notApplied(check.result));
+  if (!checked.length) return "none";
+  return checked.some((check) => check.result === "over") ? "over" : "within";
+}
+
 /** A one-line summary of the checks, such as "Over 1 of 3 limits set for this run." */
 export function limitSummary(checks: readonly LimitCheck[]): string {
   const over = checks.filter((check) => check.result === "over").length;

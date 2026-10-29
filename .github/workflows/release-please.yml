@@ -108,6 +108,39 @@ jobs:
       - name: Start the npm publish workflow
         if: steps.release.outputs.created == 'true' && steps.release.outputs.published == 'false'
         run: gh workflow run publish.yml --ref "${{ steps.release.outputs.tag }}"
+      # Workflows can use the Action as nabondance/strata@v0, so point that tag
+      # at the latest release. Tags created with GITHUB_TOKEN start no workflow,
+      # and publish.yml only runs for vX.Y.Z tags in any case.
+      - name: Move the major version tag
+        if: steps.release.outcome == 'success'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # The release is already out, so any failure here only warns, as canary.yml does for its
+          # tag; do not let the default `bash -e` end the step.
+          set +e -uo pipefail
+          major="${TAG%%.*}"
+          warn() {
+            echo "::warning::$1 nabondance/strata@$major does not run $TAG until it is moved: gh api -X PATCH repos/$GH_REPO/git/refs/tags/$major -f sha=<commit of $TAG> -F force=true (or POST repos/$GH_REPO/git/refs -f ref=refs/tags/$major if it does not exist)."
+            exit 0
+          }
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)" || warn "Could not read the latest release."
+          if [ "$latest" != "$TAG" ]; then
+            echo "$TAG is not the latest release ($latest), so $major stays where it is."
+            exit 0
+          fi
+          sha="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then warn "Could not read the commit of $TAG."; fi
+          if current="$(gh api "repos/$GH_REPO/git/ref/tags/$major" --jq .object.sha 2>/dev/null)"; then
+            if [ "$current" != "$sha" ]; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$major" -f sha="$sha" -F force=true >/dev/null ||
+                warn "Could not move $major to $TAG ($sha)."
+            fi
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" >/dev/null ||
+              warn "Could not create $major at $TAG ($sha)."
+          fi
+          echo "$major points at $TAG ($sha)."
       # The release PR's commits come from GITHUB_TOKEN, so its pull_request
       # workflows wait for approval as `action_required`. Copies started by hand
       # pass on the same commit but do not count toward the pull request's

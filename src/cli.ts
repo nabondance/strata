@@ -180,6 +180,7 @@ Options:
       --head <commit>        Full commit ID to compare to
   -o, --output <file>        Write to a file instead of standard output
   -f, --format <format>      markdown or json (default: markdown)
+      --json-output <file>   Also write the JSON delta to a file, from the same comparison
   -h, --help                 Show this help
 
 ${measurementHelp}
@@ -672,6 +673,7 @@ async function diff(args: string[]): Promise<void> {
     head: { type: "string" },
     output: { type: "string", short: "o" },
     format: { type: "string", short: "f" },
+    "json-output": { type: "string" },
     tokenizer: { type: "string" },
     model: { type: "string" },
     ...preciseOptions,
@@ -685,6 +687,15 @@ async function diff(args: string[]): Promise<void> {
     if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new UsageError(`Base and head must be full Git commit IDs, not ${id}`);
   }
   const format = choice("--format", values.format, ["markdown", "json"], "markdown");
+  const jsonOutput = values["json-output"];
+  if (jsonOutput === "" || jsonOutput === "-") throw new UsageError("--json-output needs a file path");
+  if (
+    jsonOutput !== undefined &&
+    values.output !== undefined &&
+    values.output !== "-" &&
+    resolve(jsonOutput) === resolve(values.output)
+  )
+    throw new UsageError("--json-output and --output must be different files");
   const measurement = measurementArguments(values);
   const precise = preciseArguments(values);
   let delta: PullRequestDelta;
@@ -709,13 +720,20 @@ async function diff(args: string[]): Promise<void> {
     }
     return;
   }
-  const content = format === "json" ? `${JSON.stringify(delta, null, 2)}\n` : renderPullRequestDelta(delta);
-  if (values.output === undefined || values.output === "-") {
+  const json = `${JSON.stringify(delta, null, 2)}\n`;
+  const content = format === "json" ? json : renderPullRequestDelta(delta);
+  const destination = values.output === undefined || values.output === "-" ? null : resolve(values.output);
+  if (destination === null) {
     process.stdout.write(content);
   } else {
-    const destination = resolve(values.output);
     writePrivate(destination, content);
     process.stdout.write(`Delta: ${destination}\n`);
+  }
+  if (jsonOutput !== undefined) {
+    const jsonDestination = resolve(jsonOutput);
+    writePrivate(jsonDestination, json);
+    // When standard output holds the delta itself, the path goes to standard error.
+    (destination === null ? process.stderr : process.stdout).write(`JSON delta: ${jsonDestination}\n`);
   }
   if (delta.limits) reportLimits(delta.limits, limits);
 }
