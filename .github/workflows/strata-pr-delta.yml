@@ -8,16 +8,14 @@ permissions:
 
 # Strata's own pull-request delta, run with the Action from this checkout so
 # the summary reflects the code under review. Other repositories pin a release
-# tag instead: see docs/pr-action.md.
+# tag instead: see docs/pr-action.md. It runs as a new user's workflow would:
+# a default shallow checkout and no base or head, so each pull request also
+# tests that the Action finds and fetches the commits it compares.
 jobs:
   strata:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
           persist-credentials: false
       - uses: ./
-        with:
-          base: ${{ github.event.pull_request.base.sha }}
-          head: ${{ github.event.pull_request.head.sha }}

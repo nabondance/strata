@@ -1,12 +1,20 @@
-name: Strata PR context delta
-description: Compare Git-tracked agent configuration at two commits, write a token delta to the job summary, and optionally check token limits.
+name: Strata agent context check
+description: Show how a pull request changes the agent configuration in Git (CLAUDE.md, AGENTS.md, skills, rules), with optional token limits.
+author: nabondance
+branding:
+  icon: layers
+  color: orange
 inputs:
   base:
-    description: Full Git commit ID for the PR base.
-    required: true
+    description: >-
+      Full Git commit ID to compare from. Leave base and head empty on a pull_request,
+      pull_request_target, merge_group, or push event to compare that event's commits.
+    required: false
+    default: ''
   head:
-    description: Full Git commit ID for the PR head.
-    required: true
+    description: Full Git commit ID to compare to. Give it with base, or leave both empty.
+    required: false
+    default: ''
   tokenizer:
     description: Offline token mode (estimate, openai-cl100k_base, or openai-o200k_base).
     required: false
@@ -53,6 +61,22 @@ inputs:
       a warning and lets the step pass. Used only when a limit is set.
     required: false
     default: fail
+outputs:
+  tokens:
+    description: Stored instructional text at the head, in tokens, in the run's measurement.
+    value: ${{ steps.compare.outputs.tokens }}
+  delta-tokens:
+    description: Its change from base to head, in tokens; negative when it shrank.
+    value: ${{ steps.compare.outputs.delta-tokens }}
+  limit-result:
+    description: "'none' when no limit is set, 'over' when at least one limit is passed, 'within' otherwise."
+    value: ${{ steps.compare.outputs.limit-result }}
+  summary-file:
+    description: Path of the Markdown delta, the same text as the job summary.
+    value: ${{ steps.compare.outputs.summary-file }}
+  json-file:
+    description: Path of the JSON delta (schema version 12), for later steps.
+    value: ${{ steps.compare.outputs.json-file }}
 runs:
   using: composite
   steps:
@@ -68,11 +92,15 @@ runs:
         npm install --global pnpm@10.29.3
         pnpm install --frozen-lockfile
         pnpm build
-    - name: Compare PR commits
+    - name: Compare the commits
+      id: compare
       shell: bash
       env:
         STRATA_BASE: ${{ inputs.base }}
         STRATA_HEAD: ${{ inputs.head }}
+        STRATA_EVENT: ${{ github.event_name }}
+        STRATA_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        STRATA_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after }}
         STRATA_TOKENIZER: ${{ inputs.tokenizer }}
         STRATA_MODEL: ${{ inputs.model }}
         STRATA_PRECISE: ${{ inputs.precise }}
@@ -82,7 +110,55 @@ runs:
         STRATA_LIMIT_UP_FRONT_INCREASE: ${{ inputs.limit-up-front-increase }}
         STRATA_ON_LIMIT: ${{ inputs.on-limit }}
       run: |
-        args=(diff "$GITHUB_WORKSPACE" --base "$STRATA_BASE" --head "$STRATA_HEAD" --output "$RUNNER_TEMP/strata-pr-delta.md")
+        fail() {
+          # Workflow commands need %, CR, and LF escaped, or an input could end the message early.
+          local message="${1//%/%25}"
+          message="${message//$'\r'/%0D}"
+          echo "::error title=Strata::${message//$'\n'/%0A}"
+          exit 1
+        }
+        base="$STRATA_BASE"
+        head="$STRATA_HEAD"
+        if [ -z "$base" ] && [ -z "$head" ]; then
+          # A pull request's, merge queue entry's, or push's own commits.
+          base="$STRATA_EVENT_BASE"
+          head="$STRATA_EVENT_HEAD"
+          if [ -z "$base" ] || [ -z "$head" ]; then
+            fail "A $STRATA_EVENT event has no commits to compare: set the base and head inputs."
+          fi
+          if [[ "$base" =~ ^0+$ ]]; then
+            fail "This push has no earlier commit to compare with, as when it creates a branch: set the base and head inputs."
+          fi
+        elif [ -z "$base" ] || [ -z "$head" ]; then
+          fail "Set both the base and head inputs, or neither to compare the event's commits."
+        fi
+        for id in "$base" "$head"; do
+          if ! [[ "$id" =~ ^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$ ]]; then
+            fail "Base and head must be full Git commit IDs, not $id."
+          fi
+        done
+        if ! git -C "$GITHUB_WORKSPACE" rev-parse --git-dir >/dev/null 2>&1; then
+          fail "No Git repository at $GITHUB_WORKSPACE: check out the repository with actions/checkout before this step."
+        fi
+        # A default checkout has neither commit (on a pull request it holds only GitHub's merge
+        # commit), so fetch what is missing. This adds Git objects, not files, branches, or tags.
+        missing=()
+        for id in "$base" "$head"; do
+          if ! git -C "$GITHUB_WORKSPACE" cat-file -e "$id^{commit}" 2>/dev/null; then missing+=("$id"); fi
+        done
+        if [ "${#missing[@]}" -gt 0 ]; then
+          depth=()
+          # Strata reads only the two trees, so a shallow checkout stays shallow.
+          if [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = true ]; then depth=(--depth=1); fi
+          if ! git -C "$GITHUB_WORKSPACE" fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}"; then
+            fail "Could not fetch ${missing[*]} from origin. Check out the repository with fetch-depth: 0 so both commits are present."
+          fi
+        fi
+        # A directory per run, so a later run in the job leaves this one's output files alone.
+        out="$(mktemp -d "$RUNNER_TEMP/strata-XXXXXX")"
+        markdown="$out/strata-pr-delta.md"
+        json="$out/strata-pr-delta.json"
+        args=(diff "$GITHUB_WORKSPACE" --base "$base" --head "$head" --output "$markdown" --json-output "$json")
         if [ "$STRATA_PRECISE" = "true" ]; then
           if [ -n "$STRATA_MODEL" ] || [ "$STRATA_TOKENIZER" != "estimate" ]; then
             echo "::warning::The tokenizer and model inputs are not used with precise: 'true'."
@@ -106,10 +182,20 @@ runs:
         # on-limit: warn) and each it could not check, and validates on-limit itself.
         if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-limit "$STRATA_ON_LIMIT" --limit-annotations); fi
         # Status 3 means a limit was passed under on-limit: fail; the summary is written either way.
-        # A file from an earlier run of the Action in the same job must not reach this summary.
-        rm -f "$RUNNER_TEMP/strata-pr-delta.md"
         status=0
         node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" || status=$?
         if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
-        cat "$RUNNER_TEMP/strata-pr-delta.md" >> "$GITHUB_STEP_SUMMARY"
+        cat "$markdown" >> "$GITHUB_STEP_SUMMARY"
+        # shellcheck disable=SC2016 # The single-quoted script is JavaScript.
+        node -e '
+          const [markdown, json] = process.argv.slice(1);
+          const delta = JSON.parse(require("node:fs").readFileSync(json, "utf8"));
+          const limits = delta.limits;
+          const result = !limits ? "none" : limits.some((check) => check.result === "over") ? "over" : "within";
+          console.log(`tokens=${delta.comparison.afterTokens}`);
+          console.log(`delta-tokens=${delta.comparison.deltaTokens}`);
+          console.log(`limit-result=${result}`);
+          console.log(`summary-file=${markdown}`);
+          console.log(`json-file=${json}`);
+        ' "$markdown" "$json" >> "$GITHUB_OUTPUT"
         exit "$status"

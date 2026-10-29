@@ -6,21 +6,65 @@ on:
 permissions:
   contents: read
 
+# Runs the Action from this checkout against the last two commits, from a
+# default shallow checkout, as a user's workflow would. Pull requests already
+# cover the event defaults (strata-pr-delta.yml); this covers given commits,
+# a model, limits, and the outputs.
 jobs:
   local-action:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
+          fetch-depth: 2
+          persist-credentials: false
       - name: Select recent commits
         id: revisions
         shell: bash
         run: |
           echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
           echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: ./
+      - name: Within a limit
+        id: within
+        uses: ./
         with:
           base: ${{ steps.revisions.outputs.base }}
           head: ${{ steps.revisions.outputs.head }}
           model: gpt-4o
+          limit-tokens: 1000000
+      - name: Over a limit, as a warning
+        id: warned
+        uses: ./
+        with:
+          base: ${{ steps.revisions.outputs.base }}
+          head: ${{ steps.revisions.outputs.head }}
+          limit-tokens: 1
+          on-limit: warn
+      - name: Over a limit
+        id: over
+        continue-on-error: true
+        uses: ./
+        with:
+          base: ${{ steps.revisions.outputs.base }}
+          head: ${{ steps.revisions.outputs.head }}
+          limit-tokens: 1
+      - name: Check the outputs
+        shell: bash
+        env:
+          WITHIN: ${{ steps.within.outputs.limit-result }}
+          TOKENS: ${{ steps.within.outputs.tokens }}
+          DELTA: ${{ steps.within.outputs.delta-tokens }}
+          JSON: ${{ steps.within.outputs.json-file }}
+          WARNED: ${{ steps.warned.outputs.limit-result }}
+          OVER: ${{ steps.over.outputs.limit-result }}
+          OVER_OUTCOME: ${{ steps.over.outcome }}
+        run: |
+          set -euo pipefail
+          test "$WITHIN" = within
+          test "$WARNED" = over
+          test "$OVER" = over
+          test "$OVER_OUTCOME" = failure
+          [[ "$TOKENS" =~ ^[0-9]+$ ]]
+          [[ "$DELTA" =~ ^-?[0-9]+$ ]]
+          test "$(jq .comparison.afterTokens "$JSON")" = "$TOKENS"
+          echo "Outputs: $TOKENS tokens, $DELTA change."

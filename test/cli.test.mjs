@@ -230,6 +230,8 @@ test("command line follows common conventions", () => {
       [["diff", repo, "--base", base, "--head", head, "--limit-annotations"], /--limit-annotations requires a limit/],
       [["diff", repo, "--base", base, "--head", head, "--limit-tokens", "1", "--on-limit", "x"], /fail or warn/],
       [["analyze", repo, "--limit-increase", "5"], /Unknown option '--limit-increase'/],
+      [["diff", repo, "--base", base, "--head", head, "--json-output", "-"], /--json-output needs a file path/],
+      [["analyze", repo, "--json-output", "x.json"], /Unknown option '--json-output'/],
     ]) {
       const result = strata(args);
       assert.equal(result.status, 2, args.join(" "));
@@ -245,6 +247,26 @@ test("command line follows common conventions", () => {
     const missingCommit = strata(["diff", repo, "--base", base, "--head", "0".repeat(40)]);
     assert.equal(missingCommit.status, 1);
     assert.match(missingCommit.stderr, /is unavailable/);
+
+    // --json-output writes the JSON of the same comparison beside the Markdown.
+    const both = join(outside, "both");
+    mkdirSync(both);
+    const compared = ["diff", repo, "--base", base, "--head", head];
+    const markdownAndJson = strata([
+      ...compared,
+      "-o",
+      join(both, "delta.md"),
+      "--json-output",
+      join(both, "delta.json"),
+    ]);
+    assert.equal(markdownAndJson.status, 0, markdownAndJson.stderr);
+    assert.equal(markdownAndJson.stdout, `Delta: ${join(both, "delta.md")}\nJSON delta: ${join(both, "delta.json")}\n`);
+    assert.equal(readFileSync(join(both, "delta.md"), "utf8"), strata(compared).stdout);
+    assert.equal(readFileSync(join(both, "delta.json"), "utf8"), strata([...compared, "-f", "json"]).stdout);
+    // With the delta on standard output, the JSON path goes to standard error.
+    const toStdout = strata([...compared, "--json-output", join(both, "again.json")]);
+    assert.equal(toStdout.stdout, strata(compared).stdout);
+    assert.equal(toStdout.stderr, `JSON delta: ${join(both, "again.json")}\n`);
 
     // The repository defaults to the current directory, and - sends the report to stdout.
     const piped = strata(["analyze", "--format=json", "-o", "-"], { cwd: repo });
@@ -538,14 +560,6 @@ test("limits compare at their boundaries and never drop a limit", () => {
 test("the Action writes the summary, then annotates and fails or warns on a passed limit", {
   skip: process.platform === "win32",
 }, () => {
-  // The composite step's script, run under the shell options GitHub uses for `shell: bash`.
-  const action = readFileSync("action.yml", "utf8");
-  const script = action
-    .split("    - name: Compare PR commits")[1]
-    .split("      run: |\n")[1]
-    .split("\n")
-    .map((line) => line.slice(8))
-    .join("\n");
   const { repo, put, commit } = fixture();
   const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
   try {
@@ -553,41 +567,25 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     const base = commit("Add instructions");
     put("CLAUDE.md", "Root instructions, grown by a good amount.\n");
     const head = commit("Grow instructions");
-    const run = (inputs) => {
-      const runner = mkdtempSync(join(temp, "run-"));
-      const summary = join(runner, "summary.md");
-      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", script], {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          GITHUB_WORKSPACE: repo,
-          GITHUB_ACTION_PATH: resolve("."),
-          RUNNER_TEMP: runner,
-          GITHUB_STEP_SUMMARY: summary,
-          STRATA_BASE: base,
-          STRATA_HEAD: head,
-          STRATA_TOKENIZER: "estimate",
-          STRATA_MODEL: "",
-          STRATA_PRECISE: "false",
-          STRATA_LIMIT_TOKENS: "",
-          STRATA_LIMIT_INCREASE: "",
-          STRATA_LIMIT_UP_FRONT_TOKENS: "",
-          STRATA_LIMIT_UP_FRONT_INCREASE: "",
-          STRATA_ON_LIMIT: "fail",
-          ...inputs,
-        },
-      });
-      let written = null;
-      try {
-        written = readFileSync(summary, "utf8");
-      } catch {}
-      return { ...result, summary: written };
-    };
+    const run = actionRunner(temp, { GITHUB_WORKSPACE: repo, STRATA_BASE: base, STRATA_HEAD: head });
 
     const plain = run({});
     assert.equal(plain.status, 0, plain.stderr);
     assert.match(plain.summary, /^## Strata configuration delta/);
     assert.doesNotMatch(plain.stdout + plain.stderr, /::/);
+    const delta = JSON.parse(readFileSync(plain.outputs["json-file"], "utf8"));
+    assert.equal(delta.schemaVersion, 12);
+    assert.deepEqual(
+      { ...plain.outputs, "json-file": undefined },
+      {
+        tokens: String(delta.comparison.afterTokens),
+        "delta-tokens": String(delta.comparison.deltaTokens),
+        "limit-result": "none",
+        "summary-file": plain.outputs["summary-file"],
+        "json-file": undefined,
+      },
+    );
+    assert.equal(readFileSync(plain.outputs["summary-file"], "utf8"), plain.summary);
 
     const failed = run({ STRATA_LIMIT_INCREASE: "1", STRATA_LIMIT_UP_FRONT_TOKENS: "claude=1, codex=5" });
     assert.equal(failed.status, 3);
@@ -598,11 +596,17 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     );
     assert.match(failed.stderr, /^::error title=Strata context limit::Claude Code at session start is \d+ tokens/m);
     assert.match(failed.stderr, /^Over limit: Claude Code at session start/m);
+    assert.equal(failed.outputs["limit-result"], "over");
+    // Each run has its own files, so the first run's outputs still hold its results.
+    assert.notEqual(failed.outputs["json-file"], plain.outputs["json-file"]);
+    assert.equal(JSON.parse(readFileSync(plain.outputs["json-file"], "utf8")).limits, undefined);
 
     const warned = run({ STRATA_LIMIT_INCREASE: "1", STRATA_ON_LIMIT: "warn" });
     assert.equal(warned.status, 0);
     assert.match(warned.stderr, /^::warning title=Strata context limit::/m);
     assert.match(warned.summary, /Over 1 of 1 limit/);
+    assert.equal(warned.outputs["limit-result"], "over");
+    assert.equal(run({ STRATA_LIMIT_INCREASE: "100000" }).outputs["limit-result"], "within");
 
     // A limit that applied to no agent warns without failing the step.
     const unused = run({ STRATA_LIMIT_UP_FRONT_TOKENS: "claude=100000 5" });
@@ -612,10 +616,11 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
       /^::warning title=Strata context limit not applied::--limit-up-front-tokens 5 applied to no agent/m,
     );
 
-    // A real failure fails the step and writes no summary.
+    // A real failure fails the step and writes no summary or outputs.
     const invalid = run({ STRATA_LIMIT_TOKENS: "lots" });
     assert.equal(invalid.status, 2);
     assert.equal(invalid.summary, null);
+    assert.deepEqual(invalid.outputs, {});
     // on-limit matters only with a limit: Strata validates it then, and ignores it otherwise.
     assert.equal(run({ STRATA_ON_LIMIT: "maybe", STRATA_LIMIT_TOKENS: "100000" }).status, 2);
     assert.equal(run({ STRATA_ON_LIMIT: "" }).status, 0);
@@ -624,6 +629,128 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test("the Action compares the event's commits and fetches those a shallow checkout lacks", {
+  skip: process.platform === "win32",
+}, () => {
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("CLAUDE.md", "Root.\n");
+    const base = commit("Add instructions");
+    put("CLAUDE.md", "Root instructions, grown.\n");
+    const head = commit("Grow instructions");
+    const run = actionRunner(temp, { GITHUB_WORKSPACE: repo });
+    const error = (result) => result.stdout.match(/^::error title=Strata::(.*)$/m)?.[1];
+
+    // Without base and head, the event's commits are compared.
+    const event = run({ STRATA_EVENT: "pull_request", STRATA_EVENT_BASE: base, STRATA_EVENT_HEAD: head });
+    assert.equal(event.status, 0, event.stdout + event.stderr);
+    const delta = JSON.parse(readFileSync(event.outputs["json-file"], "utf8"));
+    assert.deepEqual([delta.base, delta.head], [base, head]);
+    // Given inputs take precedence over the event's commits.
+    const given = run({ STRATA_BASE: head, STRATA_HEAD: base, STRATA_EVENT_BASE: base, STRATA_EVENT_HEAD: head });
+    assert.equal(JSON.parse(readFileSync(given.outputs["json-file"], "utf8")).base, head);
+
+    const failures = [
+      [{ STRATA_EVENT: "workflow_dispatch" }, /^A workflow_dispatch event has no commits to compare/],
+      [
+        { STRATA_EVENT: "push", STRATA_EVENT_BASE: "0".repeat(40), STRATA_EVENT_HEAD: head },
+        /^This push has no earlier commit to compare with/,
+      ],
+      [{ STRATA_BASE: base }, /^Set both the base and head inputs/],
+      // An input cannot add a workflow command of its own.
+      [
+        { STRATA_BASE: "main\n::warning::x", STRATA_HEAD: head },
+        /^Base and head must be full Git commit IDs, not main%0A::warning::x\.$/,
+      ],
+      [{ STRATA_BASE: base, STRATA_HEAD: head, GITHUB_WORKSPACE: temp }, /^No Git repository at .*actions\/checkout/],
+    ];
+    for (const [inputs, message] of failures) {
+      const result = run(inputs);
+      assert.equal(result.status, 1, JSON.stringify(inputs));
+      assert.match(error(result) ?? "", message);
+      assert.equal(result.summary, null);
+    }
+
+    // A default checkout is shallow and holds neither commit; the Action fetches both and keeps it shallow.
+    put("AGENTS.md", "Shared.\n");
+    const merge = commit("Merge for the pull request");
+    const shallow = join(temp, "shallow");
+    execFileSync("git", ["clone", "-q", "--depth=1", `file://${repo}`, shallow]);
+    const inShallow = (...args) => spawnSync("git", ["-C", shallow, ...args], { encoding: "utf8" });
+    assert.equal(inShallow("rev-parse", "HEAD").stdout.trim(), merge);
+    assert.notEqual(inShallow("cat-file", "-e", `${base}^{commit}`).status, 0);
+    const fetched = run({ GITHUB_WORKSPACE: shallow, STRATA_BASE: base, STRATA_HEAD: head });
+    assert.equal(fetched.status, 0, fetched.stdout + fetched.stderr);
+    assert.equal(fetched.summary, event.summary);
+    assert.equal(inShallow("rev-parse", "--is-shallow-repository").stdout.trim(), "true");
+    assert.equal(inShallow("rev-list", "--count", "HEAD").stdout.trim(), "1");
+    assert.equal(inShallow("status", "--porcelain").stdout, "");
+
+    const unknown = run({ GITHUB_WORKSPACE: shallow, STRATA_BASE: "f".repeat(40), STRATA_HEAD: head });
+    assert.equal(unknown.status, 1);
+    assert.match(error(unknown) ?? "", /^Could not fetch f{40} from origin\. .*fetch-depth: 0/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+/** Runs the Action's comparison step as GitHub does for `shell: bash`, with each input as its environment variable. */
+function actionRunner(temp, defaults) {
+  const action = readFileSync("action.yml", "utf8");
+  const script = action
+    .split("    - name: Compare the commits")[1]
+    .split("      run: |\n")[1]
+    .split("\n")
+    .map((line) => line.slice(8))
+    .join("\n");
+  return (inputs) => {
+    const runner = mkdtempSync(join(temp, "run-"));
+    const summary = join(runner, "summary.md");
+    const output = join(runner, "output");
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", script], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GITHUB_ACTION_PATH: resolve("."),
+        RUNNER_TEMP: runner,
+        GITHUB_STEP_SUMMARY: summary,
+        GITHUB_OUTPUT: output,
+        STRATA_BASE: "",
+        STRATA_HEAD: "",
+        STRATA_EVENT: "pull_request",
+        STRATA_EVENT_BASE: "",
+        STRATA_EVENT_HEAD: "",
+        STRATA_TOKENIZER: "estimate",
+        STRATA_MODEL: "",
+        STRATA_PRECISE: "false",
+        STRATA_LIMIT_TOKENS: "",
+        STRATA_LIMIT_INCREASE: "",
+        STRATA_LIMIT_UP_FRONT_TOKENS: "",
+        STRATA_LIMIT_UP_FRONT_INCREASE: "",
+        STRATA_ON_LIMIT: "fail",
+        ...defaults,
+        ...inputs,
+      },
+    });
+    const read = (path) => {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return null;
+      }
+    };
+    const outputs = Object.fromEntries(
+      (read(output) ?? "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+    );
+    return { ...result, summary: read(summary), outputs };
+  };
+}
 
 test("analyze notes submodules that hold agent configuration", () => {
   const { repo, git, put, commit } = fixture();

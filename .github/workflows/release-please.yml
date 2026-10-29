@@ -108,6 +108,30 @@ jobs:
       - name: Start the npm publish workflow
         if: steps.release.outputs.created == 'true' && steps.release.outputs.published == 'false'
         run: gh workflow run publish.yml --ref "${{ steps.release.outputs.tag }}"
+      # Workflows can use the Action as nabondance/strata@v0, so point that tag
+      # at the latest release. Tags created with GITHUB_TOKEN start no workflow,
+      # and publish.yml only runs for vX.Y.Z tags in any case.
+      - name: Move the major version tag
+        if: steps.release.outcome == 'success'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          if [ "$latest" != "$TAG" ]; then
+            echo "$TAG is not the latest release ($latest), so ${TAG%%.*} stays where it is."
+            exit 0
+          fi
+          major="${TAG%%.*}"
+          sha="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+          if current="$(gh api "repos/$GH_REPO/git/ref/tags/$major" --jq .object.sha 2>/dev/null)"; then
+            if [ "$current" != "$sha" ]; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$major" -f sha="$sha" -F force=true >/dev/null
+            fi
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" >/dev/null
+          fi
+          echo "$major points at $TAG ($sha)."
       # The release PR's commits come from GITHUB_TOKEN, so its pull_request
       # workflows wait for approval as `action_required`. Copies started by hand
       # pass on the same commit but do not count toward the pull request's
