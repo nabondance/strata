@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/nabondance/strata/compare/v0.5.0...v0.6.0) (2026-10-29)
+
+
+### Features
+
+* add opt-in token limits to strata diff, analyze, and the PR Action ([#52](https://github.com/nabondance/strata/issues/52)) ([8f2a9d0](https://github.com/nabondance/strata/commit/8f2a9d00079f92e5123223ea2d789534bae6fb0c))
+* make the Action a one-step Marketplace action with outputs ([#56](https://github.com/nabondance/strata/issues/56)) ([38af468](https://github.com/nabondance/strata/commit/38af4681416379e118775b5de704174f0d831511))
+
+
+### Bug Fixes
+
+* inset the report's dropdown arrow from the field border ([#54](https://github.com/nabondance/strata/issues/54)) ([9dd0965](https://github.com/nabondance/strata/commit/9dd096519a489e41266e1b3f259ebf4fa6bffbd6))
+
 ## [0.5.0](https://github.com/nabondance/strata/compare/v0.4.1...v0.5.0) (2026-10-24)
 
 
