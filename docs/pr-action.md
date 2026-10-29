@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: nabondance/strata@v0.5.0
+      - uses: nabondance/strata@v0.6.0
 ```
 <!-- x-release-please-end -->
 
@@ -80,7 +80,7 @@ For precise per-provider totals, set `precise: 'true'` and give the step the key
 
 <!-- x-release-please-start-version -->
 ```yaml
-      - uses: nabondance/strata@v0.5.0
+      - uses: nabondance/strata@v0.6.0
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -97,7 +97,7 @@ The Action can check token limits. None is set by default; each input is off whe
 
 <!-- x-release-please-start-version -->
 ```yaml
-      - uses: nabondance/strata@v0.5.0
+      - uses: nabondance/strata@v0.6.0
         with:
           limit-increase: 500
           limit-up-front-tokens: claude=8000 codex=6000
