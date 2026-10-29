@@ -1,10 +1,30 @@
 # Current analysis scope
 
-Strata reads Git-tracked files from every commit on the selected branch's first-parent path, oldest to newest. It does not inspect untracked or ignored files, global user configuration, or the working tree's current contents. A history that starts where a shallow fetch cut it is labeled incomplete. Files inside a Git submodule belong to that submodule's repository and are not analyzed. So that configuration kept in one is not silently missing, Strata checks each submodule present at the last revision: when the submodule's repository is checked out locally and has the commit the parent records, Strata lists that commit's tree with the same path rules and counts the recognized files. Only Git objects are read, never the submodule's working tree, and nothing in the submodule is measured or added to any total. The report names submodules that hold recognized files and counts those it could not check. Run Strata on the submodule's own checkout to see its history.
+Strata reads the files Git tracks in every commit on the selected branch's first-parent path, from oldest to newest. The first-parent path is the branch's own line of commits: at a merge commit, Strata continues along the branch that received the merge and does not walk the commits merged into it. Each commit on that path is a *revision* in the report. File contents come from Git's stored copy of each file version, called a *blob*, not from the files on disk.
+
+Strata does not inspect:
+
+- untracked or ignored files;
+- global user configuration;
+- the working tree, meaning the files currently checked out on disk.
+
+A shallow fetch downloads only recent commits. A history that starts where a shallow fetch cut it is labeled incomplete.
+
+Files inside a Git submodule belong to that submodule's repository and are not analyzed. So that configuration kept in a submodule is not silently missing, Strata checks each submodule present at the last revision:
+
+- When the submodule's repository is checked out locally and has the commit the parent repository records, Strata lists that commit's files with the same path rules and counts the recognized ones.
+- It reads only Git objects, never the submodule's working tree. Nothing in the submodule is measured or added to any total.
+- The report names the submodules that hold recognized files, and counts those it could not check.
+
+To see a submodule's history, run Strata on the submodule's own checkout.
 
 ## Recognized paths
 
-These are inventory rules, not claims that an agent loaded a file in a session. `**/` means the pattern also applies under a nested project directory.
+These are inventory rules: they say which tracked files Strata lists, not that an agent loaded a file in a session. `**/` means the pattern also applies under a nested project directory. In the Measurement column:
+
+- **estimated stored-text tokens**: Strata estimates the tokens in the file's stored text; see [Measurements and history](#measurements-and-history). These are the *instructional* files.
+- **listed name and description tokens**: the skill's frontmatter `name` and `description`, which an agent lists before the skill is used, are also measured on their own.
+- **source bytes only**: Strata records the file's size in bytes and gives it no token figure. This page calls such files *source-only*.
 
 | Path pattern | Provider | Category | Measurement |
 | --- | --- | --- | --- |
@@ -54,7 +74,7 @@ Files in a provider's folder that no rule above recognizes stay visible as categ
 | Where | Provider | Files kept as `other` |
 | --- | --- | --- |
 | `.claude/` | Claude | `.md`, `.json`, `.toml`, `.rules` |
-| `.codex/` | Codex | `.md`, `.json`, `.toml`, `.rules`, including `.codex/skills` (see Cursor below) |
+| `.codex/` | Codex | `.md`, `.json`, `.toml`, `.rules`, including `.codex/skills` (see [Cursor](#cursor)) |
 | `.gemini/` | Gemini CLI | `.md`, `.json`, `.toml`, `.rules`, including `.gemini/agents` files whose names start with `_` or that sit in a subdirectory, which Gemini CLI skips |
 | `.agents/`, outside a skill directory | `unknown` | `.md`, `.json`, `.toml`, `.rules` |
 | `.cursor/rules/`, `.cursor/commands/`, `.cursor/skills/` | Cursor | `.md`, `.mdc`, `.json`, including plain `.md` rules, which Cursor ignores because a rule needs the `.mdc` extension |
@@ -63,30 +83,245 @@ Files in a provider's folder that no rule above recognizes stay visible as categ
 | `.github/agents/` | Copilot | `README.md`, which VS Code skips |
 | `.github/skills/`, `.github/copilot/` | Copilot | `.md`, `.json`, `.toml`, `.rules` |
 
-Projects also keep their own notes and reports in `.cursor/`, so Markdown elsewhere under it, such as `.cursor/docs/` or `.cursor/NOTES.md`, is not inventoried. Tracked skill references, scripts, and assets of any extension are grouped with their skill directory as source-only resources; a resource-only directory is not treated as a valid skill manifest. Files outside these conventions are not inferred to be agent configuration. Git symlinks are skipped. A shared component lists in `readers` the providers documented as reading its path; a reader can still depend on a runtime condition Strata does not resolve. `AGENTS.md` is marked shared because both [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) and, conditionally, [Claude Code](https://code.claude.com/docs/en/memory) can read it. Claude's default may prefer `CLAUDE.md`; Codex overrides may supersede `AGENTS.md`. Strata does not resolve those runtime conditions. Gemini CLI reads `AGENTS.md` only when its settings name it in `context.fileName`; Strata resolves that one condition per revision, as described below. `.agents/skills` is shared between Codex and Gemini CLI, which both discover project skills there; Claude Code does not.
+Other path rules:
 
-Cursor needs no file in the repository, so a repository cannot prove that it is or is not used with Cursor. Cursor reads [`AGENTS.md`](https://cursor.com/docs/rules), including nested ones, and [skills](https://cursor.com/docs/context/skills) from `.agents/skills` and, for compatibility, `.claude/skills`, all files that belong to other tools. Strata counts Cursor as reading them only at a revision that tracks Cursor configuration: any file labeled Cursor, such as `.cursor/rules`, `.cursorrules`, or `.cursorignore`. A Claude-only repository is therefore described as Claude-only: its `.claude/skills` stay `claude`, and when no revision tracks Cursor configuration, the report never mentions Cursor. When some revision does, Cursor appears in the `readers` of `AGENTS.md`, `.agents/skills`, and `.claude/skills` (which stays labeled `claude`), and the Cursor view includes them only from the revisions that track Cursor files; adding or removing the last Cursor file lists them as added or removed in that view. A team that uses Cursor without tracking any Cursor file is not detected. Cursor also loads `.codex/skills`, which current Codex documentation no longer lists; those files stay Codex `other`, because Strata cannot tell which tool they are kept for. A skill Cursor reads from `.claude/skills` or `.agents/skills` keeps the listing measured by Claude Code's or Codex and Gemini CLI's rules; Cursor requires `name` and `description` and would skip a skill that relies on Claude's defaults. Strata does not check Cursor's rule that `name` match the skill directory.
+- Projects also keep their own notes and reports in `.cursor/`, so Markdown elsewhere under it, such as `.cursor/docs/` or `.cursor/NOTES.md`, is not inventoried.
+- Tracked skill references, scripts, and assets of any extension are grouped with their skill directory as source-only resources. A directory that holds only resources, with no `SKILL.md`, is not treated as a valid skill.
+- Files outside these conventions are not assumed to be agent configuration.
+- Git symlinks are skipped.
+- These path labels identify candidate files. They do not claim that a file was loaded at runtime.
+- Recognition is deliberately conservative: structured Codex and Gemini command and configuration files stay source-only, rather than counting their full source as prompt text.
 
-GitHub Copilot is several clients: Copilot Chat on GitHub.com, the cloud agent, code review, Copilot CLI, and Copilot Chat in VS Code and other IDEs. Each reads a different subset of these files (GitHub's [support matrix](https://docs.github.com/en/copilot/reference/custom-instructions-support) lists which), and Strata labels a file Copilot when at least one of them is documented as reading it; it does not say which client did. Like Cursor, Copilot needs no file in the repository, and it reads files that belong to other tools: `AGENTS.md`, `CLAUDE.md` and `.claude/CLAUDE.md` (not `CLAUDE.local.md`), `REVIEW.md`, `GEMINI.md`, `.claude/agents` and `.claude/rules` (except a `README.md` there, which VS Code skips), `.claude/skills`, `.agents/skills`, and the root `.mcp.json`. Strata counts Copilot as reading them only at a revision that tracks a file labeled Copilot, and leaves Copilot out of every `readers` when no revision does; this condition is separate from Cursor's. Those files keep their own provider label, so the Claude, Gemini CLI, and shared totals do not change when a repository adopts Copilot. Copilot reads `GEMINI.md` whatever Gemini's `context.fileName` says. It also reads hooks from `.claude/settings.json`, but that file stays Claude-only, because Copilot uses only its `hooks` field. Strata does not interpret `applyTo`, `excludeAgent`, `target`, or `description` frontmatter, and does not resolve which file wins when several apply, such as the nearest `AGENTS.md`. VS Code reads prompt files and agents only directly inside `.github/prompts` and `.github/agents`, while Copilot CLI also reads agents in subfolders and in nested `.github/agents` folders, so the agents pattern is the union. A `.chatmode.md` is the format custom agents replaced: VS Code still reads one inside `.github/agents`, which is labeled legacy, but no longer reads `.github/chatmodes` unless a user setting adds it, so files there stay `other`. `REVIEW.md` holds code review guidance: [Claude Code's Code Review](https://code.claude.com/docs/en/code-review-customize) reads it at the root and in subfolders, for changes under that folder, and Copilot code review reads it as it reads `CLAUDE.md`. It is labeled Claude, with Copilot as a reader. The local Claude Code `/code-review` command does not read it. Copilot CLI also accepts namespaced skills (`.github/skills/<group>/<name>/SKILL.md`); Strata groups those files under `<group>` as resources and does not list them. Organization and enterprise agents, personal instructions, and settings stored on GitHub are outside the repository. Copilot has no token count endpoint, so `--precise` sends no Copilot text and Copilot files keep the report's measurement. A skill Copilot reads from `.claude/skills` or `.agents/skills` keeps the listing measured by its own tool's rules; Copilot requires `name` and `description`.
+### Shared files and readers
 
-The recognition rules follow current provider documentation for [Claude instructions and rules](https://code.claude.com/docs/en/memory), [Claude skills and commands](https://code.claude.com/docs/en/skills), [Claude subagents and memory](https://code.claude.com/docs/en/sub-agents), [Claude settings](https://code.claude.com/docs/en/settings), [Claude MCP](https://code.claude.com/docs/en/mcp), [Codex instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md), [Codex skills](https://learn.chatgpt.com/docs/build-skills), [Codex custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents), [Codex project configuration](https://learn.chatgpt.com/docs/config-file/config-basic), [Codex rules](https://learn.chatgpt.com/docs/agent-configuration/rules), and Gemini CLI's [context files](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md), [configuration](https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md), [agents](https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md), [skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md), and [custom commands](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/custom-commands.md), and Cursor's [rules](https://cursor.com/docs/rules), [legacy `.cursorrules`](https://prod.cursor.com/help/customization/rules), [commands](https://docs.cursor.com/en/agent/chat/commands), [skills](https://cursor.com/docs/context/skills), [ignore files](https://cursor.com/docs/context/ignore-files), and [MCP configuration](https://docs.cursor.com/context/model-context-protocol), and GitHub Copilot's [repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions), [CLI instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions), [code review](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review), [custom agents](https://docs.github.com/en/copilot/reference/custom-agents-configuration), [skills](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/add-skills), [hooks](https://docs.github.com/en/copilot/reference/hooks-reference), [CLI MCP servers](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers), [cloud agent environment](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/customize-the-agent-environment), and VS Code's [instructions](https://code.visualstudio.com/docs/copilot/customization/custom-instructions), [prompt files](https://code.visualstudio.com/docs/copilot/customization/prompt-files), [custom agents](https://code.visualstudio.com/docs/copilot/customization/custom-agents), and [MCP servers](https://code.visualstudio.com/docs/copilot/customization/mcp-servers). [The Cursor adapter study](next-adapter.md) and [the Copilot adapter study](copilot-adapter.md) record the evidence for each pattern. Gemini's default context filename is `GEMINI.md`. A configured `context.fileName` replaces that default. At each revision Strata reads the tracked repository-root `.gemini/settings.json`, ignoring `//` and `/* */` comments as Gemini CLI does. When `context.fileName` (or its older name, `contextFileName`) is set, the revision's `geminiContextFiles` records which of `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`) it names; the Gemini view and Gemini provider totals for that revision include exactly those context files, at any depth. Without that setting only `GEMINI.md` is included. `AGENTS.md` and `GEMINI.md` components carry the matching `contextFile` label, so the decision does not depend on paths and survives `--shareable`. Other configured names are neither resolved nor stored. Settings that do not parse, nested `.gemini/settings.json` files, and user and system settings outside the repository are not resolved either. A `GEMINI.md` left out by the settings stays labeled Gemini and counted once in All files. `.gemini/system.md` is only used when `GEMINI_SYSTEM_MD` selects it. Gemini CLI also discovers project skills from `.agents/skills`, giving them precedence over `.gemini/skills`; those files are stored once as shared components read by Codex and Gemini CLI, and by Cursor at revisions that track Cursor configuration. A skill with the same name in both directories appears twice in the Gemini view, because Strata does not resolve that precedence. Gemini CLI also accepts a single `SKILL.md` directly in either skill directory; Strata records it as a Gemini skill rooted at that directory, but other files beside it are grouped by their own subdirectory, as manifest-less bundles, because path classification cannot see the sibling manifest. These path labels identify candidates and do not assert runtime loading. Cursor rules can be always applied, applied when a glob matches, requested by the agent, or applied only when mentioned; Strata measures each rule's text, frontmatter included; it reads `alwaysApply` only to label a root rule as kept from the start of a session (see [Up-front context](decisions.md#up-front-context)), and does not read `globs` or `description` to decide whether a rule was active, nor resolve `@file` references in it. A tracked rule is a candidate, not proof it loaded. A Cursor command is invoked by the user, so its stored size is not an always-loaded cost. The root `.cursorrules` still works but Cursor documents it as superseded by `.cursor/rules`, so its component carries `legacy: true` and the HTML report labels its category `rules (legacy)`. `.cursor/mcp.json` is measured in source bytes; its size is not the token cost of the tool schemas the servers expose. `--precise` has no Cursor count: Cursor runs many models, so Cursor files keep the estimate and `AGENTS.md` is counted only for its other readers. Recognition is intentionally conservative: structured Codex and Gemini commands/configuration files remain source-only instead of counting their full source as prompt text.
+A *component* is one tracked file as the report lists it. A shared component lists in `readers` the providers documented as reading its path. A reader can still depend on a runtime condition Strata does not resolve.
+
+- `AGENTS.md` is marked shared because both [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) and, conditionally, [Claude Code](https://code.claude.com/docs/en/memory) can read it. Claude's default may prefer `CLAUDE.md`, and Codex overrides may take the place of `AGENTS.md`. Strata does not resolve those runtime conditions.
+- Gemini CLI reads `AGENTS.md` only when its settings name it in `context.fileName`. Strata resolves that one condition per revision; see [Gemini CLI context files](#gemini-cli-context-files).
+- `.agents/skills` is shared between Codex and Gemini CLI, which both discover project skills there. Claude Code does not.
+- Cursor and Copilot also read some files that belong to other tools, under the conditions described next.
+
+### Cursor
+
+Cursor needs no file in the repository, so a repository cannot prove whether or not it is used with Cursor. Cursor reads these files that belong to other tools:
+
+- [`AGENTS.md`](https://cursor.com/docs/rules), including nested ones;
+- [skills](https://cursor.com/docs/context/skills) from `.agents/skills` and, for compatibility, `.claude/skills`.
+
+Strata counts Cursor as reading those files only at a revision that tracks Cursor configuration: any file labeled Cursor, such as `.cursor/rules`, `.cursorrules`, or `.cursorignore`. As a result:
+
+- A Claude-only repository is described as Claude-only. Its `.claude/skills` stay `claude`, and when no revision tracks Cursor configuration, the report never mentions Cursor.
+- When some revision does, Cursor appears in the `readers` of `AGENTS.md`, `.agents/skills`, and `.claude/skills` (which stays labeled `claude`). The Cursor view includes them only from the revisions that track Cursor files. Adding or removing the last Cursor file lists them as added or removed in that view.
+- A team that uses Cursor without tracking any Cursor file is not detected.
+
+Skills:
+
+- Cursor also loads `.codex/skills`, which current Codex documentation no longer lists. Those files stay Codex `other`, because Strata cannot tell which tool they are kept for.
+- A skill Cursor reads from `.claude/skills` or `.agents/skills` keeps the listing measured by its own tool's rules: Claude Code's, or Codex and Gemini CLI's. Cursor requires `name` and `description`, and would skip a skill that relies on Claude's defaults.
+- Strata does not check Cursor's rule that `name` match the skill directory.
+
+Rules, commands, and MCP:
+
+- A Cursor rule can be always applied, applied when a glob matches, requested by the agent, or applied only when mentioned. Strata measures each rule's text, frontmatter included.
+- Strata reads `alwaysApply` only to label a root rule as kept from the start of a session (see [Up-front context](decisions.md#up-front-context)). It does not read `globs` or `description` to decide whether a rule was active, and does not resolve `@file` references in a rule. A tracked rule is a candidate, not proof it loaded.
+- A Cursor command is invoked by the user, so its stored size is not a cost paid in every session.
+- The root `.cursorrules` still works, but Cursor documents it as replaced by `.cursor/rules`. Its component carries `legacy: true`, and the HTML report labels its category `rules (legacy)`.
+- `.cursor/mcp.json` is measured in source bytes. Its size is not the token cost of the tool schemas the servers expose.
+- `--precise` has no Cursor count, because Cursor runs many models. Cursor files keep the estimate, and `AGENTS.md` is counted only for its other readers.
+
+### GitHub Copilot
+
+GitHub Copilot is several clients:
+
+- Copilot Chat on GitHub.com;
+- the cloud agent;
+- code review;
+- Copilot CLI;
+- Copilot Chat in VS Code and other IDEs.
+
+Each client reads a different subset of these files; GitHub's [support matrix](https://docs.github.com/en/copilot/reference/custom-instructions-support) lists which. Strata labels a file Copilot when at least one client is documented as reading it. It does not say which client did.
+
+Like Cursor, Copilot needs no file in the repository, and it reads files that belong to other tools:
+
+- `AGENTS.md`;
+- `CLAUDE.md` and `.claude/CLAUDE.md`, but not `CLAUDE.local.md`;
+- `REVIEW.md`;
+- `GEMINI.md`, whatever Gemini's `context.fileName` says;
+- `.claude/agents` and `.claude/rules`, except a `README.md` there, which VS Code skips;
+- `.claude/skills` and `.agents/skills`;
+- the root `.mcp.json`.
+
+Strata counts Copilot as reading them only at a revision that tracks a file labeled Copilot. When no revision does, Copilot is left out of every `readers`. This condition is separate from Cursor's. Those files keep their own provider label, so the Claude, Gemini CLI, and shared totals do not change when a repository adopts Copilot.
+
+Copilot also reads hooks from `.claude/settings.json`, but that file stays Claude-only, because Copilot uses only its `hooks` field.
+
+Strata does not interpret `applyTo`, `excludeAgent`, `target`, or `description` frontmatter. It does not resolve which file wins when several apply, such as the nearest `AGENTS.md`.
+
+Agents and chat modes:
+
+- VS Code reads prompt files and agents only directly inside `.github/prompts` and `.github/agents`. Copilot CLI also reads agents in subfolders and in nested `.github/agents` folders. The agents pattern covers both.
+- A `.chatmode.md` is the format that custom agents replaced. VS Code still reads one inside `.github/agents`, and Strata labels it legacy. VS Code no longer reads `.github/chatmodes` unless a user setting adds it, so files there stay `other`.
+
+`REVIEW.md` holds code review guidance:
+
+- [Claude Code's Code Review](https://code.claude.com/docs/en/code-review-customize) reads it at the root and in subfolders, for changes under that folder.
+- Copilot code review reads it as it reads `CLAUDE.md`.
+- The local Claude Code `/code-review` command does not read it.
+- It is labeled Claude, with Copilot as a reader.
+
+Skills and measurement:
+
+- Copilot CLI also accepts namespaced skills (`.github/skills/<group>/<name>/SKILL.md`). Strata groups those files under `<group>` as resources and does not list them.
+- A skill Copilot reads from `.claude/skills` or `.agents/skills` keeps the listing measured by its own tool's rules. Copilot requires `name` and `description`.
+- Copilot has no token count endpoint, so `--precise` sends no Copilot text, and Copilot files keep the report's measurement.
+
+Organization and enterprise agents, personal instructions, and settings stored on GitHub are outside the repository.
+
+### Gemini CLI context files
+
+Gemini CLI reads project instructions from *context files*. The default context filename is `GEMINI.md`, and a configured `context.fileName` replaces that default.
+
+At each revision, Strata reads the tracked `.gemini/settings.json` at the repository root, ignoring `//` and `/* */` comments as Gemini CLI does:
+
+- When `context.fileName` (or its older name, `contextFileName`) is set, the revision's `geminiContextFiles` records which of `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`) it names. The Gemini view and Gemini provider totals for that revision include exactly those context files, at any depth.
+- Without that setting, only `GEMINI.md` is included.
+- `AGENTS.md` and `GEMINI.md` components carry the matching `contextFile` label, so the decision does not depend on paths and survives `--shareable`, which replaces paths with aliases.
+- A `GEMINI.md` the settings leave out stays labeled Gemini and is counted once in All files.
+
+Strata does not resolve:
+
+- other configured names, which are not stored either;
+- settings that do not parse;
+- nested `.gemini/settings.json` files;
+- user and system settings outside the repository.
+
+`.gemini/system.md` is used only when `GEMINI_SYSTEM_MD` selects it.
+
+### Gemini CLI skills
+
+- Gemini CLI also discovers project skills from `.agents/skills`, and gives them precedence over `.gemini/skills`. Those files are stored once, as shared components read by Codex and Gemini CLI, and by Cursor and Copilot at revisions that track their configuration.
+- A skill with the same name in both directories appears twice in the Gemini view, because Strata does not resolve that precedence.
+- Gemini CLI also accepts a single `SKILL.md` directly in either skill directory. Strata records it as a Gemini skill rooted at that directory. Other files beside it are grouped by their own subdirectory, as bundles with no manifest, because Strata labels each path on its own and cannot see the manifest next to them.
+
+### Sources
+
+The recognition rules follow current provider documentation:
+
+| Provider | Documentation |
+| --- | --- |
+| Claude Code | [instructions and rules](https://code.claude.com/docs/en/memory), [skills and commands](https://code.claude.com/docs/en/skills), [subagents and memory](https://code.claude.com/docs/en/sub-agents), [settings](https://code.claude.com/docs/en/settings), [MCP](https://code.claude.com/docs/en/mcp) |
+| Codex | [instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md), [skills](https://learn.chatgpt.com/docs/build-skills), [custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents), [project configuration](https://learn.chatgpt.com/docs/config-file/config-basic), [rules](https://learn.chatgpt.com/docs/agent-configuration/rules) |
+| Gemini CLI | [context files](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md), [configuration](https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md), [agents](https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md), [skills](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md), [custom commands](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/custom-commands.md) |
+| Cursor | [rules](https://cursor.com/docs/rules), [legacy `.cursorrules`](https://prod.cursor.com/help/customization/rules), [commands](https://docs.cursor.com/en/agent/chat/commands), [skills](https://cursor.com/docs/context/skills), [ignore files](https://cursor.com/docs/context/ignore-files), [MCP configuration](https://docs.cursor.com/context/model-context-protocol) |
+| GitHub Copilot | [repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions), [CLI instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions), [code review](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/request-a-code-review/use-code-review), [custom agents](https://docs.github.com/en/copilot/reference/custom-agents-configuration), [skills](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/add-skills), [hooks](https://docs.github.com/en/copilot/reference/hooks-reference), [CLI MCP servers](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers), [cloud agent environment](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/customize-the-agent-environment) |
+| Copilot in VS Code | [instructions](https://code.visualstudio.com/docs/copilot/customization/custom-instructions), [prompt files](https://code.visualstudio.com/docs/copilot/customization/prompt-files), [custom agents](https://code.visualstudio.com/docs/copilot/customization/custom-agents), [MCP servers](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) |
+
+[The Cursor adapter study](next-adapter.md) and [the Copilot adapter study](copilot-adapter.md) record the evidence for each pattern.
 
 ## Claude imports
 
-Claude Code expands `@path` imports in the instruction files it loads: an import's file is loaded with the file that names it, and that file's own imports are expanded in turn, up to four hops from the starting file ([Claude Code memory](https://code.claude.com/docs/en/memory#import-additional-files)). Strata resolves those imports at each revision against the tracked tree, never the working tree:
+Claude Code expands `@path` imports in the instruction files it loads. The file an import names is loaded with the file that names it, and that file's own imports are expanded in turn, up to four hops from the starting file ([Claude Code memory](https://code.claude.com/docs/en/memory#import-additional-files)). A *hop* is one import step: a file the starting file imports is one hop away, and a file that file imports is two hops away. Strata resolves imports at each revision against that revision's tracked files, never the working tree.
 
-- Expansion starts at every `CLAUDE.md`, `CLAUDE.local.md`, and `.claude/CLAUDE.md`, at any depth (not at `REVIEW.md`, which Claude Code's Code Review reads but sessions do not load), and then at every `AGENTS.md` those chains did not reach. An `AGENTS.md` that a `CLAUDE.md` imports, the documented way to share it, is one hop on that chain, so its imports are a hop further on. Claude Code also expands imports in an `AGENTS.md` it reads directly; whether it reads one is a runtime condition Strata does not resolve, so files only an `AGENTS.md` imports are counted as Claude's even in a repository whose agents never read them that way. Imports in rules, agents, commands, and skills are followed only when an import reaches the file, and imports are read from Markdown (`.md`) files only.
-- A relative path resolves against the directory of the file that holds the import. A home-directory (`~/`) or absolute path, or a relative path that climbs above the repository root, points outside the repository and is `external`. Paths are matched exactly, so a case-insensitive file system that loads `@agents.md` as `AGENTS.md` is not modeled.
-- An import is read where Claude Code reads one: `@` at the start of a line or after whitespace, with the path running to the next whitespace, a backslash before each space it contains, and a `#` fragment removed. A path must start with `./`, `~/`, `/`, or a letter, digit, `.`, `_`, or `-`; a quoted path is not an import. Imports inside fenced code blocks, code spans, and HTML comments are skipped. A comment that starts a line is an HTML block running to the end of the line that closes it (or of the file); one inside a paragraph is inline, and a `<!--` that its paragraph never closes is literal text. Strata reads Markdown structure only that far: an indented code block is read as text, and an `@` directly after emphasis or a link bracket is not an import.
-- Expansion follows the shortest chain to each file. A file four hops from a root is loaded, but its own imports, external ones included, are `depth-limit`; an external one keeps its `external` flag, so the HTML report and the command line still say it points outside the repository. An import of a path where the revision has no tracked regular file, including a symlink, a submodule, or a directory, is `missing`. An import of a directory does not bring in the files under it, and for the repository root or a path ending in `/` no history is read at all. Imports Claude Code would skip for other reasons, such as an unapproved external import or a non-text file, are not modeled.
+### Where expansion starts
 
-A file an import reaches that no path rule above recognizes joins that revision's inventory with `imported: true` and provider `claude`: Markdown as `instructions`, measured like any instruction file, and anything else, such as `package.json`, as source-only `other`. Its inventory membership follows the imports, so when a commit adds or drops an import, the file is listed as added or removed there although the file itself may not have changed; a renamed imported file appears as a removal and an addition. A file reached by an import that a path rule already recognizes, such as `AGENTS.md` or a rule, keeps its labels and is not counted again; a recognized source-only Markdown file, such as a skill resource, therefore stays source-only when imported, although Claude Code loads its text. Imported files are Claude's only: Copilot also reads `CLAUDE.md`, but its documentation does not say it expands `@path` imports, so imported files gain no Copilot reader. Each instruction file and reached Markdown version stores its `imports`, each a 1-based `line` and the repository path it names as `target`. `target` is null, with `external: true`, for an import outside the repository, and null alone for one that names a path no regular file has anywhere in the analyzed history: such an import is often prose, such as `ask @alice`, so its text is not stored. A report never holds the import text itself. The links at a revision, each with its source, target, hop count, status (`resolved`, `missing`, `external`, or `depth-limit`), and `external` when it points outside the repository, which a `depth-limit` link can too, are derived from the rebuilt inventory by `importLinks` in `src/import-links.ts`, which the HTML report embeds; the report lists them with unresolved imports first, and the command line counts the last revision's unresolved imports. An import is a link between stored files, labeled `links to`, not proof that a session loaded the target.
+- Expansion starts at every `CLAUDE.md`, `CLAUDE.local.md`, and `.claude/CLAUDE.md`, at any depth. It does not start at `REVIEW.md`, which Claude Code's Code Review reads but sessions do not load.
+- It then starts at every `AGENTS.md` those chains did not reach.
+- An `AGENTS.md` that a `CLAUDE.md` imports, the documented way to share it, is one hop on that chain, so its own imports are one hop further on.
+- Claude Code also expands imports in an `AGENTS.md` it reads directly. Whether it reads one is a runtime condition Strata does not resolve. So files that only an `AGENTS.md` imports are counted as Claude's, even in a repository whose agents never read them that way.
+- Imports in rules, agents, commands, and skills are followed only when an import reaches the file.
+- Imports are read from Markdown (`.md`) files only.
+
+### How an import path resolves
+
+- A relative path resolves against the directory of the file that holds the import.
+- A home-directory (`~/`) path, an absolute path, or a relative path that climbs above the repository root points outside the repository and is `external`.
+- Paths are matched exactly, so a case-insensitive file system that loads `@agents.md` as `AGENTS.md` is not modeled.
+
+### What counts as an import
+
+Strata reads an import where Claude Code reads one:
+
+- The `@` is at the start of a line or after whitespace.
+- The path runs to the next whitespace. A backslash before a space keeps that space in the path, and a `#` fragment is removed.
+- The path must start with `./`, `~/`, `/`, or a letter, digit, `.`, `_`, or `-`. A quoted path is not an import.
+- Imports inside fenced code blocks, code spans, and HTML comments are skipped. An HTML comment that starts a line is a block that runs to the end of the line that closes it, or to the end of the file. A comment inside a paragraph is inline, and a `<!--` that its paragraph never closes is literal text.
+- Strata reads Markdown structure only that far: an indented code block is read as text, and an `@` directly after emphasis or a link bracket is not an import.
+
+### Depth limit and unresolved imports
+
+- Expansion follows the shortest chain to each file.
+- A file four hops from a starting file is loaded, but its own imports, external ones included, are `depth-limit`. An external one keeps its `external` flag, so the HTML report and the command line still say it points outside the repository.
+- An import of a path where the revision has no tracked regular file is `missing`. This includes a symlink, a submodule, or a directory.
+- An import of a directory does not bring in the files under it. For the repository root, or a path ending in `/`, no history is read at all.
+- Imports Claude Code would skip for other reasons, such as an unapproved external import or a non-text file, are not modeled.
+
+### Files an import reaches
+
+A file an import reaches that no path rule above recognizes joins that revision's inventory with `imported: true` and provider `claude`:
+
+- Markdown becomes `instructions`, measured like any instruction file.
+- Anything else, such as `package.json`, becomes source-only `other`.
+
+Whether the file is in the inventory follows the imports. When a commit adds or drops an import, the file is listed as added or removed in that commit, even if the file itself did not change. A renamed imported file appears as a removal and an addition.
+
+A file reached by an import that a path rule already recognizes, such as `AGENTS.md` or a rule, keeps its labels and is not counted again. So a recognized source-only Markdown file, such as a skill resource, stays source-only when imported, although Claude Code loads its text.
+
+Imported files are Claude's only. Copilot also reads `CLAUDE.md`, but its documentation does not say it expands `@path` imports, so imported files gain no Copilot reader.
+
+### What the report stores about imports
+
+Each version of an instruction file, or of Markdown an import reaches, stores its `imports`:
+
+- Each import has a 1-based `line` and the repository path it names, as `target`. A target named more than once is stored once, at its first line.
+- `target` is null, with `external: true`, for an import outside the repository.
+- `target` is null, without `external`, for an import that names a path no regular file has anywhere in the analyzed history. Such an import is often prose, such as `ask @alice`, so its text is not stored.
+- A report never holds the import text itself.
+
+The links at a revision are derived from the rebuilt inventory by `importLinks` in `src/import-links.ts`, which the HTML report embeds. Each link has:
+
+- its source and target;
+- its hop count;
+- its status: `resolved`, `missing`, `external`, or `depth-limit`;
+- `external` when it points outside the repository, which a `depth-limit` link can too.
+
+The report lists the links with unresolved imports first, and the command line counts the last revision's unresolved imports. An import is a link between stored files, labeled `links to`, not proof that a session loaded the target.
 
 ## Measurements and history
 
-The default token figure is a **comparison estimate**: `ceil(UTF-8 byte length / 4)` for each recognized instructional file, summed across files. The same method is applied to every revision. It is neither an Anthropic nor OpenAI tokenizer. Optional `--tokenizer openai-cl100k_base` and `openai-o200k_base` modes use local `js-tiktoken@1.0.21` for encoding-exact counts of valid UTF-8 instructional text. `--model` maps a small supported set of OpenAI model names to those encodings and records the selected name; unknown names fail. The selected encoding applies to every instructional file, independent of its provider label, so historical totals remain comparable. Invalid UTF-8 instructional blobs fail in an encoding mode instead of silently producing an inexact count. `--precise` is a separate, explicit opt-in for `strata analyze`: it picks, per provider, a signed-in provider CLI account, then an API key, then a local exact tokenizer, then the estimate (see [the decision record](decisions.md#measurement)), sends only recognized instructional text to [Anthropic's Messages count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens), [Gemini's countTokens endpoint](https://ai.google.dev/api/tokens), or Vertex AI's count endpoints, and labels returned counts by provider, model, method, implementation/API version, accuracy, credential source, and receiving host. The deprecated `--provider-api` requires named models and both API keys. Markdown that a Claude import reaches is counted, and sent, as a Claude instruction file. Shared instruction candidates receive a separate count for each selected provider in their `readers`; heterogeneous counts are not added. A Gemini context file version is sent to Gemini only when it is present in some revision whose settings make Gemini read it, and its count joins the Gemini total, and appears in the report's Gemini column, only in such revisions. An optional `--codex-model` adds a local OpenAI encoding count for Codex files. API counts exclude the endpoint's one-message wrapper, measured per model, and describe stored text, not actual loaded context or billing. `strata diff --precise` uses the same methods for its two commits. The default and local tokenizer modes never send repository content.
+### Token figures
 
-Structured configuration, MCP, permission rules, and supporting files are inventoried by source bytes and excluded from instructional token totals. MCP files, and Gemini CLI and Codex settings that define MCP servers, also carry the names of the servers they define and whether each runs locally or connects to a URL, never their commands, URLs, or environment; see [MCP servers](decisions.md#mcp-servers). Instruction age matches the lines of instructional files only; see [Instruction age](decisions.md#instruction-age). Category counts describe stored files, not active skills, loaded rules, or runtime cost. Category totals include a `sourceOnlyCount` so a zero token total is not mistaken for an empty source file.
+The default token figure is a **comparison estimate**: `ceil(UTF-8 byte length / 4)` for each recognized instructional file, that is, its size in bytes divided by four and rounded up, summed across files. The same method is applied to every revision. It is neither an Anthropic nor an OpenAI tokenizer.
+
+Local tokenizers:
+
+- The optional `--tokenizer openai-cl100k_base` and `openai-o200k_base` modes use the local `js-tiktoken@1.0.21` package for encoding-exact counts of valid UTF-8 instructional text.
+- `--model` maps a small supported set of OpenAI model names to those encodings, and records the selected name. Unknown names fail. [Token-counting methods](tokenizers.md) lists the names.
+- The selected encoding applies to every instructional file, whatever its provider label, so historical totals stay comparable.
+- In an encoding mode, an instructional blob that is not valid UTF-8 makes the run fail, instead of silently producing an inexact count.
+
+`--precise` is a separate, explicit opt-in for `strata analyze`:
+
+- For each provider, it picks a signed-in provider CLI account, then an API key, then a local exact tokenizer, then the estimate; see [the decision record](decisions.md#measurement).
+- It sends only recognized instructional text, to [Anthropic's Messages count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens), [Gemini's countTokens endpoint](https://ai.google.dev/api/tokens), or Vertex AI's count endpoints.
+- It labels returned counts by provider, model, method, implementation/API version, accuracy, credential source, and receiving host.
+- Markdown that a Claude import reaches is counted, and sent, as a Claude instruction file.
+- A shared instruction file gets a separate count for each selected provider in its `readers`. Counts from different providers are never added together.
+- A Gemini context file version is sent to Gemini only when it is present in some revision whose settings make Gemini read it. Its count joins the Gemini total, and appears in the report's Gemini column, only in such revisions.
+- An optional `--codex-model` adds a local OpenAI encoding count for Codex files.
+- API counts exclude the endpoint's one-message wrapper, the tokens the request adds around the text, measured per model. They describe stored text, not actual loaded context or billing.
+- `strata diff --precise` uses the same methods for its two commits.
+
+The deprecated `--provider-api` requires named models and both API keys. The default and local tokenizer modes never send repository content.
+
+### Source-only files and category counts
+
+- Structured configuration, MCP, permission rules, and supporting files are inventoried by source bytes and excluded from instructional token totals.
+- MCP files, and Gemini CLI and Codex settings that define MCP servers, also carry the names of the servers they define and whether each runs locally or connects to a URL. They never carry the servers' commands, URLs, or environment; see [MCP servers](decisions.md#mcp-servers).
+- Instruction age, how much of the instruction text dates from each earlier period, matches the lines of instructional files only; see [Instruction age](decisions.md#instruction-age).
+- Category counts describe stored files, not active skills, loaded rules, or runtime cost.
+- Category totals include a `sourceOnlyCount`, so a zero token total is not mistaken for an empty source file.
+
+### Report fields
 
 The report is schema version 19. Each field below first appeared in the version shown; [the decision record](decisions.md#report-contract-and-privacy) describes each version's change.
 
@@ -110,10 +345,25 @@ The report is schema version 19. Each field below first appeared in the version 
 | `mcp` on MCP files and on settings files that define MCP servers | the names and transports of the servers they define | 18 |
 | `lineAgeMethod`, `lineAge` on revisions that added or removed instruction lines | instruction age | 19 |
 
-The legacy `estimatedTokens` field remains the default comparison estimate in provider API mode; provider counts are separate and never combined into a heterogeneous total. Skill-bundle summaries are derived from the same components already counted by category and must not be added to category totals. A manifest's listing measures the frontmatter `name` and `description` that an agent keeps in context before the skill is used. It is measured separately and mostly repeats text the manifest's count already includes, so it is never added to a total; its text boundary is defined in [the decision record](decisions.md#skill-listings). For each provider, the report also separates the stored text it keeps from the start of a session at the repository root (root instructions, rules that load at launch, Claude imports, and skill listings) from the rest it reads on demand; [the decision record](decisions.md#up-front-context) defines that boundary and the conditions it does not resolve. Both are stored text, not loaded context.
+### Figures that are never added together
 
-Changes compare adjacent first-parent revisions. Git rename detection (`-M`) supports a rename label when Git finds sufficient content similarity; otherwise the report shows a removal and addition. A merge is compared with its first parent. The report does not infer a refactor or architecture dependency from paths alone.
+- The legacy `estimatedTokens` field stays the default comparison estimate when provider counts are requested. Provider counts are kept separate, and are never combined into a total that mixes counting methods.
+- Skill-bundle summaries are derived from the same components already counted by category, and must not be added to category totals.
+- A manifest's listing measures the frontmatter `name` and `description` that an agent keeps in context before the skill is used. It is measured separately and mostly repeats text the manifest's count already includes, so it is never added to a total. Its text boundary is defined in [the decision record](decisions.md#skill-listings).
+- For each provider, the report also splits its stored text in two: what it keeps from the start of a session at the repository root (root instructions, rules that load at launch, Claude imports, and skill listings), and the rest, which it reads on demand. [The decision record](decisions.md#up-front-context) defines that boundary and the conditions it does not resolve. Both parts are stored text, not loaded context.
 
-The HTML comparison view can compare any two sampled revisions, including earlier targets. Its provider, category, and component deltas use the stored measurements at each endpoint. Component identity is provider, category, and path, so an arbitrary-range move can appear as a removal and addition even when an adjacent revision's `changes` array labels a Git-detected rename.
+### Changes between revisions
 
-The SVG image contains only the repository and branch names, dates, category labels, and totals; with `--minimal` it contains only the layer shapes and, in its accessible description, the latest totals. The default HTML and JSON contain full commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no file contents. Provider API mode transfers recognized instruction text to the named services during analysis; `--shareable` changes report identifiers but does not change that transfer. `--shareable` replaces the repository and branch names, commit IDs, paths (including import targets), skill roots, and blob IDs with deterministic aliases while retaining dates and measurements. These values can still reveal the shape and timing of a project; inspect reports before distribution. Use `--output` to choose where the report is written; Strata does not write to the repository it analyzes unless that path is chosen explicitly.
+- Changes compare adjacent first-parent revisions. A merge is compared with its first parent.
+- Git rename detection (`-M`) supports a rename label when Git finds the old and new content similar enough. Otherwise the report shows a removal and an addition.
+- The report does not infer a refactor or architecture dependency from paths alone.
+
+The HTML comparison view can compare any two sampled revisions, including a target earlier than the baseline. Its provider, category, and component differences use the stored measurements at each end. A component's identity is its provider, category, and path. So across an arbitrary range, a moved file can appear as a removal and an addition, even when an adjacent revision's `changes` array labels a Git-detected rename.
+
+### What each output contains
+
+- The SVG image contains only the repository and branch names, dates, category labels, and totals. With `--minimal`, it contains only the layer shapes and, in its accessible description, the latest totals.
+- The default HTML and JSON contain full commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no file contents.
+- Provider API mode (`--precise` when it finds a credential, or `--provider-api`) sends recognized instruction text to the named services during analysis. `--shareable` changes report identifiers but does not change that transfer.
+- `--shareable` replaces the repository and branch names, commit IDs, paths (including import targets), skill roots, and blob IDs with deterministic aliases, local to that report. It keeps dates and measurements. These values can still reveal the shape and timing of a project, so inspect reports before sharing them.
+- Use `--output` to choose where the report is written. Strata does not write to the repository it analyzes unless that path is chosen explicitly.

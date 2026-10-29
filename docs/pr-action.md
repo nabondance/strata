@@ -1,6 +1,24 @@
 # Opt-in pull-request delta
 
-The repository provides a composite GitHub Action, [**Strata agent context check**](https://github.com/marketplace/actions/strata-agent-context-check) on the GitHub Marketplace, and a local `strata diff` command. To upload the full history report from CI instead, see [Running Strata in CI](ci.md). Neither runs automatically in a repository that has not added a workflow. The Action reads the checked-out repository's tracked blobs at a base and a head commit, applies the selected measurement to instructional text, and appends a Markdown delta to the job summary. It changes no working-tree file, branch, or tag and posts no PR comment, and token growth never fails it unless you set a [limit](#limits). It sends no source text anywhere unless `precise: 'true'` is set, as described below.
+Strata can show how a pull request changes your agent configuration. A "delta" here means the difference between two commits. There are two ways to get it:
+
+- the GitHub Action [**Strata agent context check**](https://github.com/marketplace/actions/strata-agent-context-check), listed on the GitHub Marketplace. It is a composite action: a reusable set of workflow steps that runs inside your own job.
+- the local `strata diff` command, described under [Local use](#local-use).
+
+To upload the full history report from CI instead, see [Running Strata in CI](ci.md). Neither one runs in a repository until you add a workflow for it.
+
+What the Action does:
+
+- It reads the tracked files (Git blobs) of the checked-out repository at two commits: the base, which you compare from, and the head, which you compare to.
+- It measures the instructional text at both commits with the measurement you choose.
+- It appends a Markdown delta to the job summary, the page GitHub shows for each workflow run.
+
+What it does not do:
+
+- It changes no working-tree file, branch, or tag.
+- It posts no comment on the pull request.
+- Token growth never fails it unless you set a [limit](#limits).
+- It sends no source text anywhere, unless you set `precise: 'true'` as described under [Measurement](#measurement).
 
 Example workflow in the **repository you want to analyze**:
 
@@ -19,18 +37,42 @@ jobs:
 ```
 <!-- x-release-please-end -->
 
-The summary contains commit IDs, file paths, category deltas, and up to 25 changed components, but no source text. Review the summary's metadata visibility before enabling it for sensitive repositories. The Action needs `contents: read`; it does not need `pull-requests: write` or a token in Strata's process.
+The summary contains commit IDs, file paths, category deltas, and up to 25 changed components. It contains no source text. Anyone who can see the workflow run can read those names and paths, so check that this is acceptable before you enable it in a sensitive repository.
+
+The Action needs only the `contents: read` permission. It does not need `pull-requests: write`, and Strata's process gets no token.
 
 ## Commits
 
-With `base` and `head` left empty, the Action compares the event's own commits:
+When you leave the `base` and `head` inputs empty, the Action picks the commits from the event that started the workflow:
 
-- On `pull_request` and its review events, GitHub's merge commit (the commit `actions/checkout` checks out) with its first parent, the base branch's tip. That is what merging the pull request would change. Comparing the base tip with the pull request's head instead would also count, reversed, anything the base branch changed after the pull request branched from it. The summary's head is therefore the merge commit, not the pull request's last commit.
-- On `pull_request_target`, the same, with the merge commit from the event payload. GitHub leaves it out while it is still computing whether the pull request can merge, and can still name the one from before the latest push. Without a commit that merges the pull request's head into its base, the Action compares the base tip with the head and says so in a warning. That also happens on a `closed` event for a pull request that was squashed or rebased, since its commit on the base branch has one parent.
-- On `merge_group`, the queued commit with its base.
-- On `push`, the commits before and after the push. A push that creates or deletes a branch or tag has no two commits, so the Action notes that and skips it.
+| Event | Base | Head |
+| --- | --- | --- |
+| `pull_request` and its review events | The base branch's tip | GitHub's merge commit |
+| `pull_request_target` | The base branch's tip | The merge commit named in the event payload |
+| `merge_group` | The queue entry's base | The queued commit |
+| `push` | The commit before the push | The commit after the push |
 
-On any other event, such as `workflow_dispatch` or `schedule`, set both inputs to full commit IDs; they also override an event's commits:
+### Why the merge commit
+
+For a pull request, GitHub builds a temporary merge commit that merges the pull request into its base branch. This is the commit `actions/checkout` checks out. Its first parent is the base branch's tip. Comparing the two shows exactly what merging the pull request would change.
+
+Comparing the base tip with the pull request's last commit would be wrong. If the base branch changed after the pull request branched from it, those changes would also be counted, reversed, as if the pull request had made them. This is why the summary's head is the merge commit, not the pull request's last commit.
+
+### When there is no merge commit
+
+On `pull_request_target`, the merge commit comes from the event payload, and it is not always usable:
+
+- GitHub leaves it out while it is still computing whether the pull request can merge.
+- It can still name the merge commit from before the latest push.
+- On a `closed` event for a pull request that was squashed or rebased, the pull request's commit on the base branch has only one parent, so it is not a merge.
+
+In these cases the Action compares the base tip with the pull request's head and says so in a warning.
+
+On `push`, a push that creates or deletes a branch or tag has no commit on one side. The Action adds a notice and skips it.
+
+### Other events
+
+On any other event, such as `workflow_dispatch` or `schedule`, set both inputs to full commit IDs (all 40 characters). Setting them on the events above also overrides the event's commits.
 
 ```yaml
 on:
@@ -46,11 +88,28 @@ on:
           head: ${{ github.sha }}
 ```
 
-The default `actions/checkout` is shallow and holds only the commit it checks out, so the Action fetches whichever commit it needs from `origin`. That adds Git objects to `.git`, adds the fetched commits to a shallow checkout's shallow list so it stays shallow, and updates `FETCH_HEAD`; it changes no working-tree file, branch, or tag, and Strata itself only reads. If the fetch fails, for example in a private repository checked out with `persist-credentials: false`, the step says so: check out with `fetch-depth: 0`, or keep the persisted credentials. A fork's commits on `pull_request_target` are not among the branches `fetch-depth: 0` fetches, so that event needs the credentials. Strata's own [pull-request workflow](../.github/workflows/strata-pr-delta.yml) runs this way, with `uses: ./` so it tests the code under review.
+### Fetching missing commits
+
+By default `actions/checkout` makes a shallow checkout: it downloads only the one commit it checks out, without the earlier history. The Action therefore fetches any commit it needs from `origin`. The fetch:
+
+- adds Git objects to `.git`;
+- in a shallow checkout, adds the fetched commits to the shallow list, so the checkout stays shallow;
+- updates `FETCH_HEAD`.
+
+It changes no working-tree file, branch, or tag, and Strata itself only reads.
+
+If the fetch fails, the step says so. This can happen in a private repository checked out with `persist-credentials: false`. To fix it, check out with `fetch-depth: 0`, or keep the persisted credentials. On `pull_request_target`, a fork's commits are not on any branch that `fetch-depth: 0` downloads, so that event needs the credentials.
+
+Strata's own [pull-request workflow](../.github/workflows/strata-pr-delta.yml) runs this way, from a default shallow checkout. It uses `uses: ./` so it tests the code under review.
 
 ## Versions
 
-The examples pin the latest release, which Release Please updates in these docs. `nabondance/strata@v0` follows every 0.x release, and a minor 0.x release can change the summary or the inputs; pin a release, or a reviewed commit SHA, to change versions only when you choose. The Action builds Strata from its own source at that version, with the locked dependencies, so it does not depend on npm.
+The examples pin the latest release; Release Please updates that version in these docs.
+
+- `nabondance/strata@v0` follows every 0.x release. A minor 0.x release can change the summary or the inputs.
+- To change versions only when you choose, pin a release or a commit SHA you have reviewed.
+
+The Action builds Strata from its own source at that version, with the locked dependencies, so it does not depend on npm.
 
 ## Outputs
 
@@ -62,7 +121,7 @@ The examples pin the latest release, which Release Please updates in these docs.
 | `summary-file` | Path of the Markdown delta, the same text as the job summary |
 | `json-file` | Path of the [JSON delta](#local-use), for anything the other outputs leave out |
 
-Outputs are set whenever the summary is written, including when a limit fails the step, so a later step that runs `if: always()` can read them. They are empty when the step skips a push that creates or deletes a branch or tag. Each run of the Action in a job writes its own files.
+The outputs are set whenever the summary is written. That includes runs where a limit fails the step, so a later step with `if: always()` can still read them. They are empty when the step skips a push that creates or deletes a branch or tag. If a job runs the Action more than once, each run writes its own files.
 
 ```yaml
       - uses: nabondance/strata@v0
@@ -74,9 +133,22 @@ Outputs are set whenever the summary is written, including when a limit fails th
 
 ## Measurement
 
-Set `model: gpt-4o` instead of `tokenizer: estimate` to use a documented local OpenAI model-to-encoding mapping. The Action uses `model` when provided; the default tokenizer is used otherwise.
+These inputs choose how tokens are counted:
 
-For precise per-provider totals, set `precise: 'true'` and give the step the keys it may use. This sends recognized Claude and Gemini instruction text from both commits to those providers' token-count APIs; a provider without a key falls back to the estimate, and Codex is counted locally:
+| Input | Default | Effect |
+| --- | --- | --- |
+| `tokenizer` | `estimate` | Offline token mode: `estimate`, `openai-cl100k_base`, or `openai-o200k_base` |
+| `model` | empty | A named OpenAI model, such as `gpt-4o`, counted offline through a documented model-to-encoding mapping. When set, it is used instead of `tokenizer` |
+| `precise` | `'false'` | `'true'` adds precise totals for each provider, described below. `tokenizer` and `model` are not used with it |
+
+### Precise counts
+
+For precise totals per provider, set `precise: 'true'` and give the step the API keys it may use. This sends the recognized Claude and Gemini instruction text from both commits to those providers' token-count APIs:
+
+- Claude is counted with `ANTHROPIC_API_KEY`.
+- Gemini is counted with `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+- Codex is counted locally for `gpt-5`, so its text is not sent.
+- A provider without a key falls back to the estimate.
 
 <!-- x-release-please-start-version -->
 ```yaml
@@ -89,11 +161,13 @@ For precise per-provider totals, set `precise: 'true'` and give the step the key
 ```
 <!-- x-release-please-end -->
 
-A job that authenticates `gcloud` first, for example with `google-github-actions/auth`, can count through Vertex AI instead of a Gemini key. Pull requests from forks do not receive secrets, so their counts fall back to the estimate. The summary then gains a table of each provider's totals at both commits and the host that counted them.
+A job that signs in `gcloud` first, for example with `google-github-actions/auth`, can count through Vertex AI instead of a Gemini key. Claude also counts through Vertex AI when the step has no `ANTHROPIC_API_KEY`. Pull requests from forks do not receive secrets, so their counts fall back to the estimate.
+
+With `precise: 'true'`, the summary gains a table of each provider's totals at both commits and the host that counted them.
 
 ## Limits
 
-The Action can check token limits. None is set by default; each input is off when empty, and every limit is a whole number of tokens.
+The Action can check token limits. No limit is set by default: each limit input is off when empty, and every limit is a whole number of tokens.
 
 <!-- x-release-please-start-version -->
 ```yaml
@@ -113,7 +187,13 @@ The Action can check token limits. None is set by default; each input is off whe
 | `limit-up-front-increase` | Its growth from base to head, in the same form |
 | `on-limit` | `fail` (default) fails the step after the summary is written; `warn` lets it pass. Used only when a limit is set |
 
-The job summary starts with a table of every limit and its result, and each limit passed adds an error or warning annotation that names it. A session-start limit that applied to no agent adds a warning but never fails the step. The limits follow `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
+How results are reported:
+
+- The job summary starts with a table of every limit and its result.
+- Each limit that is passed adds an error or warning annotation that names it.
+- A session-start limit that applied to no agent adds a warning but never fails the step.
+
+The limits work like `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
 
 ## Local use
 
@@ -125,8 +205,26 @@ strata diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --form
 strata diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --output delta.md --json-output delta.json
 ```
 
-The last form writes both from one comparison, as the Action does.
+The last form writes both files from one comparison, as the Action does.
 
-The JSON delta has its own schema version 12 and the report's measurement metadata. When either commit has a skill manifest, the summary also gives the change in listed skill tokens, the names and descriptions an agent keeps in context before a skill is used, and a `Δ listed` column for changed manifests; they are measured separately from the stored-text change and must not be added to it, and the summary counts manifests whose frontmatter Strata could not read, which the listing total leaves out. A table gives, for each agent whose figures changed, the stored text listed up front at a session started at the repository root and the rest it reads on demand. When either commit has a file that can define MCP servers, a line gives the servers the tracked files define at both commits and names those added or removed; a defined server is not a loaded one, and its tool definitions are not measured. Component matching uses provider, category, and path, so a rename can appear as removal plus addition. Files that Claude `@path` imports reach are included, so adding or dropping an import can list a file as added or removed although it did not change; the table marks such files "(imported)". The same measurement mode is applied to both endpoints. This compares stored configuration in Git, not loaded session context or billing tokens.
+The JSON delta has its own schema version, 12, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
 
-Strata's [manual Action smoke workflow](https://github.com/nabondance/strata/actions/workflows/action-smoke.yml) runs the composite Action on GitHub's runner against the last two commits in this repository, from a shallow checkout that lacks the earlier commit: with a model and a limit it stays within, with a limit passed under `warn` and under `fail`, and it checks the outputs. Its first [run](https://github.com/nabondance/strata/actions/runs/37747127783) succeeded on 2026-10-08, before the Action had outputs; a [run](https://github.com/nabondance/strata/actions/runs/40950923444) on 2026-10-29 covered the fetch, the limits, and the outputs. Together with Strata's own pull requests, this validates the Action on GitHub's runner; it does not test every downstream repository or fork layout.
+### What the delta contains
+
+- **Listed skill tokens.** When either commit has a skill manifest, the summary gives the change in listed skill tokens: the names and descriptions an agent keeps in context before a skill is used. Changed manifests get a `Δ listed` column. These are measured separately from the stored-text change, so do not add the two. The summary also counts manifests whose frontmatter Strata could not read; the listing total leaves them out.
+- **Up-front and on-demand text.** For each agent whose figures changed, a table gives the stored text it reads up front, at a session started at the repository root, and the rest it reads on demand.
+- **MCP servers.** When either commit has a file that can define MCP servers, a line gives the servers the tracked files define at both commits and names those added or removed. A defined server is not necessarily a loaded one, and its tool definitions are not measured.
+- **Renames.** Components are matched by provider, category, and path, so a renamed file can appear as one removal plus one addition.
+- **Imported files.** Files reached through Claude `@path` imports are included. Adding or dropping an import can therefore list a file as added or removed even though the file did not change; the table marks such files "(imported)".
+
+### How the Action is tested
+
+Strata's [manual Action smoke workflow](https://github.com/nabondance/strata/actions/workflows/action-smoke.yml) runs the Action on GitHub's runner. It compares the last two commits in this repository, from a shallow checkout that lacks the earlier commit, and runs it:
+
+- with a model and a limit it stays within;
+- with a limit passed under `warn`;
+- with a limit passed under `fail`.
+
+It also checks the outputs.
+
+Its first [run](https://github.com/nabondance/strata/actions/runs/37747127783) succeeded on 2026-10-08, before the Action had outputs. A [run](https://github.com/nabondance/strata/actions/runs/40950923444) on 2026-10-29 covered the fetch, the limits, and the outputs. Together with Strata's own pull requests, this validates the Action on GitHub's runner. It does not test every downstream repository or fork layout.
