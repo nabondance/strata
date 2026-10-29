@@ -54,7 +54,7 @@ Strata exits with status 0 on success, 2 when the command line is invalid, 3 whe
 
 ## Compare two commits
 
-Compare two full commit IDs with `diff`. It reads both revisions directly from Git and prints a Markdown summary by default; choose `--format json` for structured data or `--output` to save the result. `--json-output <file>` also writes the JSON from the same comparison, so one run gives both, without counting twice under `--precise`.
+Compare two full commit IDs with `diff`. It reads both revisions directly from Git and prints a Markdown summary by default; choose `--format json` for structured data or `--output` to save the result. `--json-output <file>` also writes the JSON from the same comparison, to a different file, so one run gives both, without counting twice under `--precise`.
 
 ```sh
 strata diff /path/to/repository --base <base-commit> --head <head-commit>

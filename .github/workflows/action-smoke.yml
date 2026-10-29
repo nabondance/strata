@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 # Runs the Action from this checkout against the last two commits, from a
-# default shallow checkout, as a user's workflow would. Pull requests already
+# default shallow checkout that lacks the earlier one, as a user's workflow would. Pull requests already
 # cover the event defaults (strata-pr-delta.yml); this covers given commits,
 # a model, limits, and the outputs.
 jobs:
@@ -16,13 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 2
           persist-credentials: false
+      # The checkout holds only HEAD, so the Action has to fetch its parent.
       - name: Select recent commits
         id: revisions
         shell: bash
         run: |
-          echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          echo "base=$(git cat-file -p HEAD | sed -n 's/^parent //p' | head -n 1)" >> "$GITHUB_OUTPUT"
           echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Within a limit
         id: within

@@ -2,7 +2,7 @@
 
 Strata needs only Node.js, Git, and a checkout with history (the pull-request Action fetches the two commits it needs). It reads tracked Git blobs, so it never depends on build output in the working tree and never writes to the repository. There are three ways to use it in CI:
 
-- **Pull-request delta**: the composite Action runs `strata diff` on the PR's base and head commits, fetching them when the checkout is shallow, and writes a Markdown summary of the change in stored configuration to the job summary. It is one step after `actions/checkout`. See [the PR delta guide](pr-action.md).
+- **Pull-request delta**: the composite Action runs `strata diff` on the PR's base and head commits, fetching those the checkout lacks, and writes a Markdown summary of the change in stored configuration to the job summary. It is one step after `actions/checkout`. See [the PR delta guide](pr-action.md).
 - **Full history report**: a workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact. See [below](#full-history-report-as-an-artifact).
 - **README image and badge**: a workflow renders the history as an SVG image, plus a token-total badge, and publishes them to a dedicated branch for a README to display. See [below](#readme-image).
 

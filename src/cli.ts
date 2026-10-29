@@ -689,6 +689,8 @@ async function diff(args: string[]): Promise<void> {
   const format = choice("--format", values.format, ["markdown", "json"], "markdown");
   const jsonOutput = values["json-output"];
   if (jsonOutput === "" || jsonOutput === "-") throw new UsageError("--json-output needs a file path");
+  if (jsonOutput !== undefined && values.output !== undefined && resolve(jsonOutput) === resolve(values.output))
+    throw new UsageError("--json-output and --output must be different files");
   const measurement = measurementArguments(values);
   const precise = preciseArguments(values);
   let delta: PullRequestDelta;

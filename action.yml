@@ -69,7 +69,7 @@ outputs:
     description: Its change from base to head, in tokens; negative when it shrank.
     value: ${{ steps.compare.outputs.delta-tokens }}
   limit-result:
-    description: "'none' when no limit is set, 'over' when at least one limit is passed, 'within' otherwise."
+    description: "'over' when at least one limit is passed, 'within' when every limit checked is met, and 'none' when no limit was checked: none was set, or none applied to any agent."
     value: ${{ steps.compare.outputs.limit-result }}
   summary-file:
     description: Path of the Markdown delta, the same text as the job summary.
@@ -101,6 +101,9 @@ runs:
         STRATA_EVENT: ${{ github.event_name }}
         STRATA_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         STRATA_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after }}
+        # The commit that merges the pull request: what a pull_request checkout holds, and on
+        # pull_request_target the payload's test merge, which can be missing.
+        STRATA_EVENT_MERGE: ${{ github.event_name == 'pull_request' && github.sha || github.event.pull_request.merge_commit_sha }}
         STRATA_TOKENIZER: ${{ inputs.tokenizer }}
         STRATA_MODEL: ${{ inputs.model }}
         STRATA_PRECISE: ${{ inputs.precise }}
@@ -117,6 +120,28 @@ runs:
           echo "::error title=Strata::${message//$'\n'/%0A}"
           exit 1
         }
+        commit_id='^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$'
+        if ! problem="$(git -C "$GITHUB_WORKSPACE" rev-parse --git-dir 2>&1)"; then
+          fail "No Git repository at $GITHUB_WORKSPACE ($problem): check out the repository with actions/checkout before this step."
+        fi
+        # A default checkout is shallow, and on a pull request holds only GitHub's merge commit, so
+        # fetch the commits it lacks. This adds Git objects to .git (and, in a shallow checkout, the
+        # new commits to its shallow list) but no working-tree file, branch, or tag.
+        fetch_missing() {
+          local id missing=() depth=()
+          for id in "$@"; do
+            if ! git -C "$GITHUB_WORKSPACE" cat-file -e "$id^{commit}" 2>/dev/null; then missing+=("$id"); fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then return 0; fi
+          fetching="${missing[*]}"
+          # Strata reads only the two trees, so a shallow checkout stays shallow.
+          if [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = true ]; then depth=(--depth=1); fi
+          git -C "$GITHUB_WORKSPACE" -c gc.auto=0 -c maintenance.auto=false \
+            fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}"
+        }
+        fetch_failed() {
+          fail "Could not fetch $fetching from origin. The checkout needs both commits: check out with fetch-depth: 0, or keep actions/checkout's persisted credentials so the Action can fetch them."
+        }
         base="$STRATA_BASE"
         head="$STRATA_HEAD"
         if [ -z "$base" ] && [ -z "$head" ]; then
@@ -126,34 +151,37 @@ runs:
           if [ -z "$base" ] || [ -z "$head" ]; then
             fail "A $STRATA_EVENT event has no commits to compare: set the base and head inputs."
           fi
-          if [[ "$base" =~ ^0+$ ]]; then
-            fail "This push has no earlier commit to compare with, as when it creates a branch: set the base and head inputs."
+          # A push that creates a branch or tag has no earlier commit, and one that deletes it no later one.
+          if [[ "$base" =~ ^0+$ ]] || [[ "$head" =~ ^0+$ ]]; then
+            echo "::notice title=Strata::This push creates or deletes a branch or tag, so it has no two commits to compare and Strata skips it."
+            exit 0
+          fi
+          # The base branch can have moved on since the pull request branched from it. Comparing its
+          # tip with the pull request's head would count those later changes, reversed, as the pull
+          # request's. GitHub's merge commit has the base tip as its first parent and the head as its
+          # second, so comparing it with its first parent gives only what merging would change.
+          merge="$STRATA_EVENT_MERGE"
+          if [[ "$STRATA_EVENT" == pull_request* ]]; then
+            parents=()
+            if [[ "$merge" =~ $commit_id ]] && fetch_missing "$merge"; then
+              read -r -a parents <<<"$(git -C "$GITHUB_WORKSPACE" cat-file -p "$merge" | sed -n '/^$/q; s/^parent //p' | tr '\n' ' ')"
+            fi
+            if [ "${#parents[@]}" -eq 2 ] && [ "${parents[1]}" = "$head" ]; then
+              base="${parents[0]}"
+              head="$merge"
+            else
+              echo "::warning title=Strata::GitHub's merge commit for this pull request is not available, so it is compared with the base branch as it is now. Changes made to the base branch since the pull request branched from it count, reversed, as the pull request's."
+            fi
           fi
         elif [ -z "$base" ] || [ -z "$head" ]; then
           fail "Set both the base and head inputs, or neither to compare the event's commits."
         fi
         for id in "$base" "$head"; do
-          if ! [[ "$id" =~ ^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$ ]]; then
+          if ! [[ "$id" =~ $commit_id ]]; then
             fail "Base and head must be full Git commit IDs, not $id."
           fi
         done
-        if ! git -C "$GITHUB_WORKSPACE" rev-parse --git-dir >/dev/null 2>&1; then
-          fail "No Git repository at $GITHUB_WORKSPACE: check out the repository with actions/checkout before this step."
-        fi
-        # A default checkout has neither commit (on a pull request it holds only GitHub's merge
-        # commit), so fetch what is missing. This adds Git objects, not files, branches, or tags.
-        missing=()
-        for id in "$base" "$head"; do
-          if ! git -C "$GITHUB_WORKSPACE" cat-file -e "$id^{commit}" 2>/dev/null; then missing+=("$id"); fi
-        done
-        if [ "${#missing[@]}" -gt 0 ]; then
-          depth=()
-          # Strata reads only the two trees, so a shallow checkout stays shallow.
-          if [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = true ]; then depth=(--depth=1); fi
-          if ! git -C "$GITHUB_WORKSPACE" fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}"; then
-            fail "Could not fetch ${missing[*]} from origin. Check out the repository with fetch-depth: 0 so both commits are present."
-          fi
-        fi
+        fetch_missing "$base" "$head" || fetch_failed
         # A directory per run, so a later run in the job leaves this one's output files alone.
         out="$(mktemp -d "$RUNNER_TEMP/strata-XXXXXX")"
         markdown="$out/strata-pr-delta.md"
@@ -190,8 +218,9 @@ runs:
         node -e '
           const [markdown, json] = process.argv.slice(1);
           const delta = JSON.parse(require("node:fs").readFileSync(json, "utf8"));
-          const limits = delta.limits;
-          const result = !limits ? "none" : limits.some((check) => check.result === "over") ? "over" : "within";
+          // Limits that applied to no agent were not checked, so they count as none.
+          const checked = (delta.limits ?? []).filter((check) => check.result === "over" || check.result === "within");
+          const result = !checked.length ? "none" : checked.some((check) => check.result === "over") ? "over" : "within";
           console.log(`tokens=${delta.comparison.afterTokens}`);
           console.log(`delta-tokens=${delta.comparison.deltaTokens}`);
           console.log(`limit-result=${result}`);

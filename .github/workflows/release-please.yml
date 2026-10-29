@@ -124,12 +124,18 @@ jobs:
           fi
           major="${TAG%%.*}"
           sha="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+          # The release is already out, so a refusal only warns, as canary.yml does for its tag.
+          moved=true
           if current="$(gh api "repos/$GH_REPO/git/ref/tags/$major" --jq .object.sha 2>/dev/null)"; then
             if [ "$current" != "$sha" ]; then
-              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$major" -f sha="$sha" -F force=true >/dev/null
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$major" -f sha="$sha" -F force=true >/dev/null || moved=false
             fi
           else
-            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" >/dev/null
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$major" -f sha="$sha" >/dev/null || moved=false
+          fi
+          if [ "$moved" = false ]; then
+            echo "::warning::Could not point $major at $TAG, so nabondance/strata@$major still runs the previous release. Move it by hand: gh api -X PATCH repos/$GH_REPO/git/refs/tags/$major -f sha=$sha -F force=true"
+            exit 0
           fi
           echo "$major points at $TAG ($sha)."
       # The release PR's commits come from GITHUB_TOKEN, so its pull_request

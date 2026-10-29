@@ -267,6 +267,10 @@ test("command line follows common conventions", () => {
     const toStdout = strata([...compared, "--json-output", join(both, "again.json")]);
     assert.equal(toStdout.stdout, strata(compared).stdout);
     assert.equal(toStdout.stderr, `JSON delta: ${join(both, "again.json")}\n`);
+    if (process.platform !== "win32") assert.equal(statSync(join(both, "again.json")).mode & 0o777, 0o600);
+    const same = strata([...compared, "-o", join(both, "x"), "--json-output", join(both, ".", "x")]);
+    assert.equal(same.status, 2);
+    assert.match(same.stderr, /--json-output and --output must be different files/);
 
     // The repository defaults to the current directory, and - sends the report to stdout.
     const piped = strata(["analyze", "--format=json", "-o", "-"], { cwd: repo });
@@ -615,6 +619,7 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
       unused.stderr,
       /^::warning title=Strata context limit not applied::--limit-up-front-tokens 5 applied to no agent/m,
     );
+    assert.equal(unused.outputs["limit-result"], "within");
 
     // A real failure fails the step and writes no summary or outputs.
     const invalid = run({ STRATA_LIMIT_TOKENS: "lots" });
@@ -644,7 +649,7 @@ test("the Action compares the event's commits and fetches those a shallow checko
     const error = (result) => result.stdout.match(/^::error title=Strata::(.*)$/m)?.[1];
 
     // Without base and head, the event's commits are compared.
-    const event = run({ STRATA_EVENT: "pull_request", STRATA_EVENT_BASE: base, STRATA_EVENT_HEAD: head });
+    const event = run({ STRATA_EVENT: "merge_group", STRATA_EVENT_BASE: base, STRATA_EVENT_HEAD: head });
     assert.equal(event.status, 0, event.stdout + event.stderr);
     const delta = JSON.parse(readFileSync(event.outputs["json-file"], "utf8"));
     assert.deepEqual([delta.base, delta.head], [base, head]);
@@ -654,10 +659,6 @@ test("the Action compares the event's commits and fetches those a shallow checko
 
     const failures = [
       [{ STRATA_EVENT: "workflow_dispatch" }, /^A workflow_dispatch event has no commits to compare/],
-      [
-        { STRATA_EVENT: "push", STRATA_EVENT_BASE: "0".repeat(40), STRATA_EVENT_HEAD: head },
-        /^This push has no earlier commit to compare with/,
-      ],
       [{ STRATA_BASE: base }, /^Set both the base and head inputs/],
       // An input cannot add a workflow command of its own.
       [
@@ -671,6 +672,34 @@ test("the Action compares the event's commits and fetches those a shallow checko
       assert.equal(result.status, 1, JSON.stringify(inputs));
       assert.match(error(result) ?? "", message);
       assert.equal(result.summary, null);
+    }
+    // With no agent keeping text at session start, a session-start limit is not checked, so no limit was.
+    const settings = fixture();
+    try {
+      settings.put(".claude/settings.json", "{}\n");
+      const before = settings.commit("Add settings");
+      settings.put(".claude/settings.json", '{ "model": "x" }\n');
+      const after = settings.commit("Change settings");
+      const unchecked = run({
+        GITHUB_WORKSPACE: settings.repo,
+        STRATA_BASE: before,
+        STRATA_HEAD: after,
+        STRATA_LIMIT_UP_FRONT_TOKENS: "5",
+      });
+      assert.equal(unchecked.status, 0, unchecked.stderr);
+      assert.equal(unchecked.outputs["limit-result"], "none");
+    } finally {
+      rmSync(settings.repo, { recursive: true, force: true });
+    }
+    // A push that creates or deletes a branch or tag has nothing to compare, which is not a failure.
+    for (const [before, after] of [
+      ["0".repeat(40), head],
+      [head, "0".repeat(40)],
+    ]) {
+      const skipped = run({ STRATA_EVENT: "push", STRATA_EVENT_BASE: before, STRATA_EVENT_HEAD: after });
+      assert.equal(skipped.status, 0);
+      assert.match(skipped.stdout, /^::notice title=Strata::This push creates or deletes a branch or tag/m);
+      assert.equal(skipped.summary, null);
     }
 
     // A default checkout is shallow and holds neither commit; the Action fetches both and keeps it shallow.
@@ -691,6 +720,69 @@ test("the Action compares the event's commits and fetches those a shallow checko
     const unknown = run({ GITHUB_WORKSPACE: shallow, STRATA_BASE: "f".repeat(40), STRATA_HEAD: head });
     assert.equal(unknown.status, 1);
     assert.match(error(unknown) ?? "", /^Could not fetch f{40} from origin\. .*fetch-depth: 0/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("on a pull request the Action compares GitHub's merge commit with the base it merges into", {
+  skip: process.platform === "win32",
+}, () => {
+  const { repo, git, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("CLAUDE.md", "Root instructions, long enough to trim later.\n");
+    const branchPoint = commit("Add instructions");
+    git("checkout", "-q", "-b", "feature");
+    put("AGENTS.md", "Shared instructions from the pull request.\n");
+    const prHead = commit("Add shared instructions");
+    git("checkout", "-q", "main");
+    // The base branch moves on after the pull request branched from it.
+    put("CLAUDE.md", "Root.\n");
+    const baseTip = commit("Trim instructions");
+    git("merge", "-q", "--no-ff", "--no-edit", "feature");
+    const merge = git("rev-parse", "HEAD");
+    // actions/checkout on pull_request: only the merge commit, at depth 1.
+    const shallow = join(temp, "shallow");
+    execFileSync("git", ["clone", "-q", "--depth=1", `file://${repo}`, shallow]);
+    const run = actionRunner(temp, {
+      GITHUB_WORKSPACE: shallow,
+      STRATA_EVENT: "pull_request",
+      STRATA_EVENT_BASE: baseTip,
+      STRATA_EVENT_HEAD: prHead,
+      STRATA_EVENT_MERGE: merge,
+    });
+    const changes = (result) => {
+      const delta = JSON.parse(readFileSync(result.outputs["json-file"], "utf8"));
+      return {
+        base: delta.base,
+        head: delta.head,
+        files: delta.comparison.components.map(({ path, kind }) => [path, kind]),
+      };
+    };
+
+    // Only the pull request's own change counts, not the base branch's later trim.
+    const merged = run({});
+    assert.equal(merged.status, 0, merged.stdout + merged.stderr);
+    assert.doesNotMatch(merged.stdout, /::warning/);
+    assert.deepEqual(changes(merged), { base: baseTip, head: merge, files: [["AGENTS.md", "added"]] });
+    // pull_request_target has the merge commit only in its payload, fetched like the others.
+    const target = run({ STRATA_EVENT: "pull_request_target", GITHUB_WORKSPACE: repo });
+    assert.deepEqual(changes(target), changes(merged));
+
+    // Without a merge commit whose second parent is the head, the tips are compared, with a warning.
+    for (const missing of ["", branchPoint]) {
+      const tips = run({ STRATA_EVENT: "pull_request_target", STRATA_EVENT_MERGE: missing });
+      assert.equal(tips.status, 0, tips.stdout + tips.stderr);
+      assert.match(
+        tips.stdout,
+        /^::warning title=Strata::GitHub's merge commit for this pull request is not available/m,
+      );
+      const { base, head, files } = changes(tips);
+      assert.deepEqual([base, head], [baseTip, prHead]);
+      assert.equal(files.length, 2);
+    }
   } finally {
     rmSync(repo, { recursive: true, force: true });
     rmSync(temp, { recursive: true, force: true });
@@ -723,6 +815,7 @@ function actionRunner(temp, defaults) {
         STRATA_EVENT: "pull_request",
         STRATA_EVENT_BASE: "",
         STRATA_EVENT_HEAD: "",
+        STRATA_EVENT_MERGE: "",
         STRATA_TOKENIZER: "estimate",
         STRATA_MODEL: "",
         STRATA_PRECISE: "false",
