@@ -1,5 +1,5 @@
 name: Strata agent context check
-description: Show how a pull request changes the agent configuration in Git (CLAUDE.md, AGENTS.md, skills, rules), with optional token limits.
+description: See how each pull request changes agent configuration (CLAUDE.md, AGENTS.md, skills, rules), with optional token limits.
 author: nabondance
 branding:
   icon: layers
@@ -164,14 +164,19 @@ runs:
           merge="$STRATA_EVENT_MERGE"
           if [[ "$STRATA_EVENT" == pull_request* ]]; then
             parents=()
-            if [[ "$merge" =~ $commit_id ]] && fetch_missing "$merge"; then
-              read -r -a parents <<<"$(git -C "$GITHUB_WORKSPACE" cat-file -p "$merge" | sed -n '/^$/q; s/^parent //p' | tr '\n' ' ')"
+            reason="No commit merging this pull request's head into its base was found"
+            if [[ "$merge" =~ $commit_id ]]; then
+              if fetch_missing "$merge"; then
+                read -r -a parents <<<"$(git -C "$GITHUB_WORKSPACE" cat-file -p "$merge" | sed -n '/^$/q; s/^parent //p' | tr '\n' ' ')"
+              else
+                reason="Could not fetch $merge, GitHub's merge commit for this pull request, from origin"
+              fi
             fi
             if [ "${#parents[@]}" -eq 2 ] && [ "${parents[1]}" = "$head" ]; then
               base="${parents[0]}"
               head="$merge"
             else
-              echo "::warning title=Strata::No commit merging this pull request's head into its base was found, so the head is compared with the base branch as it is now. Changes made to the base branch since the pull request branched from it count, reversed, as the pull request's."
+              echo "::warning title=Strata::$reason, so the head is compared with the base branch as it is now. Changes made to the base branch since the pull request branched from it count, reversed, as the pull request's."
             fi
           fi
         elif [ -z "$base" ] || [ -z "$head" ]; then

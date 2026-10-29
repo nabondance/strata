@@ -22,7 +22,7 @@ jobs:
         id: revisions
         shell: bash
         run: |
-          echo "base=$(git cat-file -p HEAD | sed -n 's/^parent //p' | head -n 1)" >> "$GITHUB_OUTPUT"
+          echo "base=$(git cat-file -p HEAD | sed -n '/^$/q; s/^parent //p' | head -n 1)" >> "$GITHUB_OUTPUT"
           echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Within a limit
         id: within

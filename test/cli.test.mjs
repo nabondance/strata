@@ -776,13 +776,18 @@ test("on a pull request the Action compares GitHub's merge commit with the base 
     assert.deepEqual(changes(target), changes(merged));
 
     // Without a merge commit whose second parent is the head, the tips are compared, with a warning.
-    for (const missing of ["", branchPoint]) {
+    for (const [missing, warning] of [
+      ["", /^::warning title=Strata::No commit merging this pull request's head into its base was found, so/m],
+      [branchPoint, /^::warning title=Strata::No commit merging this pull request's head into its base was found, so/m],
+      // A merge commit that cannot be fetched is named as such, not as missing.
+      [
+        "e".repeat(40),
+        /^::warning title=Strata::Could not fetch e{40}, GitHub's merge commit for this pull request, from origin, so/m,
+      ],
+    ]) {
       const tips = run({ STRATA_EVENT: "pull_request_target", STRATA_EVENT_MERGE: missing });
       assert.equal(tips.status, 0, tips.stdout + tips.stderr);
-      assert.match(
-        tips.stdout,
-        /^::warning title=Strata::No commit merging this pull request's head into its base was found/m,
-      );
+      assert.match(tips.stdout, warning);
       const { base, head, files } = changes(tips);
       assert.deepEqual([base, head], [baseTip, prHead]);
       assert.equal(files.length, 2);

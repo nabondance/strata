@@ -20,7 +20,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch creat
 
 ## Changes that affect analysis
 
-- Keep the target repository read-only. Analyze tracked Git blobs, not the target working tree, and do not upload repository content.
+- Keep the target repository read-only. Analyze tracked Git blobs, not the target working tree, and do not upload repository content. The one exception is the composite Action, which may fetch commits a CI checkout lacks into its `.git` before Strata runs; it changes no working-tree file, branch, or tag, and Strata itself never writes.
 - Distinguish stored instruction estimates from actual loaded context or billing tokens. Structured configuration and supporting resources remain source-only unless a change defines and documents a defensible text boundary.
 - Keep conditional loading, renames, and inferred relationships labeled accurately. Do not infer active context or a refactor from path changes alone.
 - Keep HTML usable offline and source text out of default HTML/JSON. Escape repository-derived strings before placing them in HTML.

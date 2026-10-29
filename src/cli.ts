@@ -722,19 +722,18 @@ async function diff(args: string[]): Promise<void> {
   }
   const json = `${JSON.stringify(delta, null, 2)}\n`;
   const content = format === "json" ? json : renderPullRequestDelta(delta);
-  const toStdout = values.output === undefined || values.output === "-";
-  if (values.output === undefined || values.output === "-") {
+  const destination = values.output === undefined || values.output === "-" ? null : resolve(values.output);
+  if (destination === null) {
     process.stdout.write(content);
   } else {
-    const destination = resolve(values.output);
     writePrivate(destination, content);
     process.stdout.write(`Delta: ${destination}\n`);
   }
   if (jsonOutput !== undefined) {
-    const destination = resolve(jsonOutput);
-    writePrivate(destination, json);
+    const jsonDestination = resolve(jsonOutput);
+    writePrivate(jsonDestination, json);
     // When standard output holds the delta itself, the path goes to standard error.
-    (toStdout ? process.stderr : process.stdout).write(`JSON delta: ${destination}\n`);
+    (destination === null ? process.stderr : process.stdout).write(`JSON delta: ${jsonDestination}\n`);
   }
   if (delta.limits) reportLimits(delta.limits, limits);
 }
