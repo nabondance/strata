@@ -271,6 +271,10 @@ test("command line follows common conventions", () => {
     const same = strata([...compared, "-o", join(both, "x"), "--json-output", join(both, ".", "x")]);
     assert.equal(same.status, 2);
     assert.match(same.stderr, /--json-output and --output must be different files/);
+    // - is standard output, not a file named -.
+    const dashFile = strata([...compared, "-o", "-", "--json-output", "./-"], { cwd: both });
+    assert.equal(dashFile.status, 0, dashFile.stderr);
+    assert.equal(dashFile.stdout, strata(compared).stdout);
 
     // The repository defaults to the current directory, and - sends the report to stdout.
     const piped = strata(["analyze", "--format=json", "-o", "-"], { cwd: repo });
@@ -777,7 +781,7 @@ test("on a pull request the Action compares GitHub's merge commit with the base 
       assert.equal(tips.status, 0, tips.stdout + tips.stderr);
       assert.match(
         tips.stdout,
-        /^::warning title=Strata::GitHub's merge commit for this pull request is not available/m,
+        /^::warning title=Strata::No commit merging this pull request's head into its base was found/m,
       );
       const { base, head, files } = changes(tips);
       assert.deepEqual([base, head], [baseTip, prHead]);

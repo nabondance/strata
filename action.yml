@@ -7,8 +7,9 @@ branding:
 inputs:
   base:
     description: >-
-      Full Git commit ID to compare from. Leave base and head empty on a pull_request,
-      pull_request_target, merge_group, or push event to compare that event's commits.
+      Full Git commit ID to compare from. Leave base and head empty on a pull request (pull_request,
+      its review events, or pull_request_target), merge_group, or push event to compare that
+      event's commits.
     required: false
     default: ''
   head:
@@ -101,9 +102,9 @@ runs:
         STRATA_EVENT: ${{ github.event_name }}
         STRATA_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         STRATA_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after }}
-        # The commit that merges the pull request: what a pull_request checkout holds, and on
-        # pull_request_target the payload's test merge, which can be missing.
-        STRATA_EVENT_MERGE: ${{ github.event_name == 'pull_request' && github.sha || github.event.pull_request.merge_commit_sha }}
+        # The commit that merges the pull request: what a pull_request checkout holds (also on its
+        # review events), and on pull_request_target the payload's test merge, which can be missing.
+        STRATA_EVENT_MERGE: ${{ github.event_name != 'pull_request_target' && github.sha || github.event.pull_request.merge_commit_sha }}
         STRATA_TOKENIZER: ${{ inputs.tokenizer }}
         STRATA_MODEL: ${{ inputs.model }}
         STRATA_PRECISE: ${{ inputs.precise }}
@@ -170,7 +171,7 @@ runs:
               base="${parents[0]}"
               head="$merge"
             else
-              echo "::warning title=Strata::GitHub's merge commit for this pull request is not available, so it is compared with the base branch as it is now. Changes made to the base branch since the pull request branched from it count, reversed, as the pull request's."
+              echo "::warning title=Strata::No commit merging this pull request's head into its base was found, so the head is compared with the base branch as it is now. Changes made to the base branch since the pull request branched from it count, reversed, as the pull request's."
             fi
           fi
         elif [ -z "$base" ] || [ -z "$head" ]; then
