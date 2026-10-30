@@ -28,7 +28,7 @@ import { providerReads } from "./provider-view.js";
 import { rulesUpFront } from "./rule-loading.js";
 import { skillListings } from "./skill-listing.js";
 import { inspectSubmodules } from "./submodules.js";
-import { LineAges, lineAgeMethod, readLineCounts } from "./survival.js";
+import { LineAges, LineCounter, lineAgeMethod, readLineCounts } from "./survival.js";
 
 export { categories } from "./adapters.js";
 export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
@@ -260,12 +260,13 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     if (written.some((file) => file.classification.provider === reader)) continue;
     for (const file of written) withoutReader(file.classification, reader);
   }
-  const measured = measureBlobs(root, written, measurer);
+  const lineCounter = new LineCounter();
+  const measured = measureBlobs(root, written, measurer, (blob, body) => lineCounter.add(blob, body));
   const configured = geminiSettings(root, written, measured);
   const listings = skillListings(root, written, measured, measurer);
   const rules = rulesUpFront(root, written, measured);
   const mcp = mcpServerLists(root, written, measured);
-  const counted = readLineCounts(root, written, measured);
+  const counted = readLineCounts(root, written, measured, lineCounter);
   const ages = new LineAges(counted.lines, counted.weights);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;

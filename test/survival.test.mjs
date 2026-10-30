@@ -11,8 +11,11 @@ import {
   sharePercent,
   summarizeInstructionAge,
 } from "../dist/instruction-age.js";
+import { measureBlobs, trackedFile } from "../dist/inventory.js";
+import { createMeasurer } from "../dist/measurement.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
+import { LineCounter, readLineCounts } from "../dist/survival.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 
 const bytes = (...lines) => lines.reduce((sum, line) => sum + Buffer.byteLength(line), 0);
@@ -172,6 +175,29 @@ test("dates instruction lines by the revision they appeared at and follows them 
       ),
       cli.stdout,
     );
+
+    // A tokenizer reads instruction text to count it, and the line ages come from that same read.
+    const tokenized = await analyzeRepository(repo, { mode: "openai-o200k_base" });
+    assert.deepEqual(
+      tokenized.revisions.map((revision) => revision.lineAge),
+      changes,
+    );
+    const files = git("ls-tree", "-r", "HEAD")
+      .trim()
+      .split("\n")
+      .map((entry) => {
+        const [meta, path] = entry.split("\t");
+        const [mode, , blob] = meta.split(" ");
+        return trackedFile(mode, blob, path);
+      })
+      .filter(Boolean);
+    const counter = new LineCounter();
+    const measured = measureBlobs(repo, files, createMeasurer("openai-o200k_base"), (blob, body) =>
+      counter.add(blob, body),
+    );
+    // Every blob is already counted, so a repository that cannot be read is never asked for one.
+    assert.equal(readLineCounts(join(repo, "missing"), files, measured, counter), counter);
+    assert.deepEqual(counter.lines, readLineCounts(repo, files, measured).lines);
   } finally {
     cleanup();
   }

@@ -9,24 +9,20 @@ export const lineAgeMethod = "exact-trimmed-line-multiset-stored-bytes-v1";
 type LineCounts = Uint32Array;
 
 /**
- * Read every instructional blob once and reduce it to counts of its trimmed, nonblank lines. Line
- * text is interned, so the many versions of a file share one copy of each line; the text itself
- * never leaves this module. Lines are matched and weighed by their stored bytes, so a file that is
- * not valid UTF-8 keeps distinct lines distinct; `weights[id]` is the byte length of line `id`.
- * Each line is read from its own bytes, because a slice of a decoded file would keep the whole
- * file alive.
+ * Reduces instructional blobs to counts of their trimmed, nonblank lines. Line text is interned,
+ * so the many versions of a file share one copy of each line; the text itself never leaves this
+ * module. Lines are matched and weighed by their stored bytes, so a file that is not valid UTF-8
+ * keeps distinct lines distinct; `weights[id]` is the byte length of line `id`. Each line is read
+ * from its own bytes, because a slice of a decoded file would keep the whole file alive.
  */
-export function readLineCounts(
-  repo: string,
-  files: Iterable<TrackedFile>,
-  measured: Map<string, BlobMeasurement>,
-): { lines: Map<string, LineCounts>; weights: number[] } {
-  const blobs = new Set<string>();
-  for (const file of files) if (file.classification.instructionalText) blobs.add(file.blob);
-  const ids = new Map<string, number>();
-  const weights: number[] = [];
-  const lines = new Map<string, LineCounts>();
-  for (const [blob, body] of readBlobs(repo, [...blobs], (blob) => measured.get(blob)?.bytes ?? 0)) {
+export class LineCounter {
+  readonly lines = new Map<string, LineCounts>();
+  readonly weights: number[] = [];
+  private readonly ids = new Map<string, number>();
+
+  /** Count one blob's lines, so a pass that already reads the blob need not read it again. */
+  add(blob: string, body: Buffer): void {
+    if (this.lines.has(blob)) return;
     const counts = new Map<number, number>();
     for (let start = 0; start < body.length; ) {
       const newline = body.indexOf(10, start);
@@ -36,16 +32,35 @@ export function readLineCounts(
       if (!line) continue;
       // Latin-1 maps each byte to one character, so the key is the bytes themselves.
       const key = body.toString("latin1", line[0], line[1]);
-      let id = ids.get(key);
+      let id = this.ids.get(key);
       if (id === undefined) {
-        id = weights.push(key.length) - 1;
-        ids.set(key, id);
+        id = this.weights.push(key.length) - 1;
+        this.ids.set(key, id);
       }
       counts.set(id, (counts.get(id) ?? 0) + 1);
     }
-    lines.set(blob, Uint32Array.from([...counts].flat()));
+    this.lines.set(blob, Uint32Array.from([...counts].flat()));
   }
-  return { lines, weights };
+}
+
+/**
+ * Count the lines of every instructional blob, reading only those `counter` has not already
+ * counted. Tokenizer modes count lines while measuring, so each blob is read once.
+ */
+export function readLineCounts(
+  repo: string,
+  files: Iterable<TrackedFile>,
+  measured: Map<string, BlobMeasurement>,
+  counter = new LineCounter(),
+): LineCounter {
+  const blobs = new Set<string>();
+  for (const file of files) {
+    if (file.classification.instructionalText && !counter.lines.has(file.blob)) blobs.add(file.blob);
+  }
+  for (const [blob, body] of readBlobs(repo, [...blobs], (blob) => measured.get(blob)?.bytes ?? 0)) {
+    counter.add(blob, body);
+  }
+  return counter;
 }
 
 /**

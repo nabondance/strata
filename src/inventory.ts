@@ -33,12 +33,14 @@ export function trackedFile(mode: string, blob: string, path: string): TrackedFi
 
 /**
  * Measure each distinct blob once. Sizes come from object headers; content is read only for
- * instructional text when the measurement needs it.
+ * instructional text when the measurement needs it, and each body read is also passed to `onRead`,
+ * so another pass over the same blobs can reuse it instead of reading them again.
  */
 export function measureBlobs(
   repo: string,
   files: Iterable<TrackedFile>,
   measurer: Measurer,
+  onRead?: (blob: string, body: Buffer) => void,
 ): Map<string, BlobMeasurement> {
   const instructionalPath = new Map<string, string>();
   const blobs = new Set<string>();
@@ -64,6 +66,7 @@ export function measureBlobs(
           `Could not count instructional blob ${blob} at ${instructionalPath.get(blob)}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
+      onRead?.(blob, body);
     }
   }
   return measured;
