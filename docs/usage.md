@@ -311,4 +311,4 @@ The bundled interpretation skill explains schema version 21 and these rules, and
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;
 - the limits of what JSON can establish.
 
-It also covers the `strata diff` JSON (schema version 13) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+It also covers the `strata diff` JSON (schema version 14) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.

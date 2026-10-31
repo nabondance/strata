@@ -125,7 +125,7 @@ test("lists the MCP servers tracked files define, without storing their commands
 
     // `strata diff` says which servers a change adds or removes, and that defining one does not load it.
     const delta = compareGitCommits(repo, before, head);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     const markdown = renderPullRequestDelta(delta);
     assert.match(
       markdown,

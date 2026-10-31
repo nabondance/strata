@@ -267,7 +267,7 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
 
     // `strata diff` uses the same labels; a CLAUDE.md change stays in Claude's row.
     const delta = compareGitCommits(repo, adopted, migrated);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     const chatmode = delta.comparison.components.find((c) => c.path === ".github/agents/legacy.chatmode.md");
     assert.deepEqual([chatmode.kind, chatmode.provider, chatmode.legacy], ["removed", "copilot", true]);
     const row = (key) => delta.comparison.byProvider.find((group) => group.key === key);

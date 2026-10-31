@@ -203,7 +203,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 13);
+    assert.equal(prDelta.schemaVersion, 14);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);

@@ -167,7 +167,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     put(".claude/skills/broken/SKILL.md", `---\ndescription: Fixed\n---\n${body}`);
     const edited = commit("Edit two descriptions");
     const delta = compareGitCommits(repo, renamed, edited);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     assert.deepEqual(delta.comparison.skillListing, {
       beforeTokens: latest.skillListingTokens,
       afterTokens:

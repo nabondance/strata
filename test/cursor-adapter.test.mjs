@@ -222,7 +222,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     // `strata diff` uses the same labels; a .claude/skills change stays in Claude's row.
     const delta = compareGitCommits(repo, added, migrated);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");

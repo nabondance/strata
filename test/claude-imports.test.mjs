@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importPaths, maxImportHops, readImports, resolveImport } from "../dist/claude-imports.js";
+import { importPaths, maxImportHops, readImports, resolveImport, symlinkDestination } from "../dist/claude-imports.js";
 import { importLinks } from "../dist/import-links.js";
 
 test("reads @path imports where Claude Code does, outside code and comments", () => {
@@ -52,6 +52,67 @@ test("reads @path imports where Claude Code does, outside code and comments", ()
   assert.deepEqual(importPaths("﻿@bom.md\r\n@crlf.md\r\n"), [
     { path: "bom.md", line: 1 },
     { path: "crlf.md", line: 2 },
+  ]);
+});
+
+test("reads an import's path without the punctuation that ends its sentence or list item", () => {
+  const text = [
+    "- @styleguides/DOC.md: All /docs page types",
+    "Mock with @internal/test-utils/setup, then see @CONTRIBUTING.md.",
+    "Use fixtures (@e1, @e2) here; or @a.md; or @b.md! or @c.md? or @d.md...",
+    "Quoted @q.md\" and @s.md' and [@bracketed.md] and {@braced.md}",
+    "Keep @docs/file(1).md and @docs/list[0].md and @odd(.md)",
+    "But not a lone @. or @.. or @:",
+    "@docs/guide.md#setup.",
+  ].join("\n");
+  assert.deepEqual(importPaths(text), [
+    { path: "styleguides/DOC.md", line: 1 },
+    { path: "internal/test-utils/setup", line: 2 },
+    { path: "CONTRIBUTING.md", line: 2 },
+    { path: "e2", line: 3 },
+    { path: "a.md", line: 3 },
+    { path: "b.md", line: 3 },
+    { path: "c.md", line: 3 },
+    { path: "d.md", line: 3 },
+    { path: "q.md", line: 4 },
+    { path: "s.md", line: 4 },
+    { path: "docs/file(1).md", line: 5 },
+    { path: "docs/list[0].md", line: 5 },
+    { path: "odd(.md)", line: 5 },
+    { path: "docs/guide.md", line: 7 },
+  ]);
+  // A package scope reads as an import of a path inside the importing file's directory.
+  assert.deepEqual(readImports("# @mastra/server CLAUDE.md\n", "packages/server/CLAUDE.md"), [
+    { line: 1, target: "packages/server/mastra/server" },
+  ]);
+});
+
+test("resolves a symlink's text against its own directory, inside the repository only", () => {
+  assert.equal(
+    symlinkDestination("../../.claude/skills/docs/COMPONENTS.md", "docs/styleguides/COMPONENTS.md"),
+    ".claude/skills/docs/COMPONENTS.md",
+  );
+  assert.equal(symlinkDestination("sibling.md", "docs/link.md"), "docs/sibling.md");
+  assert.equal(symlinkDestination("../../outside.md", "docs/link.md"), null);
+  assert.equal(symlinkDestination("/etc/passwd", "docs/link.md"), null);
+  assert.equal(symlinkDestination("", "docs/link.md"), null);
+  assert.equal(symlinkDestination("folder/", "docs/link.md"), null);
+  assert.equal(symlinkDestination("..", "docs/link.md"), null);
+  // An import reaches the symlink's file only where the path it names has no file of its own.
+  const root = {
+    path: "CLAUDE.md",
+    importRoot: true,
+    imports: [{ line: 1, target: "docs/link.md", symlinkTarget: "shared/real.md" }],
+  };
+  const fields = ({ target, status, symlink }) => ({ target, status, symlink });
+  assert.deepEqual(importLinks([root, { path: "shared/real.md" }]).map(fields), [
+    { target: "shared/real.md", status: "resolved", symlink: "docs/link.md" },
+  ]);
+  assert.deepEqual(importLinks([root, { path: "docs/link.md" }, { path: "shared/real.md" }]).map(fields), [
+    { target: "docs/link.md", status: "resolved", symlink: undefined },
+  ]);
+  assert.deepEqual(importLinks([root]).map(fields), [
+    { target: "docs/link.md", status: "missing", symlink: undefined },
   ]);
 });
 

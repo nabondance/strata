@@ -98,7 +98,7 @@ export function reportBody(report: Report): string {
     </details>
     <details class="panel" id="imports-panel" hidden>
       <summary><h2>Claude imports</h2><span class="summary-count" id="imports-count"></span></summary>
-      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep. Broken imports come first.</p>
+      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep. Broken imports come first; an import of a symlink shows the file it leads to after an arrow.</p>
       <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num" title="1 means imported directly by the starting file">Depth</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
       <button class="more" id="imports-more" type="button" hidden></button>
     </details>
