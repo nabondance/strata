@@ -1,7 +1,7 @@
 import type { Classification } from "./adapters.js";
+import { type ContentUse, utf8Text } from "./content-pass.js";
 import { geminiSettingsPath, stripComments } from "./gemini-settings.js";
-import { readBlobs } from "./git.js";
-import { type BlobMeasurement, type TrackedFile, versionKey } from "./inventory.js";
+import { type TrackedFile, versionKey } from "./inventory.js";
 import type { McpServer, McpServers } from "./model.js";
 
 /**
@@ -275,35 +275,25 @@ export function mcpServers(text: string, format: McpFormat): McpServers | null {
 
 /**
  * The MCP servers every distinct version of an MCP or settings file defines, keyed by path and
- * blob. Only names, where each server runs, and whether it is disabled are kept; commands, URLs,
- * arguments, environment values, and headers are never read into the report. A file that is not
- * valid UTF-8 is unresolved.
+ * blob, found as the shared content pass reads them. Only names, where each server runs, and
+ * whether it is disabled are kept; commands, URLs, arguments, environment values, and headers are
+ * never read into the report. A file that is not valid UTF-8 is unresolved.
  */
-export function mcpServerLists(
-  root: string,
-  files: Iterable<TrackedFile>,
-  measured: Map<string, BlobMeasurement>,
-): Map<string, McpServers> {
-  const wanted = new Map<string, { file: TrackedFile; format: McpFormat }>();
-  for (const file of files) {
-    const format = mcpFormat(file.path, file.classification);
-    if (format) wanted.set(versionKey(file.path, file.blob), { file, format });
+export class McpServerLists implements ContentUse {
+  readonly lists = new Map<string, McpServers>();
+
+  wants(file: TrackedFile): boolean {
+    return mcpFormat(file.path, file.classification) !== null;
   }
-  const blobs = [...new Set([...wanted.values()].map(({ file }) => file.blob))];
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const texts = new Map<string, string | null>();
-  for (const [blob, body] of readBlobs(root, blobs, (id) => measured.get(id)?.bytes ?? 0)) {
-    try {
-      texts.set(blob, decoder.decode(body));
-    } catch {
-      texts.set(blob, null);
+
+  read(_blob: string, body: Buffer, files: TrackedFile[]): void {
+    const text = utf8Text(body);
+    for (const file of files) {
+      const servers =
+        text === null
+          ? { status: "unresolved" as const }
+          : mcpServers(text, mcpFormat(file.path, file.classification)!);
+      if (servers) this.lists.set(versionKey(file.path, file.blob), servers);
     }
   }
-  const lists = new Map<string, McpServers>();
-  for (const [key, { file, format }] of wanted) {
-    const text = texts.get(file.blob);
-    const servers: McpServers | null = text == null ? { status: "unresolved" } : mcpServers(text, format);
-    if (servers) lists.set(key, servers);
-  }
-  return lists;
 }

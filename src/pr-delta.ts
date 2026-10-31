@@ -6,20 +6,23 @@ import {
   compareRevisions,
   type McpServerRef,
 } from "./compare.js";
+import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { git, listTree } from "./git.js";
+import { blobSizes, git, listTree } from "./git.js";
 import {
   byPath,
+  distinctBlobs,
   measureBlobs,
   summarize,
+  TokenCounts,
   type TrackedFile,
   toComponent,
   trackedFile,
   versionKey,
 } from "./inventory.js";
 import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
-import { mcpServerLists } from "./mcp-servers.js";
+import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
 import {
@@ -28,10 +31,10 @@ import {
   type ProviderMeasurementMetadata,
   textRecipients,
 } from "./provider-count.js";
-import { countProviderBlobs, geminiSettings, providerName } from "./provider-counting.js";
+import { countProviderBlobs, GeminiSettings, providerName, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
-import { rulesUpFront } from "./rule-loading.js";
-import { type SkillListing, skillListings } from "./skill-listing.js";
+import { RuleLoading } from "./rule-loading.js";
+import { type SkillListing, SkillListings } from "./skill-listing.js";
 import {
   hasUpFront,
   type SessionProvider,
@@ -55,11 +58,22 @@ function commitId(repo: string, id: string): string {
   }
 }
 
-/** The recognized files in a commit's tree, followed by the files Claude imports there that no path rule recognizes. */
-function trackedFiles(repo: string, id: string, imports: Map<string, ClaudeImport[]>): TrackedFile[] {
+/**
+ * The recognized files in a commit's tree, followed by the files Claude imports there that no path
+ * rule recognizes. All of them are added to `pass`, which import parsing hands what it reads.
+ */
+function trackedFiles(
+  repo: string,
+  id: string,
+  imports: Map<string, ClaudeImport[]>,
+  pass: ContentPass,
+): TrackedFile[] {
   const tree = listTree(repo, id);
   const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
-  return [...recognized, ...treeImports(repo, tree, recognized, imports)];
+  pass.add(recognized);
+  const imported = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
+  pass.add(imported);
+  return [...recognized, ...imported];
 }
 
 export interface ProviderTotalDelta {
@@ -98,17 +112,27 @@ export interface CompareOptions {
   model?: string | null;
 }
 
-function readCommits(repo: string, base: string, head: string, options: CompareOptions) {
+/** With `text`, the shared read also finds which instruction blobs are blank or not UTF-8, for provider counts. */
+function readCommits(repo: string, base: string, head: string, options: CompareOptions, text?: TextCheck) {
   const measurer = createMeasurer(options.mode ?? "estimate", options.model ?? null);
   git(repo, ["rev-parse", "--git-dir"]);
   const ids = [commitId(repo, base), commitId(repo, head)] as const;
   const imports = new Map<string, ClaudeImport[]>();
-  const files = ids.map((id) => trackedFiles(repo, id, imports));
-  const measured = measureBlobs(repo, files.flat(), measurer);
-  const listings = skillListings(repo, files.flat(), measured, measurer);
-  const rules = rulesUpFront(repo, files.flat(), measured);
-  const mcp = mcpServerLists(repo, files.flat(), measured);
-  const configured = geminiSettings(repo, files.flat(), measured);
+  // One shared pass reads each blob whose content any step needs, once.
+  const tokens = new TokenCounts(measurer);
+  const gemini = new GeminiSettings();
+  const skills = new SkillListings(measurer);
+  const ruleLoading = new RuleLoading();
+  const mcpLists = new McpServerLists();
+  const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
+  const files = ids.map((id) => trackedFiles(repo, id, imports, pass));
+  const sizes = blobSizes(repo, distinctBlobs(files.flat()));
+  pass.run(repo, sizes);
+  const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
+  const listings = skills.listings;
+  const rules = ruleLoading.upFront;
+  const mcp = mcpLists.lists;
+  const configured = gemini.configured;
   const snapshots = files.map((snapshot) => {
     const settings = snapshot.find((file) => file.path === geminiSettingsPath);
     return { snapshot, names: settings ? (configured.get(settings.blob) ?? null) : null };
@@ -189,7 +213,8 @@ export async function compareGitCommitsPrecise(
   head: string,
   options: CompareOptions & { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void },
 ): Promise<PullRequestDelta> {
-  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options);
+  const text = new TextCheck();
+  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options, text);
   const all = files.flat();
   const geminiBlobs = new Set(
     snapshots.flatMap(({ snapshot, names }) =>
@@ -202,6 +227,7 @@ export async function compareGitCommitsPrecise(
     measured,
     options.providerPlan,
     geminiBlobs,
+    text,
     options.onNotice,
   );
   if (options.providerPlan.dryRun) return delta;

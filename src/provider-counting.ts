@@ -1,4 +1,5 @@
 import type { ContextFile } from "./adapters.js";
+import { type ContentUse, utf8Text } from "./content-pass.js";
 import { geminiContextFiles, geminiSettingsPath } from "./gemini-settings.js";
 import { readBlobs } from "./git.js";
 import type { BlobMeasurement, TrackedFile } from "./inventory.js";
@@ -43,19 +44,18 @@ export function countedProviders(
   return counted.filter((provider) => read.has(provider));
 }
 
-/** Resolve each distinct root Gemini settings blob to the context files it configures. */
-export function geminiSettings(
-  root: string,
-  files: TrackedFile[],
-  measured: Map<string, BlobMeasurement>,
-): Map<string, ContextFile[] | null> {
-  const blobs = [...new Set(files.filter((file) => file.path === geminiSettingsPath).map((file) => file.blob))];
-  const decoder = new TextDecoder();
-  const configured = new Map<string, ContextFile[] | null>();
-  for (const [blob, body] of readBlobs(root, blobs, (id) => measured.get(id)?.bytes ?? 0)) {
-    configured.set(blob, geminiContextFiles(decoder.decode(body)));
+/** Resolves each distinct root Gemini settings blob to the context files it configures, as the shared content pass reads it. */
+export class GeminiSettings implements ContentUse {
+  readonly configured = new Map<string, ContextFile[] | null>();
+  private readonly decoder = new TextDecoder();
+
+  wants(file: TrackedFile): boolean {
+    return file.path === geminiSettingsPath;
   }
-  return configured;
+
+  read(blob: string, body: Buffer): void {
+    this.configured.set(blob, geminiContextFiles(this.decoder.decode(body)));
+  }
 }
 
 function encodingFor(model: string): string {
@@ -76,33 +76,26 @@ interface MethodCounts {
   counted: boolean;
 }
 
-/** What a blob holds as text: blank (nothing to count) or not valid UTF-8 (not text to count). */
-interface BlobText {
-  blank: Set<string>;
-  invalid: Set<string>;
-}
-
 /**
- * Read each instruction blob once before anything is sent, so a file that is not UTF-8 text sends
- * nothing and blank files never reach an endpoint.
+ * Which instruction blobs are blank (nothing to count) or not valid UTF-8 (not text to count),
+ * found as the shared content pass reads them, so before anything is sent a file that is not UTF-8
+ * text sends nothing and blank files never reach an endpoint.
  */
-function inspectText(root: string, blobs: string[], measured: Map<string, BlobMeasurement>): BlobText {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const blank = new Set<string>();
-  const invalid = new Set<string>();
-  const sized = blobs.filter((blob) => {
-    if (measured.get(blob)?.bytes) return true;
-    blank.add(blob);
-    return false;
-  });
-  for (const [blob, body] of readBlobs(root, sized, (id) => measured.get(id)?.bytes ?? 0)) {
-    try {
-      if (!decoder.decode(body).trim()) blank.add(blob);
-    } catch {
-      invalid.add(blob);
-    }
+export class TextCheck implements ContentUse {
+  readonly blank = new Set<string>();
+  readonly invalid = new Set<string>();
+  private readonly checked = new Set<string>();
+
+  wants(file: TrackedFile): boolean {
+    return Boolean(file.classification.instructionalText && !this.checked.has(file.blob));
   }
-  return { blank, invalid };
+
+  read(blob: string, body: Buffer): void {
+    this.checked.add(blob);
+    const text = utf8Text(body);
+    if (text === null) this.invalid.add(blob);
+    else if (!text.trim()) this.blank.add(blob);
+  }
 }
 
 /** A method's failure, with whether it had already sent instruction text, so a report can still disclose it. */
@@ -297,6 +290,7 @@ export async function countProviderBlobs(
   measured: Map<string, BlobMeasurement>,
   plan: ProviderCountPlan,
   geminiBlobs: Set<string>,
+  text: TextCheck,
   onNotice: ((line: string) => void) | undefined,
 ): Promise<{ counts: Map<string, ProviderTextCount>; metadata: ProviderMeasurementMetadata[] }> {
   const counted = countedOrder.filter((provider) => plan.methods[provider]);
@@ -310,8 +304,7 @@ export async function countProviderBlobs(
 
   const counts = new Map<string, ProviderTextCount>();
   const metadata: ProviderMeasurementMetadata[] = [];
-  const all = [...new Set([...wanted.values()].flatMap((blobs) => [...blobs.keys()]))];
-  const { blank, invalid } = inspectText(root, all, measured);
+  const { blank, invalid } = text;
   for (const provider of counted) {
     const blobs = wanted.get(provider)!;
     // A provider with no instructions anywhere in the history needs no credential and gets no column.

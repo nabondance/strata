@@ -1,5 +1,5 @@
 import { type Classification, categories, classify, type UpFront } from "./adapters.js";
-import { blobSizes, readBlobs } from "./git.js";
+import type { ContentUse } from "./content-pass.js";
 import type { Measurer } from "./measurement.js";
 import type { CategoryTotals, ClaudeImport, Component, McpServers, Revision } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
@@ -31,40 +31,57 @@ export function trackedFile(mode: string, blob: string, path: string): TrackedFi
   return classification ? { path, blob, classification } : null;
 }
 
+/** Counts the tokens of each distinct instructional blob, for a measurer that needs the text. */
+export class TokenCounts implements ContentUse {
+  readonly counts = new Map<string, number>();
+
+  constructor(private readonly measurer: Measurer) {}
+
+  wants(file: TrackedFile): boolean {
+    return Boolean(
+      file.classification.instructionalText && !this.measurer.countFromSize && !this.counts.has(file.blob),
+    );
+  }
+
+  read(blob: string, body: Buffer, files: TrackedFile[]): void {
+    if (this.counts.has(blob)) return;
+    try {
+      this.counts.set(blob, this.measurer.count(body));
+    } catch (error) {
+      throw new Error(
+        `Could not count instructional blob ${blob} at ${files[0]!.path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
+/** Each distinct blob among the files, in the order first seen. */
+export const distinctBlobs = (files: Iterable<TrackedFile>): string[] => [
+  ...new Set(Array.from(files, (file) => file.blob)),
+];
+
 /**
- * Measure each distinct blob once. Sizes come from object headers; content is read only for
- * instructional text when the measurement needs it.
+ * Measure each distinct blob once. Sizes come from object headers. Tokens come from the size when
+ * the measurer allows it, and otherwise from `tokens`, which the shared content pass filled.
  */
 export function measureBlobs(
-  repo: string,
   files: Iterable<TrackedFile>,
+  sizes: Map<string, number>,
   measurer: Measurer,
+  tokens: TokenCounts,
 ): Map<string, BlobMeasurement> {
-  const instructionalPath = new Map<string, string>();
-  const blobs = new Set<string>();
-  for (const file of files) {
-    blobs.add(file.blob);
-    if (file.classification.instructionalText && !instructionalPath.has(file.blob))
-      instructionalPath.set(file.blob, file.path);
-  }
-  const sizes = blobSizes(repo, [...blobs]);
+  const instructional = new Set<string>();
+  for (const file of files) if (file.classification.instructionalText) instructional.add(file.blob);
   const measured = new Map<string, BlobMeasurement>();
   for (const [blob, bytes] of sizes) {
     measured.set(blob, {
       bytes,
-      tokens: measurer.countFromSize && instructionalPath.has(blob) ? measurer.countFromSize(bytes) : null,
+      tokens: !instructional.has(blob)
+        ? null
+        : measurer.countFromSize
+          ? measurer.countFromSize(bytes)
+          : tokens.counts.get(blob)!,
     });
-  }
-  if (!measurer.countFromSize) {
-    for (const [blob, body] of readBlobs(repo, [...instructionalPath.keys()], (blob) => sizes.get(blob) ?? 0)) {
-      try {
-        measured.get(blob)!.tokens = measurer.count(body);
-      } catch (error) {
-        throw new Error(
-          `Could not count instructional blob ${blob} at ${instructionalPath.get(blob)}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
   }
   return measured;
 }

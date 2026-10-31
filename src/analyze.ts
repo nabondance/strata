@@ -3,18 +3,21 @@ import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
 import { addImportedFiles } from "./claude-imports.js";
+import { ContentPass } from "./content-pass.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { git, gitText, gitTokens } from "./git.js";
+import { blobSizes, git, gitText, gitTokens } from "./git.js";
 import {
   byPath,
+  distinctBlobs,
   measureBlobs,
   summarize,
+  TokenCounts,
   type TrackedFile,
   toComponent,
   trackedFile,
   versionKey,
 } from "./inventory.js";
-import { mcpServerLists } from "./mcp-servers.js";
+import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type MeasurementMode } from "./measurement.js";
 import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
 import {
@@ -23,12 +26,12 @@ import {
   type ProviderTextCount,
   providerApiPlan,
 } from "./provider-count.js";
-import { countedProviders, countProviderBlobs, geminiSettings } from "./provider-counting.js";
+import { countedProviders, countProviderBlobs, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
-import { rulesUpFront } from "./rule-loading.js";
-import { skillListings } from "./skill-listing.js";
+import { RuleLoading } from "./rule-loading.js";
+import { SkillListings } from "./skill-listing.js";
 import { inspectSubmodules } from "./submodules.js";
-import { LineAges, lineAgeMethod, readLineCounts } from "./survival.js";
+import { LineAges, LineCounter, lineAgeMethod } from "./survival.js";
 
 export { categories } from "./adapters.js";
 export type { Change, Component, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
@@ -252,23 +255,37 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     onProgress?.({ completed, total: Math.max(total, completed) }),
   );
   if (!deltas.length) throw new Error("The repository has no commits to analyze");
+  // One shared pass reads each blob whose content any step needs, once. Claude import parsing
+  // reads the import roots first and hands them to the pass, so the pass does not read them again.
+  const tokens = new TokenCounts(measurer);
+  const lineCounter = new LineCounter();
+  const gemini = new GeminiSettings();
+  const skills = new SkillListings(measurer);
+  const ruleLoading = new RuleLoading();
+  const mcpLists = new McpServerLists();
+  const text = plan ? new TextCheck() : null;
+  const pass = new ContentPass([tokens, lineCounter, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
+  for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
-  const imports = await addImportedFiles(root, deltas);
+  const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body));
 
   const written = deltas.flatMap((delta) => delta.written);
   for (const reader of conditionalReaders) {
     if (written.some((file) => file.classification.provider === reader)) continue;
     for (const file of written) withoutReader(file.classification, reader);
   }
-  const measured = measureBlobs(root, written, measurer);
-  const configured = geminiSettings(root, written, measured);
-  const listings = skillListings(root, written, measured, measurer);
-  const rules = rulesUpFront(root, written, measured);
-  const mcp = mcpServerLists(root, written, measured);
-  const counted = readLineCounts(root, written, measured);
+  pass.add(written);
+  const sizes = blobSizes(root, distinctBlobs(written));
+  pass.run(root, sizes);
+  const measured = measureBlobs(written, sizes, measurer, tokens);
+  const configured = gemini.configured;
+  const listings = skills.listings;
+  const rules = ruleLoading.upFront;
+  const mcp = mcpLists.lists;
+  const counted = lineCounter.done();
   const ages = new LineAges(counted.lines, counted.weights);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
-  const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, onNotice) : null;
+  const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, text!, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
 
   // Each distinct file version is stored once; revisions refer to it by index.
