@@ -119,13 +119,17 @@ export type CategoryTotals = Record<
 /**
  * A revision as stored in a report: its totals and what it changed. Its file inventory is not
  * repeated; `expandRevisions` rebuilds it by replaying `changes` from the first revision.
+ *
+ * `firstParent` and `categoryTotals` are left out when they repeat the previous revision: an absent
+ * `firstParent` is the previous revision's `id`, and absent `categoryTotals` equal the previous
+ * revision's. The first revision always has both. `fillRevisions` restores them.
  */
 export interface Revision {
   id: string;
   date: string;
-  firstParent: string | null;
+  firstParent?: string | null;
   componentCount: number;
-  categoryTotals: CategoryTotals;
+  categoryTotals?: CategoryTotals;
   estimatedTokens: number;
   /**
    * Listed tokens of the skill manifests present. Measured separately and mostly drawn from text
@@ -145,8 +149,14 @@ export interface Revision {
   lineAge?: LineAgeChange;
 }
 
+/** A revision with the `firstParent` and `categoryTotals` it carries forward restored by `fillRevisions`. */
+export interface FilledRevision extends Revision {
+  firstParent: string | null;
+  categoryTotals: CategoryTotals;
+}
+
 /** A revision together with its rebuilt inventory. Unchanged revisions share one inventory. */
-export interface RevisionSnapshot extends Revision {
+export interface RevisionSnapshot extends FilledRevision {
   components: Component[];
   skillGroups: SkillGroup[];
 }
@@ -162,7 +172,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 20;
+  schemaVersion: 21;
   repository: string;
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */

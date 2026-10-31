@@ -1,7 +1,7 @@
 import { categories } from "../adapters.js";
 import { compareRevisions } from "../compare.js";
 import { configMap } from "../config-map.js";
-import { expandRevisions } from "../expand.js";
+import { expandRevisions, fillRevisions } from "../expand.js";
 import { importLinks } from "../import-links.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../instruction-age.js";
 import type { Report } from "../model.js";
@@ -58,6 +58,7 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     .replace(/\u2029/g, "\\u2029");
   const categoryNames = JSON.stringify(categories);
   const compareSource = compareRevisions.toString();
+  const fillSource = fillRevisions.toString();
   const expandSource = expandRevisions.toString();
   const treemapSource = layoutTreemap.toString();
   const viewSource = viewRevision.toString();
@@ -71,6 +72,7 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
   const shareSource = sharePercent.toString();
   const data = `    const data = ${serialized};
     const categories = ${categoryNames};
+    const fillRevisions = ${fillSource};
     const expandRevisions = ${expandSource};
     const compareRevisions = ${compareSource};
     const providerReads = ${readsSource};

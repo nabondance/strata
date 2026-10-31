@@ -92,7 +92,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
       }),
     });
     assertLineAgesMatchTrees(repo, report);
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(

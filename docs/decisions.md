@@ -132,6 +132,7 @@ Since schema version 9, a report stores each distinct file version once and each
 
 - A top-level `components` table holds one entry per distinct path-and-blob pair across the whole history, ordered by path.
 - A revision carries its `componentCount`, `categoryTotals`, `estimatedTokens`, and `changes`. It does not repeat its inventory, and `skillGroups` is no longer stored.
+- Since schema version 21, a revision leaves out `categoryTotals` and `firstParent` when they repeat the previous revision ([version 21](#version-21-carried-forward-totals-and-parents)).
 - Every change has a `component` field: the index in `components` of the file version now at `path`, or `null` for a removal.
 
 On one local repository with 181 revisions, this cut the HTML report from 57.5 MB to 1.5 MB.
@@ -143,13 +144,13 @@ To rebuild the inventory at a revision, start empty and apply every revision's c
 1. Drop `previousPath` when it is present.
 2. If `component` is `null`, drop `path`; otherwise set `path` to that component.
 
-`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything.
+`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything, carrying `categoryTotals` forward where a revision leaves them out.
 
 A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 20,
+  "schemaVersion": 21,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -183,9 +184,17 @@ A shortened, illustrative JSON shape:
       "estimatedTokens": 2, "deltaTokens": 2, "component": 0
     }],
     "lineAge": { "added": 7 }
+  }, {
+    "id": "<next full Git commit ID>",
+    "date": "<author ISO timestamp>",
+    "componentCount": 1,
+    "estimatedTokens": 2,
+    "changes": []
   }]
 }
 ```
+
+The second revision touched no recognized file, so it leaves out `firstParent` (the first revision's `id`) and `categoryTotals` (the first revision's).
 
 ### Privacy
 
@@ -197,7 +206,7 @@ A shortened, illustrative JSON shape:
 
 ### Shareable reports
 
-`--shareable` produces schema version 20 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 21 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
@@ -233,6 +242,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 18 | `mcp` |
 | 19 | `lineAgeMethod` and `lineAge`; a narrower `shallow` |
 | 20 | Codex provider counts on every run; `measurement` always the byte estimate |
+| 21 | `categoryTotals` and `firstParent` left out when they repeat the previous revision |
 
 #### Version 8: provider counts
 
@@ -391,6 +401,26 @@ Version 20 removes `--tokenizer`, `--model`, `--codex-model`, and `--provider-ap
 - Codex's `model` is `o200k_base`, the encoding, instead of a model name such as `gpt-5`.
 
 Version 19 and earlier have Codex counts only with `--precise`, and their `measurement` may be an OpenAI encoding.
+
+#### Version 21: carried-forward totals and parents
+
+A long history is mostly revisions that touch no recognized file, yet each one stored a full `categoryTotals` object, one entry for every category. Report size grew with the number of commits rather than with the number of configuration changes. Version 21 leaves out two fields when they repeat the previous revision:
+
+- `categoryTotals` is absent when every figure in it equals the previous revision's. Absent means the same totals as the previous revision, so a reader takes a revision's totals from the nearest revision at or before it that has them. A revision can change files and keep the same totals, for example after an edit that keeps a file's size, so `changes` does not decide this.
+- `firstParent` is absent when it is the previous revision's `id`. In first-parent order that is every revision but the first, so the field appears again only if a revision's first parent is something else.
+
+The first revision always has both. `id`, `date`, `componentCount`, `estimatedTokens`, `skillListingTokens`, `skillListingUnresolved`, `changes`, `providerTokenTotals`, `geminiContextFiles`, and `lineAge` are unchanged, so per-revision token totals such as `.revisions[-1].estimatedTokens` still need no carrying forward.
+
+The analysis result is the stored report: `compactRevisions` in `src/expand.ts` leaves the fields out once, when analysis assembles the report, so the JSON, the HTML report's embedded data, and `--shareable` all hold the same shape. Shareable aliases map each commit ID to one alias, so a first parent left out before aliasing is still the previous revision's alias. Readers restore the fields with `fillRevisions` in `src/expand.ts`: `expandRevisions` calls it, so the HTML report fills every revision before any panel draws, and the SVG image and the CLI summary call it directly. `fillRevisions` is self-contained and embedded in the HTML report beside `expandRevisions`, and a test checks that filling a version 21 report gives back the version 20 revisions for the same history.
+
+On two public repositories, analyzed with the estimate and Codex's local count:
+
+| Repository | Revisions | With `categoryTotals` | JSON before → after | HTML before → after |
+| --- | ---: | ---: | --- | --- |
+| sst/opencode | 15,942 | 131 | 26.8 MB → 5.4 MB (−80%) | 15.5 MB → 4.0 MB (−74%) |
+| mastra-ai/mastra (shallow) | 13,362 | 192 | 23.1 MB → 4.9 MB (−79%) | 13.6 MB → 3.7 MB (−73%) |
+
+What remains grows with the number of revisions too, but each revision without changes now holds only its ID, date, and scalar totals.
 
 ## MCP servers
 

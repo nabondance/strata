@@ -301,10 +301,11 @@ The skill-bundle and tracked-components tables are collapsed under their heading
 ## The JSON report
 
 - **Components.** JSON reports store each distinct file version once, in a top-level `components` list.
-- **Revisions.** Every revision carries its totals and its `changes`. Each change points at the component now at that path.
-- **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. This keeps reports small on long histories.
+- **Revisions.** Every revision carries its `estimatedTokens`, `componentCount`, and `changes`. Each change points at the component now at that path.
+- **Carried-forward fields.** A revision leaves out `categoryTotals` when they equal the previous revision's, and `firstParent` when it is the previous revision's `id`. The first revision always has both. To read a revision's category totals, take the nearest one at or before it, for example `jq '[.revisions[].categoryTotals | select(.)] | last'` for the latest.
+- **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. Together with the carried-forward fields, this keeps reports small on long histories.
 
-The bundled interpretation skill explains schema version 20 and that replay rule, and also:
+The bundled interpretation skill explains schema version 21 and these rules, and also:
 
 - up-front context, Claude imports, MCP servers, and instruction age;
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;

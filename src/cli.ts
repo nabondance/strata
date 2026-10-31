@@ -9,6 +9,7 @@ import { type ParseArgsConfig, parseArgs } from "node:util";
 import { analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
+import { fillRevisions } from "./expand.js";
 import { repositoryRoot } from "./git.js";
 import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
@@ -424,7 +425,8 @@ async function analyze(args: string[]): Promise<void> {
     process.stdout.write(dryRunLine);
     return;
   }
-  const latest = analyzed.revisions.at(-1);
+  // The last revision with its carried-forward totals restored.
+  const latest = fillRevisions(analyzed.revisions).at(-1);
   // The last revision's files and what each agent reads up front, built once for the notes and limits.
   const components = latestComponents(analyzed);
   const upFrontContexts = sessionProviders.flatMap((provider) => {
