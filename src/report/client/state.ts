@@ -129,9 +129,14 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
       button.onclick = () => { expanded[id] = !expanded[id]; redraw(); };
       return expanded[id] ? items : items.slice(0, limit);
     }
-    /** The repository name, the counting notice, and the shallow-clone and submodule notices. */
+    /** The repository name, the ignored patterns, the counting notice, and the shallow-clone and submodule notices. */
     function setupNotices() {
       $('repo').textContent = data.repository;
+      // The --ignore patterns, as the user typed them: every total leaves out the paths they match.
+      const ignored = data.ignore || [];
+      $('repo-ignore').hidden = !ignored.length;
+      $('repo-ignore').textContent = ignored.length ? ' · ignoring ' + plural(ignored.length, 'pattern') : '';
+      $('repo-ignore').title = ignored.length ? 'Paths matching these patterns are left out of every revision: ' + ignored.join(', ') : '';
       renderMethod();
       $('shallow').hidden = !data.shallow;
       // Name the submodules holding agent configuration that was not analyzed; count those that could not be checked.

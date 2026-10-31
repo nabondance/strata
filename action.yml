@@ -25,6 +25,13 @@ inputs:
       locally, with or without precise.
     required: false
     default: "false"
+  ignore:
+    description: >-
+      Paths to leave out at both commits, as .gitignore-style patterns separated by newlines or
+      commas, such as 'examples/**, templates/'. A matching file is treated as untracked, so it is
+      not counted and a Claude import of it is missing. Nothing is left out when empty.
+    required: false
+    default: ""
   limit-tokens:
     description: >-
       Limit on the stored instructional text at the head, in tokens. Off when empty.
@@ -68,7 +75,7 @@ outputs:
     description: Path of the Markdown delta, the same text as the job summary.
     value: ${{ steps.compare.outputs.summary-file }}
   json-file:
-    description: Path of the JSON delta (schema version 13), for later steps.
+    description: Path of the JSON delta (schema version 14), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
 runs:
   using: composite
@@ -98,6 +105,7 @@ runs:
         # review events), and on pull_request_target the payload's test merge, which can be missing.
         STRATA_EVENT_MERGE: ${{ github.event_name != 'pull_request_target' && github.sha || github.event.pull_request.merge_commit_sha }}
         STRATA_PRECISE: ${{ inputs.precise }}
+        STRATA_IGNORE: ${{ inputs.ignore }}
         STRATA_LIMIT_TOKENS: ${{ inputs.limit-tokens }}
         STRATA_LIMIT_INCREASE: ${{ inputs.limit-increase }}
         STRATA_LIMIT_UP_FRONT_TOKENS: ${{ inputs.limit-up-front-tokens }}
@@ -187,6 +195,12 @@ runs:
           # Precise counts accompany the estimate; the runner's cache would not outlive the job.
           args+=(--precise --no-cache)
         fi
+        # One pattern per line or between commas, trimmed; read keeps each literal, spaces included.
+        while IFS= read -r pattern; do
+          pattern="${pattern#"${pattern%%[![:space:]]*}"}"
+          pattern="${pattern%"${pattern##*[![:space:]]}"}"
+          if [ -n "$pattern" ]; then args+=(--ignore "$pattern"); fi
+        done < <(printf '%s\n' "$STRATA_IGNORE" | tr ',' '\n')
         # Each input holds one value or several separated by spaces or commas; set -f keeps them literal.
         limits=()
         set -f

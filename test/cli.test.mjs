@@ -23,6 +23,7 @@ import { compareGitCommits } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { progressReporter } from "../dist/progress.js";
 import { renderHtml } from "../dist/report.js";
+import { loadReportUi } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
 const cliPath = resolve("dist/cli.js");
@@ -899,6 +900,121 @@ test("on a pull request the Action compares GitHub's merge commit with the base 
 });
 
 /** Runs the Action's comparison step as GitHub does for `shell: bash`, with each input as its environment variable. */
+test("--ignore leaves paths out of analyze and diff, and the report header and summary say so", () => {
+  const { repo, put, commit, cleanup } = fixture();
+  try {
+    put("AGENTS.md", "Root instructions for every agent.\n");
+    put("CLAUDE.md", "@examples/notes.md\n");
+    put("examples/notes.md", "Example notes.\n");
+    put("examples/agent/AGENTS.md", "Example app instructions.\n");
+    put("templates/basic/CLAUDE.md", "Template instructions.\n");
+    const base = commit("Configuration with example apps and templates");
+    put("templates/basic/CLAUDE.md", "Template instructions, grown by a few more words.\n");
+    put("AGENTS.md", "Root instructions for every agent, edited.\n");
+    const head = commit("Edit a template and the root");
+    const ignore = ["--ignore", "examples/**", "--ignore", "templates/"];
+
+    const plain = JSON.parse(strata(["analyze", repo, "-f", "json", "-o", "-"]).stdout);
+    assert.equal(plain.ignore, undefined);
+    const json = strata(["analyze", repo, "-f", "json", "-o", "-", ...ignore]);
+    assert.equal(json.status, 0, json.stderr);
+    const report = JSON.parse(json.stdout);
+    assert.deepEqual(report.ignore, ["examples/**", "templates/"]);
+    assert.deepEqual(
+      expandRevisions(report).map((revision) => revision.components.map(({ path }) => path)),
+      [
+        ["AGENTS.md", "CLAUDE.md"],
+        ["AGENTS.md", "CLAUDE.md"],
+      ],
+    );
+    assert.match(
+      json.stderr,
+      /^Ignoring 2 patterns \(examples\/\*\*, templates\/\): the paths they match are left out of every revision\.$/m,
+    );
+    // The import of an ignored file is missing.
+    assert.match(json.stderr, /1 Claude @path import is unresolved at the last revision \(1 missing\)/);
+    // --shareable keeps the patterns, which the user typed.
+    const shared = JSON.parse(strata(["analyze", repo, "-f", "json", "-o", "-", "--shareable", ...ignore]).stdout);
+    assert.deepEqual(shared.ignore, report.ignore);
+
+    // The header line names how many patterns were ignored, with the patterns in its title.
+    const { get } = loadReportUi(strata(["analyze", repo, "-o", "-", ...ignore]).stdout);
+    assert.equal(get("repo-ignore").hidden, false);
+    assert.equal(get("repo-ignore").textContent, " · ignoring 2 patterns");
+    assert.match(get("repo-ignore").title, /examples\/\*\*, templates\/$/);
+    const without = loadReportUi(strata(["analyze", repo, "-o", "-"]).stdout).get;
+    assert.equal(without("repo-ignore").hidden, true);
+
+    const delta = strata(["diff", repo, "--base", base, "--head", head, "-f", "json", ...ignore]);
+    assert.equal(delta.status, 0, delta.stderr);
+    const parsed = JSON.parse(delta.stdout);
+    assert.deepEqual(parsed.ignore, ["examples/**", "templates/"]);
+    assert.deepEqual(
+      parsed.comparison.components.map(({ path }) => path),
+      ["AGENTS.md"],
+    );
+    const unfiltered = JSON.parse(strata(["diff", repo, "--base", base, "--head", head, "-f", "json"]).stdout);
+    assert.equal(unfiltered.ignore, undefined);
+    assert.equal(unfiltered.comparison.components.length, 2);
+    assert.match(
+      strata(["diff", repo, "--base", base, "--head", head, "--ignore", "templates/"]).stdout,
+      /^Left out at both commits: paths matching templates\/ \(`--ignore`\)\./m,
+    );
+
+    for (const command of [
+      ["analyze", repo],
+      ["diff", repo, "--base", base, "--head", head],
+    ]) {
+      const refused = strata([...command, "--ignore", "!examples/keep.md"]);
+      assert.equal(refused.status, 2);
+      assert.match(refused.stderr, /--ignore: Ignore patterns cannot re-include paths/);
+      assert.equal(strata([...command, "--ignore="]).status, 2);
+    }
+    assert.match(strata(["help", "analyze"]).stdout, /--ignore <glob>/);
+    assert.match(strata(["help", "diff"]).stdout, /--ignore <glob>/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the Action passes its ignore input to strata diff, one pattern per line or comma", {
+  skip: process.platform === "win32",
+}, () => {
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("AGENTS.md", "Root.\n");
+    put("examples/app/AGENTS.md", "Example.\n");
+    put("my templates/CLAUDE.md", "Template.\n");
+    const base = commit("Add instructions");
+    put("examples/app/AGENTS.md", "Example, grown.\n");
+    put("my templates/CLAUDE.md", "Template, grown.\n");
+    put("AGENTS.md", "Root, grown.\n");
+    const head = commit("Grow instructions");
+    const run = actionRunner(temp, { GITHUB_WORKSPACE: repo, STRATA_BASE: base, STRATA_HEAD: head });
+    const changed = (result) =>
+      JSON.parse(readFileSync(result.outputs["json-file"], "utf8")).comparison.components.map(({ path }) => path);
+
+    const plain = run({});
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.equal(JSON.parse(readFileSync(plain.outputs["json-file"], "utf8")).ignore, undefined);
+    assert.equal(changed(plain).length, 3);
+
+    // Newlines and commas both separate patterns; spaces around one are trimmed, and spaces inside kept.
+    const ignored = run({ STRATA_IGNORE: "examples/**,\n  my templates/  \n\n" });
+    assert.equal(ignored.status, 0, ignored.stderr);
+    const delta = JSON.parse(readFileSync(ignored.outputs["json-file"], "utf8"));
+    assert.deepEqual(delta.ignore, ["examples/**", "my templates/"]);
+    assert.deepEqual(changed(ignored), ["AGENTS.md"]);
+    assert.match(ignored.summary, /Left out at both commits: paths matching examples\/\\\*\\\*, my templates\//);
+    // A pattern Strata refuses fails the step.
+    assert.equal(run({ STRATA_IGNORE: "!examples/keep.md" }).status, 2);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 function actionRunner(temp, defaults) {
   const action = readFileSync("action.yml", "utf8");
   const script = action
@@ -926,6 +1042,7 @@ function actionRunner(temp, defaults) {
         STRATA_EVENT_HEAD: "",
         STRATA_EVENT_MERGE: "",
         STRATA_PRECISE: "false",
+        STRATA_IGNORE: "",
         STRATA_LIMIT_TOKENS: "",
         STRATA_LIMIT_INCREASE: "",
         STRATA_LIMIT_UP_FRONT_TOKENS: "",

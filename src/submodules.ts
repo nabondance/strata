@@ -1,6 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { git, listTree } from "./git.js";
+import { type Ignored, ignoreNothing } from "./ignore.js";
 import { trackedFile } from "./inventory.js";
 import type { Submodule } from "./model.js";
 
@@ -41,19 +42,34 @@ function checkout(root: string, path: string, env: NodeJS.ProcessEnv): string | 
   }
 }
 
-/** Regular files whose path is recognized inside the submodule or where it is mounted in the parent. */
-function countConfigFiles(repo: string, commit: string, mount: string, env: NodeJS.ProcessEnv): number {
+/**
+ * Regular files whose path is recognized inside the submodule or where it is mounted in the parent,
+ * leaving out those whose path in the parent `ignored` accepts.
+ */
+function countConfigFiles(
+  repo: string,
+  commit: string,
+  mount: string,
+  env: NodeJS.ProcessEnv,
+  ignored: Ignored,
+): number {
   return listTree(repo, commit, env).filter(
-    ({ mode, blob, path }) => trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`),
+    ({ mode, blob, path }) =>
+      !ignored(`${mount}/${path}`) && (trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`)),
   ).length;
 }
 
 /**
  * Count the recognized agent-configuration files in each submodule at the commit the parent
  * records. Only Git objects are read, never the submodule's working tree; a submodule that is not
- * checked out, or lacks that commit, is counted as unknown.
+ * checked out, or lacks that commit, is counted as unknown. Files are matched against the ignore
+ * patterns by their path in the parent repository.
  */
-export function inspectSubmodules(root: string, commits: Map<string, string>): Submodule[] {
+export function inspectSubmodules(
+  root: string,
+  commits: Map<string, string>,
+  ignored: Ignored = ignoreNothing,
+): Submodule[] {
   const env = submoduleEnv();
   return [...commits]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -62,7 +78,7 @@ export function inspectSubmodules(root: string, commits: Map<string, string>): S
       if (!repo) return { path, configFiles: null };
       try {
         git(repo, ["cat-file", "-e", `${commit}^{commit}`], undefined, env);
-        return { path, configFiles: countConfigFiles(repo, commit, path, env) };
+        return { path, configFiles: countConfigFiles(repo, commit, path, env, ignored) };
       } catch {
         return { path, configFiles: null };
       }

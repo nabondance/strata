@@ -6,7 +6,8 @@ Strata does not inspect:
 
 - untracked or ignored files;
 - global user configuration;
-- the working tree, meaning the files currently checked out on disk.
+- the working tree, meaning the files currently checked out on disk;
+- tracked paths matching an `--ignore` pattern, which are treated as absent from every revision: not counted, not reached by a Claude import, and not followed as a symlink ([Leaving paths out](usage.md#leaving-paths-out)).
 
 A shallow fetch downloads only recent commits. A history that starts where a shallow fetch cut it is labeled incomplete.
 
@@ -329,7 +330,7 @@ Without `--precise`, no repository content is sent.
 
 ### Report fields
 
-The report is schema version 20. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
+The report is schema version 21. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
 
 | Field                                                                                                | Meaning                                                                                                                                                  | Since version |
 | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
@@ -350,6 +351,8 @@ The report is schema version 20. Each field below first appeared in the version 
 | `upFront` on root instruction files and root rules                                                   | stored text a provider keeps from the start of a session                                                                                                 | 17            |
 | `mcp` on MCP files and on settings files that define MCP servers                                     | the names and transports of the servers they define                                                                                                      | 18            |
 | top-level `lineAgeMethod`; `lineAge` on revisions that added or removed instruction lines            | how instruction age is matched; instruction age                                                                                                          | 19            |
+| `symlinkTarget` on imports                                                                           | the file an import of a symlink reaches                                                                                                                  | 21            |
+| top-level `ignore`                                                                                   | the `--ignore` patterns, as given, whose paths every revision leaves out; omitted when there are none                                                    | 21            |
 
 ### Figures that are never added together
 

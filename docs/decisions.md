@@ -216,7 +216,7 @@ The second revision touched no recognized file, so it leaves out `firstParent` (
 - skill roots, MCP server names, and submodule paths;
 - blob IDs.
 
-These stay visible: dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
+These stay visible: the `--ignore` patterns in `ignore`, verbatim, because the user typed them rather than Strata reading them from the repository (a pattern that names a private path discloses it, so choose patterns with that in mind); dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
 
 Some labels narrow an alias down to a well-known path:
 
@@ -228,22 +228,22 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 
 ### Schema versions
 
-| Version | Adds                                                                                                                                                                                            |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`                                                                                                                       |
-| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))                                                                                                             |
-| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared`                                                                                                           |
-| 11      | `estimate` provider counts and the `--precise` metadata fields                                                                                                                                  |
-| 12      | `submodules`                                                                                                                                                                                    |
-| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                                                                                                                             |
-| 14      | the `cursor` provider and `legacy`                                                                                                                                                              |
-| 15      | the `copilot` provider and `REVIEW.md`                                                                                                                                                          |
-| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                                                                                                                                 |
-| 17      | `upFront`                                                                                                                                                                                       |
-| 18      | `mcp`                                                                                                                                                                                           |
-| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                                                                                                                             |
-| 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                      |
-| 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths |
+| Version | Adds                                                                                                                                                                                                      |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`                                                                                                                                 |
+| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))                                                                                                                       |
+| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared`                                                                                                                     |
+| 11      | `estimate` provider counts and the `--precise` metadata fields                                                                                                                                            |
+| 12      | `submodules`                                                                                                                                                                                              |
+| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                                                                                                                                       |
+| 14      | the `cursor` provider and `legacy`                                                                                                                                                                        |
+| 15      | the `copilot` provider and `REVIEW.md`                                                                                                                                                                    |
+| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                                                                                                                                           |
+| 17      | `upFront`                                                                                                                                                                                                 |
+| 18      | `mcp`                                                                                                                                                                                                     |
+| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                                                                                                                                       |
+| 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                                |
+| 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths; `ignore` |
 
 #### Version 8: provider counts
 
@@ -430,6 +430,14 @@ Version 21 also changes how Claude imports are read and stored; see [Claude impo
 - An import whose target is a Git symlink somewhere in the history carries `symlinkTarget`, the file the link leads to, and resolves to that file where the target has none. Version 20 and earlier report such an import `missing`.
 
 The same history can therefore reach more files, with larger totals, and list fewer imports as missing. The `strata diff` JSON goes to version 14 for the same reason.
+
+Version 21 also adds `--ignore` and the optional top-level `ignore` field. A monorepo's example apps, templates, and fixtures can track their own `AGENTS.md`, `CLAUDE.md`, or skills, which are not the repository's own agent configuration but count toward its totals. `--ignore <glob>`, repeatable on `analyze` and `diff`, leaves out every tracked path that matches one of its patterns, read as `.gitignore` reads them (`src/ignore.ts`, with no dependency): `*` and `?` within a segment, `**` across segments, a trailing `/` for a folder and everything in it, a leading or middle `/` anchoring at the root, and a pattern with no other `/` matching at any depth. `!` patterns are refused. A matching path is treated as absent from the tree, at every revision and at both compared commits:
+
+- History replay passes over it, so it is never in the inventory; a file moved out of an ignored folder is an addition, not a rename, and a commit that changes only ignored paths has no changes.
+- A Claude `@path` import of it is `missing`, and a symlink at an ignored path, or one leading to one, is not followed: import resolution never reads an ignored path's history, and `strata diff` drops ignored entries from each tree before resolving imports.
+- Submodule file counts leave out files whose path in the parent repository matches.
+
+`ignore` holds the patterns exactly as given, in order, and is present only when at least one was given, so a reader knows the totals cover part of the repository; the HTML header shows `ignoring N patterns` with the list in its title, and the CLI summary prints them on one line. The `strata diff` JSON has the same field from version 14, and its Markdown adds a line naming the patterns. Nothing else in the shape changes: a report without `--ignore` is the same as before.
 
 ## MCP servers
 
@@ -879,7 +887,7 @@ Its JSON has its own schema version, currently 14. Compared components carry the
 | 11      | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each.                                                                     |
 | 12      | `limits` when a [limit](#limits) is set.                                                                                                                                                                                                                                                                                                                |
 | 13      | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate.                                                                     |
-| 14      | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13.                                                                                                                                           |
+| 14      | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13. `ignore` when `--ignore` is given, with both trees leaving out the paths it matches; the Markdown adds a line naming the patterns.        |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 

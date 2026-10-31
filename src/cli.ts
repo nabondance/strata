@@ -11,6 +11,7 @@ import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
 import { fillRevisions } from "./expand.js";
 import { repositoryRoot } from "./git.js";
+import { ignoreMatcher } from "./ignore.js";
 import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
 import {
@@ -76,6 +77,17 @@ const preciseHelp = `Precise counts (opt-in content transfer):
       --no-cache             With --precise, ignore and do not update the local count cache
       --claude-model <name>  Claude model to count with (default: ${defaultModels.claude})
       --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})`;
+
+const ignoreLine = `      --ignore <glob>        Leave out paths matching a .gitignore-style pattern, as if they
+                             were not tracked; repeat for more. * stays within a folder, **
+                             crosses folders, a trailing / means a folder and everything in
+                             it, a leading / anchors at the root, and a pattern without /
+                             matches at any depth`;
+
+const ignoreHelp = {
+  analyze: `Paths:\n${ignoreLine}, at every revision`,
+  diff: `Paths:\n${ignoreLine}, at both commits`,
+};
 
 /** Exit status when a limit set with --limit-* is passed and --on-limit is fail. */
 const overLimitStatus = 3;
@@ -147,6 +159,8 @@ Output:
       --shareable            Replace repository names, paths, commit IDs, blob IDs, and MCP server names with aliases
   -q, --quiet                Print only the report path
 
+${ignoreHelp.analyze}
+
 ${measurementHelp}
 
 ${limitsHelp.analyze}
@@ -163,6 +177,7 @@ Examples:
   strata analyze --format badge --output strata-badge.json
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
   strata analyze --limit-up-front-tokens 8000 --format json --output report.json
+  strata analyze --ignore 'examples/**' --ignore 'templates/'
 `,
   diff: `Usage:
   strata diff [repository] --base <commit> --head <commit> [options]
@@ -180,6 +195,8 @@ Options:
       --json-output <file>   Also write the JSON delta to a file, from the same comparison
   -h, --help                 Show this help
 
+${ignoreHelp.diff}
+
 ${measurementHelp}
 
 ${limitsHelp.diff}
@@ -190,6 +207,7 @@ Examples:
   strata diff --base main --head HEAD
   strata diff --base HEAD~50 --head HEAD --format json --output delta.json
   strata diff --base main --head HEAD --limit-increase 500 --limit-up-front-tokens claude=8000
+  strata diff --base main --head HEAD --ignore 'examples/**'
 `,
   skill: `Usage:
   strata skill [--output <file>]
@@ -342,6 +360,21 @@ const limitOptions = {
   "limit-annotations": { type: "boolean" },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
+const ignoreOptions = {
+  ignore: { type: "string", multiple: true },
+} as const satisfies NonNullable<ParseArgsConfig["options"]>;
+
+/** The --ignore patterns, as given, each checked before any history is read. */
+function ignoreArguments(values: { ignore?: string[] | undefined }): string[] {
+  const patterns = values.ignore ?? [];
+  try {
+    ignoreMatcher(patterns);
+  } catch (error) {
+    throw new UsageError(`--ignore: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return patterns;
+}
+
 const increaseLimitOptions = {
   "limit-increase": { type: "string", multiple: true },
   "limit-up-front-increase": { type: "string", multiple: true },
@@ -394,10 +427,12 @@ async function analyze(args: string[]): Promise<void> {
     open: { type: "boolean" },
     shareable: { type: "boolean" },
     quiet: { type: "boolean", short: "q" },
+    ...ignoreOptions,
     ...preciseOptions,
     ...limitOptions,
   });
   const repository = repositoryArgument(positionals);
+  const ignore = ignoreArguments(values);
   const limits = limitArguments(values);
   const format = choice("--format", values.format, ["html", "json", "svg", "badge"], "html");
   const toStdout = values.output === "-";
@@ -415,6 +450,7 @@ async function analyze(args: string[]): Promise<void> {
       ...(values.quiet ? {} : { onProgress: progressReporter(process.stderr) }),
       providerPlan: precise?.plan ?? localPlan(),
       onNotice: precise?.onNotice ?? noticeToStderr,
+      ignore,
     });
   } finally {
     saveCache(precise?.cache);
@@ -466,6 +502,12 @@ async function analyze(args: string[]): Promise<void> {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
   };
   say(`Analyzed ${report.revisions.length} revisions of ${report.repository}.`);
+  if (report.ignore?.length) {
+    const count = report.ignore.length;
+    say(
+      `Ignoring ${count} pattern${count === 1 ? "" : "s"} (${report.ignore.join(", ")}): the paths ${count === 1 ? "it matches are" : "they match are"} left out of every revision.`,
+    );
+  }
   // The method ID stays in the JSON report; a person reads what it means.
   say(
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.accuracy === "estimate" ? "UTF-8 bytes / 4 per file, an estimate" : report.measurement.label}).`,
@@ -635,11 +677,13 @@ async function diff(args: string[]): Promise<void> {
     output: { type: "string", short: "o" },
     format: { type: "string", short: "f" },
     "json-output": { type: "string" },
+    ...ignoreOptions,
     ...preciseOptions,
     ...limitOptions,
     ...increaseLimitOptions,
   });
   const repository = repositoryArgument(positionals);
+  const ignore = ignoreArguments(values);
   const limits = limitArguments(values);
   if (!values.base || !values.head) throw new UsageError("diff requires --base <commit> and --head <commit>");
   const format = choice("--format", values.format, ["markdown", "json"], "markdown");
@@ -659,6 +703,7 @@ async function diff(args: string[]): Promise<void> {
     delta = await compareGitCommitsWithProviders(repository, values.base, values.head, {
       providerPlan: precise?.plan ?? localPlan(),
       onNotice: precise?.onNotice ?? noticeToStderr,
+      ignore,
     });
   } finally {
     saveCache(precise?.cache);

@@ -28,7 +28,7 @@ export function reportBody(report: Report): string {
     <div class="masthead">
       <div class="header-top"><a class="brand" href="${brandUrl}" target="_blank" rel="noopener noreferrer" title="Strata on npm">${markSvg(30)}<span class="wordmark">STRATA</span></a></div>
       <h1 id="repo"></h1>
-      <p class="repo-meta" id="repo-meta"></p>
+      <p class="repo-meta"><span id="repo-meta"></span><span id="repo-ignore" hidden></span></p>
       <div class="stats">
         <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
         <div class="stat"><span id="tokens-label">${adjective} tokens</span><strong id="tokens"></strong></div>
