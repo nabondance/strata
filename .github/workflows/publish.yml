@@ -4,7 +4,7 @@ on:
   push:
     tags:
       # Release tags only, not the moving major tag (v0) the Action is used by.
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
 permissions:

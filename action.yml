@@ -11,11 +11,11 @@ inputs:
       its review events, or pull_request_target), merge_group, or push event to compare that
       event's commits.
     required: false
-    default: ''
+    default: ""
   head:
     description: Full Git commit ID to compare to. Give it with base, or leave both empty.
     required: false
-    default: ''
+    default: ""
   precise:
     description: >-
       Set to 'true' to add Claude and Gemini totals from their own token counts. Claude and Gemini instruction text is sent to
@@ -24,30 +24,30 @@ inputs:
       without ANTHROPIC_API_KEY). A provider with neither falls back to the estimate. Codex is counted
       locally, with or without precise.
     required: false
-    default: 'false'
+    default: "false"
   limit-tokens:
     description: >-
       Limit on the stored instructional text at the head, in tokens. Off when empty.
     required: false
-    default: ''
+    default: ""
   limit-increase:
     description: >-
       Limit on the growth of stored instructional text from base to head, in tokens. Off when empty.
     required: false
-    default: ''
+    default: ""
   limit-up-front-tokens:
     description: >-
       Limit on what each agent keeps at session start at the head, in tokens. Give one number for
       every agent, or agent=number entries separated by spaces or commas, such as 'claude=8000
       codex=6000'. Off when empty.
     required: false
-    default: ''
+    default: ""
   limit-up-front-increase:
     description: >-
       Limit on the growth of what each agent keeps at session start, in tokens, in the same form
       as limit-up-front-tokens. Off when empty.
     required: false
-    default: ''
+    default: ""
   on-limit:
     description: >-
       What a limit that is passed does: 'fail' fails the step after writing the summary, 'warn' adds
@@ -75,7 +75,7 @@ runs:
   steps:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
-        node-version: '22'
+        node-version: "22"
     # Installed with npm rather than pnpm/action-setup so the Action only
     # depends on GitHub-owned actions and runs under a restrictive policy.
     - name: Build Strata

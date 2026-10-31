@@ -4,11 +4,11 @@ Strata needs only Node.js, Git, and a checkout with history. (The pull-request A
 
 There are three ways to use it in CI:
 
-| Use | What it does | Guide |
-| --- | --- | --- |
-| **Pull-request delta** | The Action runs `strata diff` and writes a Markdown summary of how the pull request changes stored configuration to the job summary. It compares GitHub's merge commit for the pull request with the base it merges into, and fetches those commits if the checkout lacks them. It is one step after `actions/checkout`. | [The PR delta guide](pr-action.md) |
-| **Full history report** | A workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact (a file kept with the workflow run). | [Below](#full-history-report-as-an-artifact) |
-| **README image and badge** | A workflow renders the history as an SVG image, plus a badge with the token total, and publishes them to a dedicated branch for a README to display. | [Below](#readme-image) |
+| Use                        | What it does                                                                                                                                                                                                                                                                                                             | Guide                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| **Pull-request delta**     | The Action runs `strata diff` and writes a Markdown summary of how the pull request changes stored configuration to the job summary. It compares GitHub's merge commit for the pull request with the base it merges into, and fetches those commits if the checkout lacks them. It is one step after `actions/checkout`. | [The PR delta guide](pr-action.md)           |
+| **Full history report**    | A workflow runs `strata analyze` and uploads the HTML or JSON report as a workflow artifact (a file kept with the workflow run).                                                                                                                                                                                         | [Below](#full-history-report-as-an-artifact) |
+| **README image and badge** | A workflow renders the history as an SVG image, plus a badge with the token total, and publishes them to a dedicated branch for a README to display.                                                                                                                                                                     | [Below](#readme-image)                       |
 
 None of them runs unless you add a workflow to the repository you want to analyze.
 
@@ -71,8 +71,8 @@ On a `pull_request` event, the checked-out commit is GitHub's temporary merge co
 
 Totals use the byte estimate, and Codex files are also counted exactly with OpenAI's `o200k_base` encoding, all offline. The one measurement flag sends content:
 
-| Flag | Network | Notes |
-| --- | --- | --- |
+| Flag        | Network                                                                     | Notes                                                         |
+| ----------- | --------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `--precise` | Sends recognized instruction text to the Claude and Gemini token-count APIs | Add `--no-cache` on runners that are discarded after each job |
 
 `--precise` uses a provider's API when it finds `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), or a signed-in `gcloud` account in the job. It falls back to the estimate for a provider without one. Leave it off unless sending that content is acceptable.
@@ -184,13 +184,12 @@ The image is public wherever the README is. Add `--shareable` to the render comm
 
 `strata analyze` and `strata diff` exit with these statuses:
 
-| Status | Meaning |
-| --- | --- |
-| 0 | Success |
-| 1 | Any other failure, such as a missing commit or a path that is not a Git repository |
-| 2 | Invalid command line |
-| 3 | A [limit](usage.md#limits) set with `--limit-tokens`, `--limit-increase`, `--limit-up-front-tokens`, or `--limit-up-front-increase` is passed |
-
+| Status | Meaning                                                                                                                                       |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | Success                                                                                                                                       |
+| 1      | Any other failure, such as a missing commit or a path that is not a Git repository                                                            |
+| 2      | Invalid command line                                                                                                                          |
+| 3      | A [limit](usage.md#limits) set with `--limit-tokens`, `--limit-increase`, `--limit-up-front-tokens`, or `--limit-up-front-increase` is passed |
 - Token growth alone is never a failure: without a limit, a run that measures growth exits with 0.
 - With `--on-limit warn`, a passed limit is reported and the run exits with 0.
 - If something fails after a passed limit was reported, such as `--open` failing, the status stays 3, and the error is still printed.

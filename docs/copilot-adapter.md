@@ -5,7 +5,7 @@ Implemented in report schema version 15. [The analysis scope](analysis-scope.md)
 - Studied 2026-10-17.
 - Open questions checked 2026-10-18 against VS Code 1.142.0 source, the Copilot CLI 1.0.98 changelog, and the GitHub Docs source.
 
-GitHub Copilot is several clients, not one agent. This page calls each client a *surface*:
+GitHub Copilot is several clients, not one agent. This page calls each client a _surface_:
 
 - Copilot Chat on GitHub.com
 - the cloud agent (formerly the coding agent)
@@ -35,22 +35,22 @@ Copilot also reads files that Strata already assigns to other providers: `AGENTS
 
 `**/` means the path is recognized at any depth, not only at the repository root.
 
-| Tracked path | Classification |
-| --- | --- |
-| `**/.github/copilot-instructions.md` | Copilot / instructions / stored instructional text |
-| `**/.github/instructions/**/*.instructions.md` | Copilot / rules / stored instructional text |
-| `**/.github/prompts/*.prompt.md` | Copilot / commands / stored instructional text |
-| `**/.github/agents/**/*.md`, except `README.md` | Copilot / agents / stored instructional text |
-| `.chatmode.md` files | inside `.github/agents`: Copilot / agents, `legacy: true`; in `.github/chatmodes`: source-only `other` |
-| `.github/skills/<name>/SKILL.md` | Copilot / skills / stored instructional text, plus listing |
-| Other files under `.github/skills/<name>/` | Copilot / skills / source bytes only |
-| `**/REVIEW.md` | Claude / instructions, with Copilot as a conditional reader |
-| `.github/hooks/*.json` at the root | Copilot / settings / source bytes only |
-| `.github/copilot/settings.json`, `.github/copilot/settings.local.json` | Copilot / settings / source bytes only |
-| `**/.github/mcp.json` | Copilot / tools / source bytes only |
-| `.vscode/mcp.json` | Copilot / tools / source bytes only |
-| `.github/workflows/copilot-setup-steps.yml` | Copilot / settings / source bytes only |
-| `.github/workflows/copilot-code-review.yml` | Copilot / settings / source bytes only |
+| Tracked path                                                           | Classification                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `**/.github/copilot-instructions.md`                                   | Copilot / instructions / stored instructional text                                                     |
+| `**/.github/instructions/**/*.instructions.md`                         | Copilot / rules / stored instructional text                                                            |
+| `**/.github/prompts/*.prompt.md`                                       | Copilot / commands / stored instructional text                                                         |
+| `**/.github/agents/**/*.md`, except `README.md`                        | Copilot / agents / stored instructional text                                                           |
+| `.chatmode.md` files                                                   | inside `.github/agents`: Copilot / agents, `legacy: true`; in `.github/chatmodes`: source-only `other` |
+| `.github/skills/<name>/SKILL.md`                                       | Copilot / skills / stored instructional text, plus listing                                             |
+| Other files under `.github/skills/<name>/`                             | Copilot / skills / source bytes only                                                                   |
+| `**/REVIEW.md`                                                         | Claude / instructions, with Copilot as a conditional reader                                            |
+| `.github/hooks/*.json` at the root                                     | Copilot / settings / source bytes only                                                                 |
+| `.github/copilot/settings.json`, `.github/copilot/settings.local.json` | Copilot / settings / source bytes only                                                                 |
+| `**/.github/mcp.json`                                                  | Copilot / tools / source bytes only                                                                    |
+| `.vscode/mcp.json`                                                     | Copilot / tools / source bytes only                                                                    |
+| `.github/workflows/copilot-setup-steps.yml`                            | Copilot / settings / source bytes only                                                                 |
+| `.github/workflows/copilot-code-review.yml`                            | Copilot / settings / source bytes only                                                                 |
 
 The evidence and limits for each row follow.
 
@@ -141,13 +141,13 @@ MCP (Model Context Protocol) files declare tool servers an agent can call.
 
 These files belong to other providers. Copilot is added as a reader where its documentation says it reads them.
 
-| Tracked path | Label before Copilot | What changed |
-| --- | --- | --- |
-| `**/AGENTS.md` | shared, readers Claude, Codex, Cursor | `copilot` added to `readers`. "Nearest wins" is not resolved. |
-| Root `CLAUDE.md`, `.claude/CLAUDE.md`, root `GEMINI.md` | Claude; Gemini CLI | Owner unchanged. `readers` `["claude", "copilot"]` on `**/CLAUDE.md` (including `.claude/CLAUDE.md`) and `["copilot", "gemini"]` on `**/GEMINI.md`, the depth the CLI reads. `CLAUDE.local.md`, which GitHub does not list, gets none. |
-| `.claude/skills/<name>/`, `.agents/skills/<name>/` | Claude; shared, readers Codex, Gemini CLI | `copilot` added to the readers of both. |
-| Root `.mcp.json` | Claude / tools | `readers` `["claude", "copilot"]`. Nested `.mcp.json` files stay unrecognized. |
-| `.claude/rules/**/*.md`, `.claude/agents/**/*.md`, `.claude/settings*.json` | Claude | `.claude/agents` and `.claude/rules` get `readers` `["claude", "copilot"]`, except a `README.md`, which VS Code skips. `.claude/settings*.json` stays Claude-only, because Copilot reads only its `hooks` field. |
+| Tracked path                                                                | Label before Copilot                      | What changed                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `**/AGENTS.md`                                                              | shared, readers Claude, Codex, Cursor     | `copilot` added to `readers`. "Nearest wins" is not resolved.                                                                                                                                                                          |
+| Root `CLAUDE.md`, `.claude/CLAUDE.md`, root `GEMINI.md`                     | Claude; Gemini CLI                        | Owner unchanged. `readers` `["claude", "copilot"]` on `**/CLAUDE.md` (including `.claude/CLAUDE.md`) and `["copilot", "gemini"]` on `**/GEMINI.md`, the depth the CLI reads. `CLAUDE.local.md`, which GitHub does not list, gets none. |
+| `.claude/skills/<name>/`, `.agents/skills/<name>/`                          | Claude; shared, readers Codex, Gemini CLI | `copilot` added to the readers of both.                                                                                                                                                                                                |
+| Root `.mcp.json`                                                            | Claude / tools                            | `readers` `["claude", "copilot"]`. Nested `.mcp.json` files stay unrecognized.                                                                                                                                                         |
+| `.claude/rules/**/*.md`, `.claude/agents/**/*.md`, `.claude/settings*.json` | Claude                                    | `.claude/agents` and `.claude/rules` get `readers` `["claude", "copilot"]`, except a `README.md`, which VS Code skips. `.claude/settings*.json` stays Claude-only, because Copilot reads only its `hooks` field.                       |
 
 The Copilot evidence for each row:
 
