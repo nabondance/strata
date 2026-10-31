@@ -128,3 +128,34 @@ export function layoutTreemap(components: Component[], frame?: TreemapFrame): Tr
   }));
   return { groups, sourceOnlyCount, zeroTokenCount, totalTokens };
 }
+
+/**
+ * The names the treemap draws, one per path: a file's path, or a skill's directory for its main file. A name is the
+ * path's last segment. When another path ends in the same name, the name takes as many of its parent folders as it
+ * needs to differ from all of them, with `…` for the folders between the one that tells it apart and the name:
+ * `core/AGENTS.md`, `.claude/…/review`. A root-level file has no folder and keeps its name.
+ *
+ * The HTML report embeds this function's source; it may use only its argument.
+ */
+export function treemapNames(paths: readonly string[]): string[] {
+  const segments = paths.map((path) => path.split("/"));
+  const named = new Map<string, string[][]>();
+  for (const parts of segments) {
+    const name = parts.at(-1) ?? "";
+    named.set(name, [...(named.get(name) ?? []), parts]);
+  }
+  const tail = (parts: string[], count: number) => parts.slice(-count).join("/");
+  const full: string[] = [];
+  const labels = segments.map((parts) => {
+    const name = parts.at(-1) ?? "";
+    const others = (named.get(name) ?? []).filter((other) => other !== parts);
+    let count = 1;
+    while (count < parts.length && others.some((other) => tail(other, count) === tail(parts, count))) count += 1;
+    full.push(tail(parts, count));
+    return count <= 2 ? tail(parts, count) : `${parts.at(-count)}/…/${name}`;
+  });
+  // Leaving folders out can make two names alike again; those keep every folder they needed.
+  const uses = new Map<string, number>();
+  for (const label of labels) uses.set(label, (uses.get(label) ?? 0) + 1);
+  return labels.map((label, index) => ((uses.get(label) ?? 0) > 1 ? (full[index] ?? label) : label));
+}

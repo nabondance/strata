@@ -278,7 +278,7 @@ Safeguards:
 
 The count says only that the submodule holds files matching the path rules. Strata does not analyze them; the user can run Strata on the submodule instead. The result depends on which submodules are checked out, so the same commit can give different counts on different machines.
 
-The HTML report shows a warning above the timeline, and the command line prints a note. Both name at most five submodules with recognized files, and give only a count for those that could not be checked. Submodules without recognized files are left out, so vendored libraries add no noise. The command line escapes control characters in submodule paths. The static SVG image carries no submodule note.
+The HTML report shows a warning at the top of the page for submodules with recognized files, and the command line prints a note. Both name at most five of them. Submodules that could not be checked are only counted. A fresh clone leaves submodules uninitialized, so in the HTML report that count is a plain note after the measurement disclosure, not a warning. Submodules without recognized files are left out, so vendored libraries add no noise. The command line escapes control characters in submodule paths. The static SVG image carries no submodule note.
 
 #### Version 13: skill listings
 
@@ -680,12 +680,15 @@ The HTML report draws a treemap of the selected revision from the component meas
 
 ### Labels
 
-Interior labels use the skill directory name or the file name. They are checked against their rendered space, and again on resize. Names break only at hyphens, never mid-word. When a label does not fit:
+Interior labels use the skill directory name or the file name. When two rectangles at the revision would carry the same name, such as `AGENTS.md` in several packages or a skill kept under both `.claude/skills` and `.agents/skills`, each name takes as many parent folders as it needs to differ, with `…` for the folders between: `core/AGENTS.md`, `.claude/…/review`. A root-level file has no folder and keeps its name. `treemapNames` in `src/treemap.ts` makes these names; the report embeds it.
+
+Labels are checked against their rendered space, and again on resize. Names break only at hyphens, never mid-word. When a label does not fit:
 
 1. When both lines do not fit, the token count is removed.
 2. Then the name is reduced.
-3. Then it is cut to one small line ending in an ellipsis.
-4. It is removed only when even that cannot fit.
+3. Then a name with folders loses folder text from the left, behind an ellipsis, keeping the file or skill name whole and the last three letters of the folder that tells it apart.
+4. Then it is cut to one small line ending in an ellipsis. A name with folders keeps them at its start, so two rectangles of the same name still differ.
+5. It is removed only when even that cannot fit.
 
 A tall, narrow rectangle sets its name top to bottom rather than breaking it mid-word.
 
@@ -739,7 +742,9 @@ A shareable report replaces paths with aliases that have no folders, so its map 
 
 ## Report masthead
 
-The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, grouping, and scale as the chart beneath it. The layers use the chart's category colors and are decoration, hidden from assistive technology.
+The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, grouping, and scale as the chart beneath it, and a thin line marks the step holding the selected revision. The layers use the chart's category colors and are decoration, hidden from assistive technology.
+
+When no revision tracks a recognized file, the report keeps the masthead and replaces the panels, the provider tabs, and the measurement disclosure with one card. It says how many revisions were read, lists the main recognized paths, and explains that files elsewhere, such as a top-level `skills/` folder, are not read by the supported tools. A history whose configuration was removed later still draws every panel, each with its own empty message at the revisions that have none.
 
 - The headline face, Archivo under the SIL Open Font License, and the page icon are inlined as `data:` URLs. The Content-Security-Policy therefore allows fonts and images from `data:` only; the report still loads nothing from the network.
 - The Strata name in the masthead and footer links to the package's npm page. It is the report's only outbound link, is followed only on click, opens without a referrer, and is the same in every report, so it carries nothing about the analyzed repository.
@@ -761,7 +766,7 @@ The HTML report's masthead names the analyzed repository and holds the figures f
 - The measurement method and its limits sit behind a disclosure. Its visible label states that the figures describe what Git stores, not loaded session context.
 - With provider counts, that label also names each provider's method in one word: `API count` for `api-counted` (Anthropic documents its count endpoint as an estimate, so the report does not call it exact), `exact (local)` for `encoding-exact`, or `estimate`.
 - Opened, the disclosure shows one row per provider with the model, where the text was counted, and the credential source, or why the estimate was used. The full method is in the row's tooltip, and the selected view's provider is bold.
-- A shallow-clone warning, a warning naming submodules that were not analyzed, and the notice that a shareable report replaced names and paths stay visible outside the disclosure.
+- A shallow-clone warning, a warning naming submodules with recognized files that were not analyzed, and the notice that a shareable report replaced names and paths stay visible above the disclosure. The count of submodules that could not be checked is a plain note just after it.
 
 ## SVG image
 

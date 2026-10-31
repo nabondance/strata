@@ -33,6 +33,10 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
       treeLegend.replaceChildren();
       treemapLabels = [];
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
+      // A name another rectangle shares takes the folders that tell the two apart; a skill is named by its directory.
+      const labelled = layout.groups.flatMap((group) => group.leaves.map((leaf) => viewRevisions[selected].components[leaf.componentIndex]));
+      const names = treemapNames(labelled.map((component) => component.skill?.role === 'manifest' ? component.skill.root : component.path));
+      const leafNames = new Map(labelled.map((component, index) => [component, names[index]]));
       for (const group of layout.groups) {
         // The category's block shows through as the band holding its name and the seams between its files.
         const block = text('div', '', 'treemap-group');
@@ -67,11 +71,11 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
           }
           // Rectangles too small for even one short line stay unlabeled; fitTreemapLabels decides the rest.
           if (share.width >= 3.5 && share.height >= 5.5) {
-            const label = component.skill?.role === 'manifest' ? component.skill.root.split('/').at(-1) : component.path.split('/').at(-1);
+            const label = leafNames.get(component);
             const name = text('span', label, 'leaf-name');
             const size = text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size');
             button.append(name, size);
-            treemapLabels.push({ button, name, size });
+            treemapLabels.push({ button, name, size, label });
             if (share.width >= 28 && share.height >= 22 && share.width * share.height >= 700) button.classList.add('large');
           }
           const showDetail = () => { $('treemap-hover').textContent = detail; $('treemap-hover').classList.add('detail'); };
@@ -122,8 +126,9 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
 
     function fitTreemapLabels() {
       if (typeof getComputedStyle !== 'function') return;
-      for (const { button, name, size } of treemapLabels) {
+      for (const { button, name, size, label } of treemapLabels) {
         button.classList.remove('compact');
+        name.textContent = label;
         // A tall, narrow rectangle reads its name top to bottom instead of breaking it mid-word.
         const shape = button.getBoundingClientRect();
         if (shape.width < 90 && shape.height > shape.width * 1.8) button.classList.add('upright');
@@ -146,8 +151,27 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
         }
         if (!nameFits()) {
           name.style.fontSize = '11px';
+          // A name with folders gives up folder text from the left, keeping the file or skill name whole and the last
+          // few letters of the folder that tells it apart from another rectangle of the same name.
+          const most = label.indexOf('/') - Math.min(3, label.indexOf('/'));
+          if (!nameFits() && most > 0) {
+            const cut = (drop) => { name.textContent = '…' + label.slice(drop); return nameFits(); };
+            if (cut(most)) {
+              let fits = most;
+              let short = 1;
+              while (short < fits) {
+                const middle = Math.floor((short + fits) / 2);
+                if (cut(middle)) fits = middle;
+                else short = middle + 1;
+              }
+              cut(fits);
+            } else {
+              name.textContent = label;
+            }
+          }
           if (!nameFits()) {
-            // Last resort: one small line, cut short with an ellipsis.
+            // Last resort: one small line, cut short with an ellipsis. A name with folders keeps them at its start,
+            // so two rectangles of the same name still read differently.
             name.style.fontSize = '';
             button.classList.add('compact');
             [bottom, right] = inner();
