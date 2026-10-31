@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { expandRevisions } from "../dist/expand.js";
@@ -12,6 +10,7 @@ import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
 import { ruleUpFront } from "../dist/rule-loading.js";
 import { upFrontContext } from "../dist/up-front.js";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("reads from rule frontmatter whether a root rule loads at launch", () => {
   const claude = (text) => ruleUpFront(text, "claude");
@@ -41,22 +40,9 @@ test("reads from rule frontmatter whether a root rule loads at launch", () => {
 });
 
 test("separates what each agent lists up front from what it reads on demand", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-up-front-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    mkdirSync(join(repo, path, ".."), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-m", message);
-    return git("rev-parse", "HEAD");
-  };
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-up-front-");
   const estimate = (text) => Math.ceil(Buffer.byteLength(text) / 4);
   try {
-    git("init", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
     const body = "Steps that load only when the skill runs.\n".repeat(20);
     put("CLAUDE.md", "Root instructions.\n@docs/guide.md\n");
     put("docs/guide.md", "Guide imported at launch.\n");
@@ -196,25 +182,13 @@ test("separates what each agent lists up front from what it reads on demand", as
     );
     assert.match(cli.stderr, /2 rules Strata could not read are counted as when needed\./);
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });
 
 test("follows Claude imports up front and skips AGENTS.md beside any root Claude file", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-up-front-imports-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    mkdirSync(join(repo, path, ".."), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-m", message);
-  };
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-up-front-imports-");
   try {
-    git("init", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
     put("AGENTS.md", "Shared.\n");
     put("CLAUDE.local.md", "Personal notes.\n");
     commit("A local Claude file alone");
@@ -234,6 +208,6 @@ test("follows Claude imports up front and skips AGENTS.md beside any root Claude
     assert.equal(at(1).skipped, 0);
     assert.equal(at(1).onDemandTokens, 0);
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

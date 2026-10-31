@@ -21,30 +21,14 @@ import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 const cliPath = resolve("dist/cli.js");
 const strata = (args, options = {}) =>
   spawnSync(process.execPath, [cliPath, ...args], { encoding: "utf8", ...options });
 
-function fixture() {
-  const repo = mkdtempSync(join(tmpdir(), "strata-cli-"));
-  const git = (...args) =>
-    execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  const put = (path, content) => {
-    mkdirSync(dirname(join(repo, path)), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message, ...flags) => {
-    git("add", "-A");
-    git("commit", "-q", ...flags, "-m", message);
-    return git("rev-parse", "HEAD");
-  };
-  git("init", "-q", "-b", "main");
-  git("config", "user.name", "Strata Test");
-  git("config", "user.email", "strata-test@example.invalid");
-  git("config", "commit.gpgsign", "false");
-  return { repo, git, put, commit };
-}
+/** A new repository for one test, which removes it when done. */
+const fixture = () => syntheticRepo("strata-cli-");
 
 test("incremental history matches a full tree listing at every revision", async () => {
   const { repo, git, put, commit } = fixture();
@@ -57,7 +41,7 @@ test("incremental history matches a full tree listing at every revision", async 
     put(".claude/skills/review/SKILL.md", "Review the change.\n");
     put(".claude/skills/review/scripts/check.sh", "#!/bin/sh\n");
     commit("Add configuration");
-    commit("Empty commit", "--allow-empty");
+    commit("Empty commit", { flags: ["--allow-empty"] });
     put("src/index.js", "export const value = 1;\n");
     commit("Unrelated change");
     chmodSync(join(repo, ".claude/skills/review/scripts/check.sh"), 0o755);

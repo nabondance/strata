@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { getEncoding } from "js-tiktoken";
@@ -14,6 +14,7 @@ import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise
 import { redactReport } from "../dist/privacy.js";
 import { countRemoteText } from "../dist/provider-count.js";
 import { renderHtml } from "../dist/report.js";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 const cliPath = resolve("dist/cli.js");
 const noKeys = { ANTHROPIC_API_KEY: "", GEMINI_API_KEY: "", GOOGLE_API_KEY: "", GOOGLE_CLOUD_PROJECT: "" };
@@ -25,20 +26,15 @@ function fixture(
     "AGENTS.md": "Shared instructions.\n",
   },
 ) {
-  const repo = mkdtempSync(join(tmpdir(), "strata-precise-"));
-  const git = (...args) =>
-    execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  const put = (path, content) => {
-    mkdirSync(dirname(join(repo, path)), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  git("init", "-q", "-b", "main");
-  git("config", "user.name", "Strata Test");
-  git("config", "user.email", "strata-test@example.invalid");
-  git("config", "commit.gpgsign", "false");
-  for (const [path, content] of Object.entries(files)) put(path, content);
-  git("add", "-A");
-  git("commit", "-q", "-m", "Add instructions");
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-precise-");
+  try {
+    for (const [path, content] of Object.entries(files)) put(path, content);
+    commit("Add instructions");
+  } catch (error) {
+    // The caller removes the repository only once it has it.
+    cleanup();
+    throw error;
+  }
   return repo;
 }
 

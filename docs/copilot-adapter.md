@@ -196,7 +196,7 @@ The cost is the same as for Cursor: a team using Copilot with only `AGENTS.md` o
 
 ## Coverage
 
-The synthetic history in `test/analyze.test.mjs` runs through these phases:
+The synthetic history in `test/copilot-adapter.test.mjs` runs through these phases:
 
 1. It starts with Claude, Codex, and Gemini CLI files and ordinary `.github` files (a CI workflow, an issue template, a pull request template), and asserts that the report never mentions Copilot.
 2. It then adds:

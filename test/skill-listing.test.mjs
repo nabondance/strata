@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { getEncoding } from "js-tiktoken";
@@ -13,6 +12,7 @@ import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
 import { listingText, readFrontmatter } from "../dist/skill-listing.js";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("reads the listed name and description from the frontmatter subset", () => {
   const claude = (text, directory = "skill") => listingText(text, "claude", directory);
@@ -64,22 +64,9 @@ test("reads the listed name and description from the frontmatter subset", () => 
 });
 
 test("measures each manifest's listing separately from its stored tokens", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-listing-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    mkdirSync(join(repo, path, ".."), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-m", message);
-    return git("rev-parse", "HEAD");
-  };
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-listing-");
   const estimate = (text) => Math.ceil(Buffer.byteLength(text) / 4);
   try {
-    git("init", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
     const body = "Long instructions that only load when the skill runs.\n".repeat(20);
     put(".claude/skills/review/SKILL.md", `Review this project carefully.\n${body}`);
     put(".claude/skills/deploy/SKILL.md", `---\ndescription: Deploy\ndisable-model-invocation: true\n---\n${body}`);
@@ -234,6 +221,6 @@ test("measures each manifest's listing separately from its stored tokens", async
       getEncoding("o200k_base").encode("release\nPrepare and tag a release.").length,
     );
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

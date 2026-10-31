@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 /**
  * Run Strata with a `git` on the PATH that logs every object ID asked of `cat-file --batch`, and
@@ -58,29 +59,17 @@ function assertReadsEachBlobOnce(repo, base, head) {
 
 const bytes = (...lines) => lines.reduce((sum, line) => sum + Buffer.byteLength(line), 0);
 
-/** A repository whose commits get one dated day each, so periods and order are deterministic. */
+/** A repository whose commits, merges included, get one dated day each, so periods and order are deterministic. */
 function fixture(prefix) {
-  const repo = mkdtempSync(join(tmpdir(), prefix));
   let day = 0;
-  const env = () => {
-    const date = new Date(Date.UTC(2026, 0, 1 + day)).toISOString().replace(".000Z", "Z");
-    day += 1;
-    return { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+  const dated = (args) => {
+    if (args[0] === "commit" || args[0] === "merge") day += 1;
+    const date = new Date(Date.UTC(2026, 0, day)).toISOString().replace(".000Z", "Z");
+    return { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
   };
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", env: env() }).trim();
-  const put = (path, content) => {
-    mkdirSync(join(repo, path, ".."), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-q", "-m", message);
-  };
-  git("init", "-q", "-b", "main");
-  git("config", "user.name", "Strata Test");
-  git("config", "user.email", "strata-test@example.invalid");
-  git("config", "core.autocrlf", "false");
-  return { repo, git, put, commit, cleanup: () => rmSync(repo, { recursive: true, force: true }) };
+  const repository = syntheticRepo(prefix, { env: dated });
+  repository.git("config", "core.autocrlf", "false");
+  return repository;
 }
 
 test("dates instruction lines by the revision they appeared at and follows them across files", async () => {
