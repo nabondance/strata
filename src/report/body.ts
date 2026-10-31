@@ -49,9 +49,14 @@ export function reportBody(report: Report): string {
     <section class="panel">
       <div class="panel-head"><h2>Stored instruction history</h2><div class="revision" id="revision"></div></div>
       <div class="legend" id="legend"></div>
-      <div class="chart-scroll"><div class="chart" id="chart"></div></div>
-      <input id="slider" type="range" aria-label="Select revision">
-      <div class="timeline-meta"><span id="timeline-start"></span><span id="timeline-end"></span></div>
+      <div class="history-plot" id="history-plot">
+        <div class="history-ticks" id="chart-ticks" aria-hidden="true"></div>
+        <div class="chart-scroll"><div class="chart" id="chart"></div></div>
+        <div class="history-tip" id="chart-tip" aria-hidden="true" hidden></div>
+        <input id="slider" type="range" aria-label="Select revision">
+        <div class="timeline-meta"><span id="timeline-start"></span><span class="history-dates" id="timeline-dates" aria-hidden="true"></span><span id="timeline-end"></span></div>
+        <p class="history-steps" id="chart-steps" hidden></p>
+      </div>
     </section>
     <section class="panel" aria-labelledby="treemap-heading">
       <h2 id="treemap-heading">Configuration at this revision</h2>
@@ -107,14 +112,15 @@ export function reportBody(report: Report): string {
         <label>Baseline revision<select id="baseline"></select></label>
         <label>Target revision<select id="target"></select></label>
       </div>
+      <p class="muted compare-span" id="compare-span"></p>
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${adjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
-        <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span id="compare-kept-label">Instruction text kept</span><strong id="compare-kept"></strong></span>
+        <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span id="compare-kept-label">Instruction text kept</span><strong id="compare-kept"></strong><small class="compare-kept-bytes" id="compare-kept-bytes"></small></span>
         <span id="compare-mcp-wrap" hidden>MCP servers<strong id="compare-mcp"></strong></span>
         <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Skill summary tokens</span><strong id="compare-listing"></strong></span>
       </div>
-      <p class="muted" id="compare-mcp-names" hidden></p>
+      <div class="muted compare-mcp-names" id="compare-mcp-names" hidden></div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>

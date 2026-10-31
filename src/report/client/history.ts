@@ -1,4 +1,4 @@
-/** The legend, the stacked history chart and masthead silhouette, the slider, and the revision selects. */
+/** The legend, the stacked history chart with its axes and hover card, the masthead silhouette, and the slider. */
 export const historyScript = `    function renderLegend() {
       const legend = $('legend');
       legend.replaceChildren();
@@ -38,9 +38,14 @@ export const historyScript = `    function renderLegend() {
       $('files-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
 
+    // Axis labels in the SVG image's style: 20K, 1.5M.
+    const compactFormat = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+    const bucketRange = (bucket) => bucket.start === bucket.end ? 'Revision ' + fmt(bucket.end + 1) : 'Revisions ' + fmt(bucket.start + 1) + '–' + fmt(bucket.end + 1);
+
     function renderChart() {
       const chart = $('chart');
       chart.replaceChildren();
+      $('chart-tip').hidden = true;
       chartBuckets = [];
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
@@ -48,15 +53,22 @@ export const historyScript = `    function renderLegend() {
       slider.min = chartStart;
       chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
+      // The scale covers every charted revision, not only the last of each step, and changes with the view and measure.
+      const scale = timelineScale(max);
+      $('chart-ticks').replaceChildren(...scale.ticks.map((value) => {
+        const tick = text('span', '', 'history-tick');
+        tick.style.bottom = (value / scale.top * 210).toFixed(1) + 'px';
+        tick.append(text('span', compactFormat.format(value)));
+        return tick;
+      }));
       for (const bucket of buckets) {
         const revision = viewRevisions[bucket.end];
         const button = text('button', '', 'bar');
         button.type = 'button';
-        const range = bucket.start === bucket.end ? 'Revision ' + (bucket.end + 1) : 'Revisions ' + (bucket.start + 1) + '–' + (bucket.end + 1);
-        button.title = range + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + inlineStat() + ' at end';
-        button.setAttribute('aria-label', 'Select ' + range + ', ending ' + revision.date.slice(0, 10));
+        // The hover card shows this at once, so a native title would only repeat it late.
+        button.setAttribute('aria-label', bucketRange(bucket) + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + inlineStat() + ' at ' + (bucket.start === bucket.end ? 'this revision' : 'the last one'));
         const stack = text('span', '', 'stack');
-        stack.style.height = Math.max(2, revision.estimatedTokens / max * 210) + 'px';
+        stack.style.height = Math.max(2, revision.estimatedTokens / scale.top * 210) + 'px';
         for (const category of categories) {
           const amount = revision.categoryTotals[category].estimatedTokens;
           if (!amount) continue;
@@ -74,6 +86,15 @@ export const historyScript = `    function renderLegend() {
         chart.append(button);
         chartBuckets.push({ ...bucket, button });
       }
+      // Calendar boundaries between the end dates; CSS keeps only the middle one on a narrow screen.
+      $('timeline-dates').replaceChildren(...timelineDateTicks(buckets.map((bucket) => viewRevisions[bucket.end].date)).map((tick) => {
+        const label = text('span', tick.label, tick.primary ? 'primary' : '');
+        label.style.left = (tick.at / buckets.length * 100).toFixed(2) + '%';
+        return label;
+      }));
+      const charted = viewRevisions.length - chartStart;
+      $('chart-steps').hidden = buckets.length >= charted;
+      $('chart-steps').textContent = fmt(charted) + ' revisions shown as ' + fmt(buckets.length) + ' steps; each step shows the last revision in its group.';
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
       // The masthead's lower edge repeats the chart as stepped layers.
@@ -99,7 +120,7 @@ export const historyScript = `    function renderLegend() {
 
     const slider = $('slider');
 
-    /** Wires the slider, the chart's arrow keys, and the revision selects. */
+    /** Wires the slider, the chart's arrow keys and hover card, and the revision selects. */
     function setupHistory() {
       slider.max = revisions.length - 1;
       // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
@@ -115,16 +136,49 @@ export const historyScript = `    function renderLegend() {
         render(bucket.end);
         bucket.button.focus();
       });
-      $('baseline').append(text('option', 'Previous revision'));
-      $('baseline').children[0].value = 'previous';
-      for (const [index, revision] of revisions.entries()) {
-        const label = (index + 1) + ' · ' + revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8);
-        for (const id of ['baseline', 'target']) {
-          const option = text('option', label);
-          option.value = String(index);
-          $(id).append(option);
-        }
+      // The hover card follows the pointer, and a focused bar shows it too, so the keyboard reads the same figures.
+      const barAt = (target) => chartBuckets.find((bucket) => bucket.button === target?.closest?.('.bar'));
+      $('chart').addEventListener('pointermove', (event) => {
+        const bucket = barAt(event.target);
+        if (bucket) showChartTip(bucket, event.clientX);
+      });
+      $('chart').addEventListener('pointerleave', () => { $('chart-tip').hidden = true; });
+      $('chart').addEventListener('focusin', (event) => {
+        const bucket = barAt(event.target);
+        if (!bucket) return;
+        const bar = bucket.button.getBoundingClientRect();
+        showChartTip(bucket, (bar.left || 0) + (bar.width || 0) / 2);
+      });
+      $('chart').addEventListener('focusout', () => { $('chart-tip').hidden = true; });
+      setupComparison();
+    }
+
+    /** The hover card: the revisions a bar covers, the date it shows, and its tokens by category, top layer first. */
+    function showChartTip(bucket, clientX) {
+      const tip = $('chart-tip');
+      const revision = viewRevisions[bucket.end];
+      const steps = bucket.end - bucket.start + 1;
+      const rows = [text('b', bucketRange(bucket)), text('span', revision.date.slice(0, 10) + (steps > 1 ? ' · the last of these ' + fmt(steps) : ''), 'history-tip-date')];
+      for (const category of [...categories].reverse()) {
+        const amount = revision.categoryTotals[category].estimatedTokens;
+        if (!amount) continue;
+        const row = text('span', category, 'history-tip-row');
+        const swatch = text('i', '', 'swatch');
+        swatch.style.background = colors[category];
+        row.prepend(swatch);
+        row.append(text('b', fmt(amount)));
+        rows.push(row);
       }
-      $('baseline').addEventListener('change', () => { baseline = $('baseline').value === 'previous' ? 'previous' : Number($('baseline').value); renderComparison(); });
-      $('target').addEventListener('change', () => render(Number($('target').value)));
+      const total = text('span', 'Total ' + inlineStat(), 'history-tip-row history-tip-total');
+      total.append(text('b', fmt(revision.estimatedTokens)));
+      rows.push(total);
+      tip.replaceChildren(...rows);
+      tip.hidden = false;
+      // Beside the pointer, on the side with more room, and inside the plot.
+      const plot = $('history-plot').getBoundingClientRect();
+      const width = plot.width || 0;
+      const x = clientX - (plot.left || 0);
+      const tipWidth = tip.offsetWidth || 0;
+      const left = x > width / 2 ? Math.max(0, x - 14 - tipWidth) : Math.min(Math.max(0, width - tipWidth), x + 14);
+      tip.style.left = left.toFixed(0) + 'px';
     }`;

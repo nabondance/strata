@@ -77,7 +77,7 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     get("baseline").listeners.change();
     assert.deepEqual(marked(chart.children), atTwo);
     assert.deepEqual(marked(get("chart").children), atTwo);
-    assert.match(get("compare-kept").textContent, /^100% of /);
+    assert.equal(get("compare-kept").textContent, "100%");
     get("provider-tabs").children[1].listeners.click();
     assert.deepEqual(marked(get("chart").children), atTwo);
     assert.deepEqual(marked(chart.children), atTwo);

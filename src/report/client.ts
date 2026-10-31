@@ -8,7 +8,7 @@ import type { Report } from "../model.js";
 import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "../palette.js";
 import { providerName } from "../provider-counting.js";
 import { providerReads, viewRevision } from "../provider-view.js";
-import { timelineBuckets } from "../timeline.js";
+import { timelineBuckets, timelineDateTicks, timelineScale } from "../timeline.js";
 import { layoutTreemap } from "../treemap.js";
 import { sessionProviderNames, upFrontContext } from "../up-front.js";
 import { ageScript } from "./client/age.js";
@@ -72,6 +72,8 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     const providerReads = ${readsSource};
     const viewRevision = ${viewSource};
     const timelineBuckets = ${timelineSource};
+    const timelineScale = ${timelineScale.toString()};
+    const timelineDateTicks = ${timelineDateTicks.toString()};
     const importLinks = ${importsSource};
     const upFrontContext = ${upFrontSource};
     const configMap = ${mapSource};

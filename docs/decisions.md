@@ -626,15 +626,18 @@ The offline HTML report compares any two revisions present in the report. Schema
 ### Choosing the revisions
 
 - The timeline and the target selector refer to the same revision.
-- The baseline selector starts on "Previous revision", which follows the target, so the comparison lists what the selected revision changed. Once a specific revision is chosen, the baseline stays fixed.
+- The baseline selector starts on "Previous change", which follows the target: it is the revision before the latest revision, at or before the target, whose `changes` are not empty in the current view. So the comparison lists the latest change, also when the selected revision changed nothing, which on a long history is most of them. A line under the selectors names that revision. "Previous revision" is the revision just before the target. Once a specific revision is chosen, the baseline stays fixed, and it is marked on both charts; "Previous change" is marked too.
 - Before the first revision, the baseline is empty.
+- The selectors list the first revision, the latest, and every revision with a non-empty `changes`, grouped by month when there are more than 50. A revision chosen on the chart or slider that is not listed is shown first in the target selector while it is selected.
 - There is no separate list of changes at the selected revision. Like any comparison, this one shows a rename as a removal plus an addition and says so; the treemap's detail line still names a rename.
 
 ### History chart and slider
 
-- The chart is capped at 100 bars. When needed it groups adjacent revisions and displays the last revision in each group. Each bar's tooltip and accessible name give the revision numbers it covers.
+- The chart is capped at 100 bars. When needed it groups adjacent revisions and displays the last revision in each group, and a line under the chart says so with the SVG image's wording. A hover card, also shown for the focused bar, and each bar's accessible name give the revision numbers it covers, its date, and its tokens; the card splits them by category.
+- The value axis has three to five round gridlines (steps of 1, 2, 2.5, or 5 times a power of ten, as in the SVG image) labeled in compact form (20K). It covers every charted revision in the current view and measure, so it is redrawn with a provider tab. Between the end dates, up to four labels mark month, quarter, half-year, or year boundaries, the finest that fits, at least 12% of the width from each other and from the ends; on a narrow screen only one near the middle stays. Bars are revisions, not equal spans of time, so these labels are not evenly spaced.
+- The selected bar keeps its stack in full color: a faint column behind it, a cap above it, and a mark under the axis.
 - The chart starts at the first revision that has a tracked file in the current view, and the date under its left edge is that revision's. Otherwise a repository that adopted agent configuration late would spend most of its bars on nothing.
-- The slider covers the charted revisions, so it stays aligned with the bars. The baseline and target selectors still address every revision.
+- The slider covers the charted revisions, so it stays aligned with the bars. The baseline and target selectors list every revision that changed something, including those before the chart starts.
 - While the slider is dragged, the summary, chart selection, legend, and treemap follow it immediately. The file inventory, comparison tables, imports table, and configuration map, which can hold thousands of rows, are redrawn once the slider settles or is released.
 - Panels are not redrawn when moving between revisions that share the same inventory.
 - The timeline legend gives each category's stored-text tokens at the selected revision, or its file count when the category is source-only. A source-only category's swatch is hollow, since nothing is drawn in its color. Selecting the entry opens the file list filtered to that category. There is no separate composition table.
@@ -643,7 +646,7 @@ The offline HTML report compares any two revisions present in the report. Schema
 
 - Signed differences in estimated stored-text tokens and tracked file counts, grouped by provider and category. Groups with no difference are left out.
 - No token percentage: it can be derived from the two totals and is meaningless against a zero-token baseline.
-- Since version 19, one share, "Instruction text kept": the share of the baseline's instruction bytes still present at the target, always over all files (see [Instruction age](#instruction-age)). It is hidden when the baseline has no instruction text or is not before the target. A fixed baseline is marked on the instruction age chart as on the history chart.
+- Since version 19, one share, "Instruction text kept": the share of the baseline's instruction bytes still present at the target, always over all files (see [Instruction age](#instruction-age)). The share is the headline and the baseline's byte count is named under it, since the method counts bytes, not tokens. It is hidden when the baseline has no instruction text or is not before the target. A fixed baseline is marked on the instruction age chart as on the history chart.
 - The per-component change table omits file-count deltas, because a single matched path can only be added (+1), removed (-1), or edited (0). Aggregate file deltas remain in the provider/category and summary comparisons.
 
 ### Provider views
