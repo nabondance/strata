@@ -226,7 +226,7 @@ The lists are `shareableConventions` in `src/privacy.ts`. A test analyzes one hi
 
 These stay visible: dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
 
-These stay visible: the `--ignore` patterns in `ignore`, verbatim, because the user typed them rather than Strata reading them from the repository (a pattern that names a private path discloses it, so choose patterns with that in mind); dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
+Also visible: the `--ignore` patterns in `ignore`, verbatim, because the user typed them rather than Strata reading them from the repository (a pattern that names a private path discloses it, so choose patterns with that in mind); dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
 
 Some labels narrow an alias down to a well-known path:
 
