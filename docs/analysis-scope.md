@@ -185,7 +185,7 @@ At each revision, Strata reads the tracked `.gemini/settings.json` at the reposi
 
 - When `context.fileName` (or its older name, `contextFileName`) is set, the revision's `geminiContextFiles` records which of `AGENTS.md` (`agents-md`) and `GEMINI.md` (`gemini-md`) it names. The Gemini view and Gemini provider totals for that revision include exactly those context files, at any depth.
 - Without that setting, only `GEMINI.md` is included.
-- `AGENTS.md` and `GEMINI.md` components carry the matching `contextFile` label, so the decision does not depend on paths and survives `--shareable`, which replaces paths with aliases.
+- `AGENTS.md` and `GEMINI.md` components carry the matching `contextFile` label, so the decision does not depend on paths and survives `--shareable`, which replaces folder and file names with aliases.
 - A `GEMINI.md` the settings leave out stays labeled Gemini and is counted once in All files.
 
 Strata does not resolve:
@@ -371,5 +371,5 @@ The HTML comparison view can compare any two sampled revisions, including a targ
 - The SVG image contains only the repository and branch names, dates, category labels, and totals. With `--minimal`, it contains only the layer shapes and, in its accessible description, the latest totals.
 - The default HTML and JSON contain full commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no file contents.
 - `--precise`, when it finds a credential, sends recognized instruction text to the named services during analysis. `--shareable` changes report identifiers but does not change that transfer.
-- `--shareable` replaces the repository and branch names, commit IDs, paths (including import targets), skill roots, and blob IDs with deterministic aliases, local to that report. It keeps dates and measurements. These values can still reveal the shape and timing of a project, so inspect reports before sharing them.
+- `--shareable` replaces the repository and branch names, commit IDs, MCP server names, and blob IDs with deterministic aliases, local to that report. In paths (including import targets, skill roots, and submodule paths) it aliases each folder name and file stem and keeps tool convention names and file extensions, so the folder tree stays. It keeps dates and measurements. These values can still reveal the shape and timing of a project, so inspect reports before sharing them.
 - Use `--output` to choose where the report is written. Strata does not write to the repository it analyzes unless that path is chosen explicitly.

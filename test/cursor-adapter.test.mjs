@@ -258,7 +258,8 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
     // The legacy label is not a path, so a shareable report keeps it.
     const shareable = redactReport(report);
     assert.equal(shareable.components.filter((component) => component.legacy).length, 1);
-    assert.ok(!JSON.stringify(shareable).includes(".cursorrules"));
+    // `.cursorrules` is a Cursor convention, not a name the repository chose, so it stays.
+    assert.equal(shareable.components.find((component) => component.legacy).path, ".cursorrules");
 
     const { get } = loadReportUi(renderHtml(report));
     const cursorTab = get("provider-tabs").children.find((child) => child.textContent === "Cursor + shared");

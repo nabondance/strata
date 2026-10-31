@@ -211,10 +211,18 @@ The second revision touched no recognized file, so it leaves out `firstParent` (
 
 - repository and branch names;
 - commit and first-parent IDs;
-- component and change paths;
-- import targets and `symlinkTarget`s, with the same aliases as paths, including targets no file has, such as a package name;
-- skill roots, MCP server names, and submodule paths;
+- folder names and file stems in component and change paths, `previousPath`s, import targets and `symlinkTarget`s (including targets no file has, such as a package name), skill roots, and submodule paths;
+- MCP server names;
 - blob IDs.
+
+Paths are aliased one segment at a time, so a shareable report keeps the folder tree: which folder holds the weight, how deep a skill sits, which files are nested `AGENTS.md`. `redactReport` in `src/privacy.ts` applies one rule to every path the report holds:
+
+- A segment that is a tool convention stays as it is, wherever it appears: the recognized file and folder names from [the analysis scope](analysis-scope.md#recognized-paths), such as `CLAUDE.md`, `AGENTS.md`, `SKILL.md`, `.mcp.json`, `settings.json`, `.claude`, `.github`, `skills`, `rules`, and `agents`, and the `scripts`, `references`, and `assets` folders the Agent Skills format names. They are public, so they reveal nothing the repository chose. A folder that happens to share such a name, such as a package called `skills`, keeps it too.
+- Every other folder name gets an alias `d1`, `d2`, …, and every other file name keeps its suffix and gets an alias for its stem, `f1`, `f2`, …: `packages/core/AGENTS.md` and `packages/server/AGENTS.md` become `d1/d2/AGENTS.md` and `d1/d3/AGENTS.md`, and `.claude/skills/deploy/scripts/check.py` becomes `.claude/skills/d4/scripts/f1.py`. The kept suffix is the longest of the Copilot suffixes (`.instructions.md`, `.prompt.md`, `.agent.md`, `.chatmode.md`) and a list of common extensions that the name ends with; a name that ends with none of them is aliased whole.
+- One name gets one alias everywhere in the report, so `packages/server` and an import of `packages/server/CLAUDE.md` stay the same folder. Aliases hold no dot and no convention name looks like one, so two different paths never share an alias, even when the repository has a folder named `d1`.
+- Aliases are numbered in the order the history first mentions each name, which the report already shows, rather than in the names' alphabetical order, and padded so that they sort in that order. The component table is reordered by aliased path, so it stays ordered by path.
+
+The lists are `shareableConventions` in `src/privacy.ts`. A test analyzes one history and checks that the shareable and local reports draw the same configuration map tree, with the same folder depths, file counts, categories, and totals at every revision, and that no name the repository chose appears in the shareable JSON or HTML.
 
 These stay visible: dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
 
@@ -224,26 +232,28 @@ Some labels narrow an alias down to a well-known path:
 - Claude `tools` is only the root `.mcp.json`.
 - `upFront` is set only on a few root file names and on rules in the root `.claude/rules` and `.cursor/rules`.
 
+The kept convention names already show most of these paths, and the folder tree shows how many folders and files a project has and how deep they sit.
+
 The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect a report before publishing it.
 
 ### Schema versions
 
-| Version | Adds                                                                                                                                                                                            |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`                                                                                                                       |
-| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))                                                                                                             |
-| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared`                                                                                                           |
-| 11      | `estimate` provider counts and the `--precise` metadata fields                                                                                                                                  |
-| 12      | `submodules`                                                                                                                                                                                    |
-| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                                                                                                                             |
-| 14      | the `cursor` provider and `legacy`                                                                                                                                                              |
-| 15      | the `copilot` provider and `REVIEW.md`                                                                                                                                                          |
-| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                                                                                                                                 |
-| 17      | `upFront`                                                                                                                                                                                       |
-| 18      | `mcp`                                                                                                                                                                                           |
-| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                                                                                                                             |
-| 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                      |
-| 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths |
+| Version | Adds                                                                                                                                                                                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`                                                                                                                                                            |
+| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))                                                                                                                                                  |
+| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared`                                                                                                                                                |
+| 11      | `estimate` provider counts and the `--precise` metadata fields                                                                                                                                                                       |
+| 12      | `submodules`                                                                                                                                                                                                                         |
+| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                                                                                                                                                                  |
+| 14      | the `cursor` provider and `legacy`                                                                                                                                                                                                   |
+| 15      | the `copilot` provider and `REVIEW.md`                                                                                                                                                                                               |
+| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                                                                                                                                                                      |
+| 17      | `upFront`                                                                                                                                                                                                                            |
+| 18      | `mcp`                                                                                                                                                                                                                                |
+| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                                                                                                                                                                  |
+| 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                                                           |
+| 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths; shareable paths aliased per segment |
 
 #### Version 8: provider counts
 
@@ -430,6 +440,8 @@ Version 21 also changes how Claude imports are read and stored; see [Claude impo
 - An import whose target is a Git symlink somewhere in the history carries `symlinkTarget`, the file the link leads to, and resolves to that file where the target has none. Version 20 and earlier report such an import `missing`.
 
 The same history can therefore reach more files, with larger totals, and list fewer imports as missing. The `strata diff` JSON goes to version 14 for the same reason.
+
+Version 21 also changes shareable paths; see [Shareable reports](#shareable-reports). Version 20 and earlier replaced each whole path with one alias such as `file-00001`, skill roots with `skill-00001`, and submodule paths with `submodule-00001`, so a shareable report had no folders. Version 21 aliases each folder name and file stem and keeps tool convention names and file extensions, so the folder tree survives.
 
 ## MCP servers
 
@@ -786,7 +798,7 @@ The map has two relationships and labels them as such:
 - Rows are a fixed height, so lines are placed without measuring the page.
 - On a narrow screen the line gutter narrows and row tags are hidden; the detail line and accessible name still give them.
 
-A shareable report replaces paths with aliases that have no folders, so its map is a flat list with the same lines. The map is not an execution architecture: it does not show which files a session loaded, and it does not show configuration outside the repository.
+A shareable report aliases folder and file names one segment at a time, so its map has the same folders, rows, and lines, under aliased names. The map is not an execution architecture: it does not show which files a session loaded, and it does not show configuration outside the repository.
 
 ## Report masthead
 

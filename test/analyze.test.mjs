@@ -12,7 +12,7 @@ import { compactRevisions, expandRevisions, fillRevisions } from "../dist/expand
 import { summarize } from "../dist/inventory.js";
 import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
-import { redactReport } from "../dist/privacy.js";
+import { redactReport, shareableConventions } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { clientScript, panelScripts } from "../dist/report/client.js";
 import { renderHtml } from "../dist/report.js";
@@ -516,15 +516,25 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(shareable.privacy.mode, "shareable");
     assert.equal(report.privacy.mode, "local");
     const shareableRevisions = expandRevisions(shareable);
-    assert.match(shareable.components[0].path, /^file-\d{5}$/);
-    assert.match(shareableRevisions[0].skillGroups[0].root, /^skill-\d{5}$/);
-    assert.match(shareableRevisions[0].skillGroups[0].manifestPath, /^file-\d{5}$/);
+    // Paths keep their folders and convention names; every other folder name and file stem is an alias.
+    for (const component of shareable.components) {
+      for (const segment of component.path.split("/")) {
+        assert.ok(shareableConventions.names.has(segment) || /^[df]\d+(\.[a-z.]+)?$/.test(segment), segment);
+      }
+    }
+    assert.ok(shareable.components.some((component) => /^d\d+\/d\d+\/GEMINI\.md$/.test(component.path)));
+    assert.match(shareableRevisions[0].skillGroups[0].root, /^\.(agents|claude|gemini)\/skills\/d\d+$/);
+    assert.match(
+      shareableRevisions[0].skillGroups[0].manifestPath,
+      /^\.(agents|claude|gemini)\/skills\/d\d+\/SKILL\.md$/,
+    );
+    assert.doesNotMatch(
+      shareableJson,
+      /packages|app\/|release|orphan|reviewer|permissions|checklist|example|icon|odd|notes/,
+    );
     for (const revision of revisions) {
       assert.ok(!shareableJson.includes(revision.id));
-      for (const component of revision.components) {
-        assert.ok(!shareableJson.includes(component.path));
-        assert.ok(!shareableJson.includes(component.blob));
-      }
+      for (const component of revision.components) assert.ok(!shareableJson.includes(component.blob));
     }
     assert.ok(!shareableJson.includes(report.repository));
     assert.equal(shareable.revisions.at(-1).estimatedTokens, revisions.at(-1).estimatedTokens);

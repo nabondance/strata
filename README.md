@@ -107,7 +107,7 @@ Strata is clear about what it cannot tell you. It measures the text **stored in 
 - **Read-only.** Strata reads tracked Git blobs. It never touches your working tree, index, or history.
 - **Offline.** Strata uses no network unless you ask for precise token counts from the providers with `--precise`. That option uses your signed-in [`ant`](https://github.com/anthropics/anthropic-cli) or `gcloud` account, or an API key, and tells you what it sent where ([setup](docs/usage.md#precise-counts)).
 - **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions. The one token they keep from the text is the target of a Claude `@path` import written as a path (with a `/` or a file extension such as `.md`), so a broken import can be named; a bare `@word` that names no file is not kept.
-- **Shareable mode.** `--shareable` replaces repository and branch names, paths, and commit IDs with stable aliases before you send a report to someone else.
+- **Shareable mode.** `--shareable` replaces repository and branch names, folder and file names, and commit IDs with stable aliases before you send a report to someone else, and keeps the folder tree and tool names such as `.claude` and `AGENTS.md`.
 
 ## Usage
 
@@ -244,7 +244,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 - **For skills:** the part an agent keeps in context before a skill is used, which is the name and description at the top of the skill file (its _frontmatter_).
 - **For each agent:** what it keeps from the start of a session opened at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions), shown separately from what it reads later on demand.
 
-**Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, paths, and commit IDs with aliases. Check the report before you send it.
+**Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, folder and file names, and commit IDs with aliases; the folder tree and tool names such as `AGENTS.md` stay. Check the report before you send it.
 
 ## Learn more
 

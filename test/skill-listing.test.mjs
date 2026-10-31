@@ -125,11 +125,12 @@ test("measures each manifest's listing separately from its stored tokens", async
     assert.equal(codexView.skillListingTokens, listing(".agents/skills/release/SKILL.md").tokens);
     assert.equal(codexView.skillListingUnresolved, 1);
 
-    const shareable = redactReport(report);
-    assert.deepEqual(
-      shareable.components.flatMap((component) => (component.skill?.listing ? [component.skill.listing] : [])),
-      report.components.flatMap((component) => (component.skill?.listing ? [component.skill.listing] : [])),
-    );
+    // Aliased paths sort differently, so the listings are compared in any order.
+    const listings = (subject) =>
+      subject.components
+        .flatMap((component) => (component.skill?.listing ? [JSON.stringify(component.skill.listing)] : []))
+        .sort();
+    assert.deepEqual(listings(redactReport(report)), listings(report));
     assert.doesNotMatch(JSON.stringify(report), /Review this project|Prepare a release/);
 
     const html = renderHtml(report);

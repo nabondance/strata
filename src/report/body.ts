@@ -41,7 +41,7 @@ export function reportBody(report: Report): string {
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
     <p class="notice warning" id="submodules" hidden></p>
-    ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: names, paths, and IDs are replaced with aliases.</p>' : ""}
+    ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: repository, folder, file, and server names and IDs are replaced with aliases. Tool convention names such as <code>.claude</code> and <code>AGENTS.md</code> are kept.</p>' : ""}
     <section class="panel empty-state" id="empty-state" aria-labelledby="empty-heading" hidden></section>
     <details class="notice" id="counting-notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
     <p class="notice submodule-note" id="submodules-unchecked" hidden></p>

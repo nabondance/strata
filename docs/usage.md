@@ -221,7 +221,7 @@ ant auth status                      # shows the active profile
 
 ## Shareable reports
 
-In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and file paths, skill directory names, MCP server names, commit IDs, and blob IDs with numbered aliases. The aliases are deterministic, so the same history always gets the same aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
+In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and MCP server names, commit IDs, and blob IDs with numbered aliases. Paths are aliased one folder or file name at a time, so the report keeps its folder tree: `packages/core/AGENTS.md` becomes something like `d1/d2/AGENTS.md`. Folder names get aliases `d1`, `d2`, …, file names keep their extension and get `f1`, `f2`, … for the rest, and tool convention names such as `.claude`, `skills`, `AGENTS.md`, and `SKILL.md` stay as they are. One name gets the same alias everywhere in a report, and the same history always gets the same aliases. Dates, labels, measurements, and the shape of the folder tree remain visible, so inspect a report before sharing it. `strata diff` has no shareable mode.
 
 ## The interpretation skill
 
