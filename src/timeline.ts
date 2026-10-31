@@ -57,7 +57,8 @@ export interface TimelineDateTick {
  * Labels for the calendar boundaries inside a timeline, given the date of each bar. It takes the finest of months,
  * quarters, half-years, years, or longer that gives at most `maxTicks` labels, and keeps labels apart from each other
  * and from the dates already printed at both ends. Bars are revisions, not equal stretches of time, so boundaries can
- * crowd where few revisions span a long time; those are dropped.
+ * crowd where few revisions span a long time; those are dropped. A bar is a boundary when its period is later than the
+ * previous bar's, not later than every bar before it, so a single out-of-order date does not hide the labels after it.
  * The HTML report embeds this function's source, so it must stay self-contained.
  */
 export function timelineDateTicks(dates: readonly string[], maxTicks = 4): TimelineDateTick[] {
@@ -66,12 +67,12 @@ export function timelineDateTicks(dates: readonly string[], maxTicks = 4): Timel
   const months = dates.map((date) => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1);
   for (const step of [1, 3, 6, 12, 24, 60, 120]) {
     const ticks: TimelineDateTick[] = [];
-    let seen = Math.floor((months[0] ?? 0) / step);
     let last = 0;
     for (let index = 1; index < count; index += 1) {
+      // A boundary is a bar in a later period than the bar before it. Dates need not increase (clock skew, a rebase),
+      // so one early bar with a late date only costs its own label, and a step back in time is not labeled.
       const period = Math.floor((months[index] as number) / step);
-      if (period <= seen) continue;
-      seen = period;
+      if (period <= Math.floor((months[index - 1] as number) / step)) continue;
       const position = index / count;
       if (position < gap || position > 1 - gap || position - last < gap) continue;
       const month = period * step;
