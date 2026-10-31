@@ -9,16 +9,18 @@ import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "..
 import { providerName } from "../provider-counting.js";
 import { providerReads, viewRevision } from "../provider-view.js";
 import { timelineBuckets } from "../timeline.js";
-import { layoutTreemap } from "../treemap.js";
+import { layoutTreemap, treemapNames } from "../treemap.js";
 import { sessionProviderNames, upFrontContext } from "../up-front.js";
 import { ageScript } from "./client/age.js";
 import { compareScript } from "./client/compare.js";
+import { emptyScript } from "./client/empty.js";
 import { filesScript } from "./client/files.js";
 import { historyScript } from "./client/history.js";
 import { importsScript } from "./client/imports.js";
 import { labelsScript } from "./client/labels.js";
 import { mapScript } from "./client/map.js";
 import { renderScript } from "./client/render.js";
+import { silhouetteScript } from "./client/silhouette.js";
 import { skillsScript } from "./client/skills.js";
 import { startScript } from "./client/start.js";
 import { stateScript } from "./client/state.js";
@@ -41,6 +43,8 @@ export const panelScripts = [
   compareScript,
   ageScript,
   renderScript,
+  silhouetteScript,
+  emptyScript,
 ];
 
 /**
@@ -82,6 +86,7 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
+    const treemapNames = ${treemapNames.toString()};
     const providerColumns = (data.providerMeasurements ?? []).map((measured) => measured.provider);
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};

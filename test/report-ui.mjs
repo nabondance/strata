@@ -101,8 +101,13 @@ export function exerciseReportUi(html, report) {
   const { get, timers, layout } = loadReportUi(html);
   // The masthead silhouette has a layer for each category holding tokens; the legend also lists source-only ones.
   const tokenCategories = Object.values(revisions.at(-1).categoryTotals).filter((total) => total.estimatedTokens > 0);
-  assert.ok(get("silhouette").children.length >= tokenCategories.length);
-  assert.ok(get("silhouette").children.length <= get("legend").children.length);
+  const silhouetteLayers = get("silhouette").children.filter((child) => child.className !== "silhouette-mark");
+  assert.ok(silhouetteLayers.length >= tokenCategories.length);
+  assert.ok(silhouetteLayers.length <= get("legend").children.length);
+  // A line in the silhouette marks the selected revision.
+  const mark = get("silhouette").children.at(-1);
+  assert.equal(mark.className, "silhouette-mark");
+  assert.equal(mark.hidden, !silhouetteLayers.length);
   assert.equal(get("repo").textContent, report.repository);
   // Long lists start with their first rows; the rest of this exercise runs with them expanded.
   assert.equal(get("files").children.length, Math.min(25, revisions.at(-1).components.length) || 1);

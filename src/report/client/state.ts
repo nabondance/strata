@@ -145,9 +145,9 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
         if (configuredSubmodules.length > 5) listed.push('and ' + fmt(configuredSubmodules.length - 5) + ' more');
         submoduleNotes.push('Not analyzed: ' + fmt(configuredSubmodules.length) + ' Git submodules hold recognized agent configuration files: ' + listed.join(', ') + '. Run Strata on one to see its history.');
       }
-      if (uncheckedSubmodules) {
-        submoduleNotes.push(fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.');
-      }
       $('submodules').hidden = !submoduleNotes.length;
       $('submodules').textContent = submoduleNotes.join(' ');
+      // A fresh clone leaves submodules uninitialized, so that alone is a quiet note beside the measurement disclosure.
+      $('submodules-unchecked').hidden = !uncheckedSubmodules;
+      $('submodules-unchecked').textContent = uncheckedSubmodules ? fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.' : '';
     }`;

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
-import { layoutTreemap } from "../dist/treemap.js";
+import { layoutTreemap, treemapNames } from "../dist/treemap.js";
 import { loadReportUi } from "./report-ui.mjs";
 import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
@@ -197,13 +197,35 @@ test("names submodules that hold agent configuration it did not analyze", async 
       { path: "vendor/stale", configFiles: null },
     ]);
     assert.deepEqual(new Set(report.components.map((component) => component.path)), new Set(["CLAUDE.md"]));
-    const notice = loadReportUi(renderHtml(report)).get("submodules");
+    const html = renderHtml(report);
+    const ui = loadReportUi(html);
+    const notice = ui.get("submodules");
     assert.equal(notice.hidden, false);
     assert.equal(
       notice.textContent,
       "Not analyzed: 2 Git submodules hold recognized agent configuration files: .claude-template (3), .claude/skills/review (2). " +
-        "Run Strata on one to see its history. " +
-        "2 Git submodules were not checked for agent configuration because they are not checked out at the recorded commit.",
+        "Run Strata on one to see its history.",
+    );
+    // Submodules a fresh clone has not checked out get a quiet note after the measurement disclosure, not a warning.
+    const unchecked = ui.get("submodules-unchecked");
+    assert.equal(unchecked.hidden, false);
+    assert.equal(
+      unchecked.textContent,
+      "2 Git submodules were not checked for agent configuration because they are not checked out at the recorded commit.",
+    );
+    assert.match(html, /<p class="notice warning" id="submodules" hidden>/);
+    assert.match(
+      html,
+      /id="counting-notice">[\s\S]*?<\/details>\n\s*<p class="notice submodule-note" id="submodules-unchecked" hidden>/,
+    );
+    const onlyUnchecked = loadReportUi(
+      renderHtml({ ...report, submodules: [{ path: "evals/bench", configFiles: null }] }),
+    );
+    assert.equal(onlyUnchecked.get("submodules").hidden, true);
+    assert.equal(onlyUnchecked.get("submodules-unchecked").hidden, false);
+    assert.match(
+      onlyUnchecked.get("submodules-unchecked").textContent,
+      /^1 Git submodule was not checked .* because it is /,
     );
 
     const shareable = redactReport(report);
@@ -216,6 +238,7 @@ test("names submodules that hold agent configuration it did not analyze", async 
     // Submodules without agent configuration are left out of the notice.
     const quiet = { ...report, submodules: [{ path: "vendor/lib", configFiles: 0 }] };
     assert.equal(loadReportUi(renderHtml(quiet)).get("submodules").hidden, true);
+    assert.equal(loadReportUi(renderHtml(quiet)).get("submodules-unchecked").hidden, true);
     const many = {
       ...report,
       submodules: Array.from({ length: 7 }, (_, index) => ({ path: `lib/${index + 1}`, configFiles: index + 1 })),
@@ -278,4 +301,149 @@ test("treemap frame keeps category gaps, seams, and headers in drawn units", () 
   const squareLeaves = layoutTreemap(components, { ...frame, wide: 1 }).groups.flatMap((group) => group.leaves);
   const meanAspect = (leaves) => leaves.reduce((sum, leaf) => sum + leaf.width / leaf.height, 0) / leaves.length;
   assert.ok(meanAspect(wideLeaves) > meanAspect(squareLeaves));
+});
+
+test("explains a history with no agent configuration instead of drawing empty panels", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-empty-");
+  try {
+    // Skills at the repository root are not where any supported tool reads them.
+    put("README.md", "Skills.\n");
+    commit("Start");
+    put("skills/review/SKILL.md", "---\nname: review\ndescription: Review.\n---\nReview.\n");
+    commit("Add a skill at the root");
+    const report = await analyzeRepository(repo);
+    assert.equal(report.components.length, 0);
+    const html = renderHtml(report);
+    assert.match(html, /<div id="report-panels">/);
+    const { get } = loadReportUi(html);
+    const card = get("empty-state");
+    assert.equal(card.hidden, false);
+    assert.equal(
+      card.children[0].textContent,
+      `Strata found no agent configuration in 2 revisions of ${report.repository}`,
+    );
+    const listed = card.children[2].children.map((item) => item.children[0].textContent);
+    for (const path of [
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".claude/",
+      ".agents/skills/",
+      ".cursor/rules/",
+      ".github/copilot-instructions.md",
+      "GEMINI.md",
+      ".codex/",
+    ]) {
+      assert.ok(listed.includes(path), path);
+    }
+    assert.match(card.children[3].textContent, /a top-level skills\/ folder, are not read by the supported tools/);
+    // The panels, the provider tabs, and the measurement disclosure would all be empty, so they are hidden.
+    assert.equal(get("report-panels").hidden, true);
+    assert.equal(get("counting-notice").hidden, true);
+    // The masthead stays.
+    assert.equal(get("repo").textContent, report.repository);
+    assert.equal(get("components").textContent, "0");
+    assert.equal(get("silhouette").children.at(-1).hidden, true);
+
+    // Configuration that existed earlier keeps the panels, with each panel's own empty message at the latest revision.
+    put("CLAUDE.md", "Instructions.\n");
+    commit("Add instructions");
+    rmSync(join(repo, "CLAUDE.md"));
+    commit("Remove instructions");
+    const removed = await analyzeRepository(repo);
+    assert.ok(removed.components.length);
+    const later = loadReportUi(renderHtml(removed)).get;
+    assert.notEqual(later("empty-state")?.hidden, false);
+    assert.notEqual(later("report-panels")?.hidden, true);
+    assert.equal(later("treemap").children[0].textContent, "No instructional token estimates at this revision.");
+    assert.equal(later("components").textContent, "0");
+  } finally {
+    cleanup();
+  }
+});
+
+test("names repeated treemap labels by the folders that tell them apart", async () => {
+  assert.deepEqual(
+    treemapNames([
+      "AGENTS.md",
+      "packages/core/AGENTS.md",
+      "packages/server/AGENTS.md",
+      "templates/x/AGENTS.md",
+      "CLAUDE.md",
+      ".claude/skills/pr-screenshots",
+      ".agents/skills/pr-screenshots",
+      "docs/CLAUDE.md",
+    ]),
+    [
+      "AGENTS.md",
+      "core/AGENTS.md",
+      "server/AGENTS.md",
+      "x/AGENTS.md",
+      "CLAUDE.md",
+      ".claude/…/pr-screenshots",
+      ".agents/…/pr-screenshots",
+      "docs/CLAUDE.md",
+    ],
+  );
+  // A folder that ends another path's folders still tells the two apart.
+  assert.deepEqual(treemapNames(["a/AGENTS.md", "x/a/AGENTS.md"]), ["a/AGENTS.md", "x/…/AGENTS.md"]);
+  // When leaving folders out would make two names alike again, they keep every folder they needed.
+  assert.deepEqual(treemapNames(["a/x/M", "b/x/M", "a/y/z/M", "c/y/z/M"]), ["a/x/M", "b/…/M", "a/y/z/M", "c/…/M"]);
+  assert.deepEqual(treemapNames([]), []);
+
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-treemap-names-");
+  try {
+    put("AGENTS.md", `${"Root. ".repeat(40)}\n`);
+    put("packages/core/AGENTS.md", `${"Core. ".repeat(40)}\n`);
+    put("packages/server/AGENTS.md", `${"Server. ".repeat(40)}\n`);
+    put(".claude/skills/review/SKILL.md", `---\nname: review\ndescription: Review.\n---\n${"Review. ".repeat(40)}\n`);
+    put(".agents/skills/review/SKILL.md", `---\nname: review\ndescription: Review.\n---\n${"Check. ".repeat(40)}\n`);
+    commit("Repeated names");
+    const report = await analyzeRepository(repo);
+    const leaves = loadReportUi(renderHtml(report))
+      .get("treemap")
+      .children.filter((child) => child.className === "treemap-leaf");
+    assert.deepEqual(leaves.map((leaf) => leaf.children[0].textContent).sort(), [
+      ".agents/…/review",
+      ".claude/…/review",
+      "AGENTS.md",
+      "core/AGENTS.md",
+      "server/AGENTS.md",
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the masthead silhouette follows the provider view and marks the selected revision", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-silhouette-");
+  try {
+    put("CLAUDE.md", `${"Claude. ".repeat(50)}\n`);
+    commit("Claude");
+    put(".claude/agents/review.md", `${"Review. ".repeat(80)}\n`);
+    commit("Agent");
+    put("AGENTS.md", `${"Shared. ".repeat(30)}\n`);
+    commit("Shared");
+    const report = await analyzeRepository(repo);
+    const { get } = loadReportUi(renderHtml(report));
+    const layers = () => get("silhouette").children.filter((child) => child.className !== "silhouette-mark");
+    const mark = () => get("silhouette").children.at(-1);
+    assert.equal(layers().length, 2);
+    assert.equal(mark().hidden, false);
+    assert.equal(mark().style.left, "83.33%");
+    get("target").value = "0";
+    get("target").listeners.change();
+    assert.equal(mark().style.left, "16.67%");
+    // Codex reads only AGENTS.md, so its view has one layer, drawn from the last revision.
+    get("provider-tabs")
+      .children.find((tab) => tab.textContent === "Codex + shared")
+      .listeners.click();
+    assert.equal(layers().length, 1);
+    assert.equal(mark().hidden, true);
+    get("target").value = "2";
+    get("target").listeners.change();
+    assert.equal(mark().hidden, false);
+    assert.equal(mark().style.left, "50.00%");
+  } finally {
+    cleanup();
+  }
 });

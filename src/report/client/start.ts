@@ -9,4 +9,5 @@ export const startScript = `    setupNotices();
     setupMap();
     renderAgeChart();
     observeTreemapWidth();
-    render(selected);`;
+    render(selected);
+    renderEmptyState();`;

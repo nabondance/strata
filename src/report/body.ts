@@ -42,7 +42,10 @@ export function reportBody(report: Report): string {
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
     <p class="notice warning" id="submodules" hidden></p>
     ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: names, paths, and IDs are replaced with aliases.</p>' : ""}
-    <details class="notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
+    <section class="panel empty-state" id="empty-state" aria-labelledby="empty-heading" hidden></section>
+    <details class="notice" id="counting-notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
+    <p class="notice submodule-note" id="submodules-unchecked" hidden></p>
+    <div id="report-panels">
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
     <div class="measure-switch" id="measure-switch" role="group" aria-label="Count with" hidden></div>
@@ -132,6 +135,7 @@ export function reportBody(report: Report): string {
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
       ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
+    </div>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
   </main>`;
 }

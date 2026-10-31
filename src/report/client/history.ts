@@ -1,4 +1,4 @@
-/** The legend, the stacked history chart and masthead silhouette, the slider, and the revision selects. */
+/** The legend, the stacked history chart, the slider, and the revision selects. */
 export const historyScript = `    function renderLegend() {
       const legend = $('legend');
       legend.replaceChildren();
@@ -76,25 +76,7 @@ export const historyScript = `    function renderLegend() {
       }
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
-      // The masthead's lower edge repeats the chart as stepped layers.
-      const tops = buckets.map(() => 0);
-      const layers = [];
-      for (const category of categories) {
-        if (!buckets.some((bucket) => viewRevisions[bucket.end].categoryTotals[category].estimatedTokens)) continue;
-        const points = ['0% 100%'];
-        buckets.forEach((bucket, index) => {
-          tops[index] += viewRevisions[bucket.end].categoryTotals[category].estimatedTokens;
-          const y = (100 - tops[index] / max * 100).toFixed(2) + '%';
-          points.push((index / buckets.length * 100).toFixed(2) + '% ' + y, ((index + 1) / buckets.length * 100).toFixed(2) + '% ' + y);
-        });
-        points.push('100% 100%');
-        const layer = text('i', '');
-        layer.style.clipPath = 'polygon(' + points.join(',') + ')';
-        layer.style.background = colors[category];
-        // Upper layers come first so each lower one paints over them down to the baseline.
-        layers.unshift(layer);
-      }
-      $('silhouette').replaceChildren(...layers);
+      renderSilhouette(buckets, max);
     }
 
     const slider = $('slider');

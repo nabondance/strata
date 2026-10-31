@@ -15,6 +15,7 @@ export const renderScript = `    function render(index, dragging) {
       }
       // A revision before the chart's first bar still leaves the chart reachable by Tab.
       if (chartBuckets.length && !chartBuckets.some((bucket) => bucket.button.tabIndex === 0)) chartBuckets[0].button.tabIndex = 0;
+      markSilhouette();
       $('date').textContent = revision.date.slice(0, 10);
       $('tokens').textContent = fmt(revision.estimatedTokens);
       $('components').textContent = fmt(revision.components.length);

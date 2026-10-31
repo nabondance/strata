@@ -269,6 +269,7 @@ The treemap shows the selected revision's instruction files as rectangles. Each 
 
 - Rectangles of files that the selected revision added, edited, or renamed are outlined.
 - Hover or focus a rectangle for its full path and token count. Select it to find its file in the inventory.
+- A name that two rectangles share gets the folders that tell them apart, such as `core/AGENTS.md` and `server/AGENTS.md`, or `.claude/…/review` and `.agents/…/review`.
 - Source-only and zero-token files stay in the inventory and get no area: source-only files have no token count, and zero-token files have nothing to size.
 
 ### Configuration map
@@ -292,6 +293,8 @@ A folder only holds its files, and a line does not show that a session loaded a 
   - Lines are matched by their exact text in every instruction file. A line moved into a skill keeps its age, a reworded line starts again, and text removed and later restored counts as new.
   - It is weighed by bytes, always covers all files, and groups text by author date.
   - "Compare revisions" also gives the share of the baseline's instruction text still present at the target.
+
+When no revision tracks a recognized file, the report shows one card in place of the panels, listing the main paths Strata recognizes.
 
 The skill-bundle and tracked-components tables are collapsed under their headings. Open one to see its first rows, and expand it to see the full list.
 
