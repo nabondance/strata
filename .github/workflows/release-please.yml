@@ -141,6 +141,15 @@ jobs:
               warn "Could not create $major at $TAG ($sha)."
           fi
           echo "$major points at $TAG ($sha)."
+      # Runs the released Action by name once v0 points at the new release.
+      # Like the publish workflow, it has to be started explicitly.
+      - name: Start the published Action test
+        if: steps.release.outputs.created == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh workflow run published-action.yml --ref "$TAG" ||
+            echo "::warning::Could not start the published Action test: gh workflow run published-action.yml --ref $TAG"
       # The release PR's commits come from GITHUB_TOKEN, so its pull_request
       # workflows wait for approval as `action_required`. Copies started by hand
       # pass on the same commit but do not count toward the pull request's

@@ -1,17 +1,13 @@
 name: Published Action
 
 # Runs the released Action the way another repository does: by name, from the
-# Marketplace tags, not from this checkout (strata-pr-delta.yml and
-# action-smoke.yml cover the code under review with `uses: ./`). It runs after
-# each npm publish, weekly to catch runner changes, by hand, and on pull
-# requests that change this file. Release PRs are skipped: they bump the pinned
-# tag below before it exists.
+# release tags, not from this checkout (strata-pr-delta.yml and
+# action-smoke.yml cover the code under review with `uses: ./`). The release
+# workflow starts it on each new release tag once v0 has moved. It also runs
+# weekly to catch runner changes, by hand, and on pull requests that change it.
 on:
   pull_request:
     paths: [.github/workflows/published-action.yml]
-  workflow_run:
-    workflows: [Publish to npm]
-    types: [completed]
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
@@ -23,9 +19,6 @@ jobs:
   # A new repository with no Strata source: first without agent configuration,
   # then with a CLAUDE.md and an AGENTS.md added, as in the README's setup.
   new-repository:
-    if: >-
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
-      !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Make a small repository
@@ -61,13 +54,6 @@ jobs:
           base: ${{ steps.repo.outputs.plain }}
           head: ${{ steps.repo.outputs.configured }}
           limit-up-front-tokens: 8000
-      # The exact release the README pins; Release Please updates this tag.
-      - name: Pinned release
-        id: pinned
-        uses: nabondance/strata@v0.7.0 # x-release-please-version
-        with:
-          base: ${{ steps.repo.outputs.plain }}
-          head: ${{ steps.repo.outputs.configured }}
       - name: Check the outputs
         shell: bash
         env:
@@ -79,7 +65,6 @@ jobs:
           LIMIT: ${{ steps.added.outputs.limit-result }}
           JSON: ${{ steps.added.outputs.json-file }}
           SUMMARY: ${{ steps.added.outputs.summary-file }}
-          PINNED_TOKENS: ${{ steps.pinned.outputs.tokens }}
         run: |
           set -euo pipefail
           test "$EMPTY_TOKENS" = 0
@@ -90,15 +75,11 @@ jobs:
           test "$LIMIT" = within
           test "$(jq .comparison.afterTokens "$JSON")" = "$TOKENS"
           grep --quiet "Strata configuration delta" "$SUMMARY"
-          test "$PINNED_TOKENS" = "$TOKENS"
-          echo "Added configuration: $TOKENS tokens; @v0 and the pinned release agree."
+          echo "Added configuration: $TOKENS tokens, all within the limit."
 
   # This repository from a default shallow checkout, so the released Action
   # has to fetch the earlier commit itself.
   shallow-checkout:
-    if: >-
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
-      !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -121,17 +102,23 @@ jobs:
         env:
           TOKENS: ${{ steps.strata.outputs.tokens }}
           DELTA: ${{ steps.strata.outputs.delta-tokens }}
-          PINNED: v0.7.0 # x-release-please-version
         run: |
           set -euo pipefail
           [[ "$TOKENS" =~ ^[1-9][0-9]*$ ]]
           [[ "$DELTA" =~ ^-?[0-9]+$ ]]
-          # The release workflow moves v0 to each release; users of @v0 get the README's pin.
+          echo "This repository: $TOKENS tokens, $DELTA change."
+          # The README pins this checkout's version, and the release workflow
+          # moves v0 to each release, so the two tags should match.
+          pinned="v$(jq -r .version package.json)"
           tag() { git ls-remote origin "refs/tags/$1" | cut -f1; }
+          pinned_sha="$(tag "$pinned")"
+          if [ -z "$pinned_sha" ]; then
+            echo "::notice title=Strata::$pinned is not tagged yet, so whether v0 points at it is not checked."
+            exit 0
+          fi
           v0="$(tag v0)"
-          pinned="$(tag "$PINNED")"
-          if [ -z "$pinned" ] || [ "$v0" != "$pinned" ]; then
-            echo "::error title=Strata::v0 is at ${v0:-nothing}, not $PINNED (${pinned:-missing})."
+          if [ "$v0" != "$pinned_sha" ]; then
+            echo "::error title=Strata::v0 is at ${v0:-nothing}, not $pinned ($pinned_sha)."
             exit 1
           fi
-          echo "This repository: $TOKENS tokens, $DELTA change; v0 is $PINNED."
+          echo "v0 points at $pinned."
