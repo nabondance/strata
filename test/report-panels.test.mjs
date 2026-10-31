@@ -17,7 +17,7 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     repos.push(cleanup);
     for (const [index, { date, files }] of commits.entries()) {
       for (const [path, content] of Object.entries(files)) put(path, content);
-      commit(`commit ${index}`, date);
+      commit(`commit ${index}`, { date });
     }
     return analyzeRepository(repo);
   };

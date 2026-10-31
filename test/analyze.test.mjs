@@ -13,13 +13,14 @@ import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
+import { clientScript, panelScripts } from "../dist/report/client.js";
 import { renderHtml } from "../dist/report.js";
 import { renderSvg } from "../dist/svg.js";
 import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { exerciseReportUi } from "./report-ui.mjs";
-import { syntheticRepo } from "./synthetic-repo.mjs";
+import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
 test("tracks configuration across first-parent history without reading untracked files", async () => {
   const { repo, git, put, commit, cleanup } = syntheticRepo("strata-history-");
@@ -392,6 +393,16 @@ test("tracks configuration across first-parent history without reading untracked
     }
     const html = renderHtml(report);
     exerciseReportUi(html, report);
+    // Panel parts only declare state and functions, so the report works the same with them in reverse order.
+    const adjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
+    const script = clientScript(report, adjective);
+    assert.ok(html.includes(script));
+    const reversed = clientScript(report, adjective, [...panelScripts].reverse());
+    assert.notEqual(reversed, script);
+    exerciseReportUi(
+      html.replace(script, () => reversed),
+      report,
+    );
     // The masthead's font and icon are inlined, so the policy admits data: URLs and nothing remote.
     assert.match(html, /font-src data:; img-src data:"/);
     assert.match(html, /@font-face \{ font-family: "Strata Display"[^}]*url\(data:font\/woff2;base64,/);
@@ -895,21 +906,9 @@ test("tracks configuration across first-parent history without reading untracked
     const single = mkdtempSync(join(tmpdir(), "strata-single-"));
     const singleClone = mkdtempSync(join(tmpdir(), "strata-single-clone-"));
     try {
-      execFileSync("git", ["-C", single, "init", "--quiet", "-b", "main"]);
-      writeFileSync(join(single, "CLAUDE.md"), "Only commit.\n");
-      execFileSync("git", ["-C", single, "add", "CLAUDE.md"]);
-      execFileSync("git", [
-        "-C",
-        single,
-        "-c",
-        "user.name=Strata Test",
-        "-c",
-        "user.email=strata-test@example.invalid",
-        "commit",
-        "--quiet",
-        "-m",
-        "root",
-      ]);
+      const { put, commit } = gitRepository(single);
+      put("CLAUDE.md", "Only commit.\n");
+      commit("root");
       execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${single}`, singleClone]);
       assert.equal(
         execFileSync("git", ["-C", singleClone, "rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim(),

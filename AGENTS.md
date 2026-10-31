@@ -25,7 +25,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch creat
 - Distinguish stored instruction estimates from actual loaded context or billing tokens. Structured configuration and supporting resources remain source-only unless a change defines and documents a defensible text boundary.
 - Keep conditional loading, renames, and inferred relationships labeled accurately. Do not infer active context or a refactor from path changes alone.
 - Keep HTML usable offline and source text out of default HTML/JSON. Escape repository-derived strings before placing them in HTML.
-- When changing provider recognition, report fields, or measurement, update the scope/decision docs and cover the behavior in the synthetic history fixture. Version report schema changes.
+- When changing provider recognition, report fields, or measurement, update the scope/decision docs and cover the behavior in the matching synthetic history test (see the code map). Version report schema changes.
 
 ## Verification
 

@@ -1,4 +1,4 @@
-/** The treemap of the selected revision, its move between revisions, and fitting its labels. */
+/** The treemap of the selected revision, its move between revisions, fitting its labels, and redrawing it on resize. */
 export const treemapScript = `    // Gaps and the category header are in pixels, so the layout is redone when the treemap is resized.
     const treemapFrame = { gap: 4, seam: 1, header: 22, wide: 2 };
     // What each rectangle was drawn for, so the next revision can move it rather than redraw it.
@@ -155,5 +155,16 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
             if (right - compactBox.left < 28 || compactBox.bottom > bottom + 1) name.hidden = true;
           }
         }
+      }
+    }
+    /** Lays the treemap out again when its width changes. */
+    function observeTreemapWidth() {
+      if (typeof ResizeObserver !== 'undefined') {
+        let treemapWidth = 0;
+        new ResizeObserver(([entry]) => {
+          if (Math.abs(entry.contentRect.width - treemapWidth) < 1) return;
+          treemapWidth = entry.contentRect.width;
+          renderTreemap(false);
+        }).observe($('treemap'));
       }
     }`;

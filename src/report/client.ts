@@ -26,11 +26,27 @@ import { treemapScript } from "./client/treemap.js";
 import { upFrontScript } from "./client/up-front.js";
 import { viewsScript } from "./client/views.js";
 
+/** The panel parts, in the order the report joins them; a test joins them in reverse to show order does not matter. */
+export const panelScripts = [
+  historyScript,
+  viewsScript,
+  filesScript,
+  treemapScript,
+  skillsScript,
+  mapScript,
+  importsScript,
+  labelsScript,
+  upFrontScript,
+  compareScript,
+  ageScript,
+  renderScript,
+];
+
 /**
  * The report's script. Its parts share one scope. The data block and the shared state come first; the panel parts
  * after them only declare state and functions, so their order does not matter; the start part runs last.
  */
-export function clientScript(report: Report, tokenAdjective: string): string {
+export function clientScript(report: Report, tokenAdjective: string, panels: readonly string[] = panelScripts): string {
   const serialized = JSON.stringify(report)
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
@@ -72,21 +88,5 @@ export function clientScript(report: Report, tokenAdjective: string): string {
     const shadeInks = ${JSON.stringify(categoryShadeInk)};
     const tokenAdjective = ${JSON.stringify(tokenAdjective)};
     const providerNames = ${JSON.stringify(providerName)};`;
-  return [
-    data,
-    stateScript,
-    historyScript,
-    viewsScript,
-    filesScript,
-    treemapScript,
-    skillsScript,
-    mapScript,
-    importsScript,
-    labelsScript,
-    upFrontScript,
-    compareScript,
-    ageScript,
-    renderScript,
-    startScript,
-  ].join("\n\n");
+  return [data, stateScript, ...panels, startScript].join("\n\n");
 }
