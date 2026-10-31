@@ -42,7 +42,7 @@ Terms used below:
 
 ## Test coverage
 
-The synthetic fixture in `test/analyze.test.mjs` covers:
+The synthetic fixture in `test/cursor-adapter.test.mjs` covers:
 
 - a root and a nested `.mdc` rule;
 - a plain `.md` file in `.cursor/rules`, which is ignored as a rule;

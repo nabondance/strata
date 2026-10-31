@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
@@ -10,6 +10,15 @@ const code = (path) =>
   read(path)
     .split("\n")
     .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+    .join("\n");
+// The report is assembled from src/report.ts and the modules under src/report.
+const reportCode = () =>
+  [
+    "src/report.ts",
+    ...readdirSync(new URL("src/report", root), { recursive: true }).map((file) => `src/report/${file}`),
+  ]
+    .filter((path) => path.endsWith(".ts"))
+    .map(code)
     .join("\n");
 
 // The shipped skill names the report schema versions it describes; a schema bump must update it.
@@ -29,7 +38,7 @@ test("the interpretation skill describes the current report schema versions", ()
 // The skill names report panels, tabs, and labels in bold; each must still be text the report shows.
 test("the interpretation skill names HTML labels the report still shows", () => {
   const skill = read("skills/strata-interpret/SKILL.md");
-  const report = code("src/report.ts");
+  const report = reportCode();
   const start = skill.indexOf("If the user asks about something they saw in the HTML report");
   const end = skill.indexOf("The default local report omits source text");
   assert.ok(start >= 0 && end > start);
@@ -40,7 +49,7 @@ test("the interpretation skill names HTML labels the report still shows", () => 
   for (const label of labels) {
     // Bounded by markup or a string quote, so a CSS class, id, or longer word does not count.
     const shown = new RegExp(`[>'"\`]\\s*${escapeRegExp(label)}(?=\\s*[<'"\`·(:]|\\s*$)`, "m");
-    assert.match(report, shown, `report.ts does not show "${label}"`);
+    assert.match(report, shown, `the report does not show "${label}"`);
   }
 });
 
@@ -71,8 +80,8 @@ test("the interpretation skill quotes text the report and the diff Markdown stil
     (text) => text !== "0",
   );
   assert.ok(html.length > 8 && markdown.length > 0);
-  const report = code("src/report.ts");
-  for (const text of html) assert.ok(report.includes(text), `report.ts does not print "${text}"`);
+  const report = reportCode();
+  for (const text of html) assert.ok(report.includes(text), `the report does not print "${text}"`);
   const delta = code("src/pr-delta.ts");
   for (const text of markdown) assert.ok(delta.includes(text), `pr-delta.ts does not print "${text}"`);
 });
