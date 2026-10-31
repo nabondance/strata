@@ -51,17 +51,17 @@ Models default to `claude-opus-5-5` and `gemini-3.8-flash`. Strata does not gues
 
 ## Evidence and limits
 
-| Family | Method | Evidence / interpretation |
-| --- | --- | --- |
-| OpenAI / Codex | Local `js-tiktoken@1.0.21` encodings | [OpenAI's tiktoken](https://github.com/openai/tiktoken) documents model-to-encoding mappings. The [JavaScript port](https://github.com/dqbd/tiktoken/blob/main/js/README.md) runs locally in Node. |
-| Claude | Explicit API mode | Anthropic's [count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens) counts tokens for a supplied Message request. Older local tokenizer packages state that they are inaccurate for Claude 3 and later, so Strata does not label them exact. |
-| Gemini | Explicit API mode | Google's [`models.countTokens`](https://ai.google.dev/api/tokens) runs the selected model's tokenizer on supplied Content. Third-party offline Gemma tokenizers are not treated as exact Gemini counts. |
+| Family         | Method                               | Evidence / interpretation                                                                                                                                                                                                                                            |
+| -------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI / Codex | Local `js-tiktoken@1.0.21` encodings | [OpenAI's tiktoken](https://github.com/openai/tiktoken) documents model-to-encoding mappings. The [JavaScript port](https://github.com/dqbd/tiktoken/blob/main/js/README.md) runs locally in Node.                                                                   |
+| Claude         | Explicit API mode                    | Anthropic's [count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens) counts tokens for a supplied Message request. Older local tokenizer packages state that they are inaccurate for Claude 3 and later, so Strata does not label them exact. |
+| Gemini         | Explicit API mode                    | Google's [`models.countTokens`](https://ai.google.dev/api/tokens) runs the selected model's tokenizer on supplied Content. Third-party offline Gemma tokenizers are not treated as exact Gemini counts.                                                              |
 
 The local OpenAI encoding and the byte estimate were compared on short synthetic strings. The samples show that methods differ; they do not establish that one predicts another provider's tokenizer.
 
-| Sample | bytes/4 estimate | o200k_base |
-| --- | ---: | ---: |
-| Short instruction | 8 | 5 |
-| Skill manifest | 19 | 17 |
-| Multilingual instruction | 15 | 15 |
-| Code snippet | 14 | 14 |
+| Sample                   | bytes/4 estimate | o200k_base |
+| ------------------------ | ---------------: | ---------: |
+| Short instruction        |                8 |          5 |
+| Skill manifest           |               19 |         17 |
+| Multilingual instruction |               15 |         15 |
+| Code snippet             |               14 |         14 |

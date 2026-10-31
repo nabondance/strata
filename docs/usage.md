@@ -19,12 +19,12 @@ strata analyze /path/to/git/repository
 
 The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path.
 
-| Option | What it does |
-| --- | --- |
-| `--output <file>` (`-o`) | Write the report to this file. `--output -` writes it to standard output, for another program to read. |
-| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`. |
-| `--open` | Open the HTML report or SVG image with the default application. |
-| `--quiet` (`-q`) | Print only the report path, with no progress or summary. |
+| Option                     | What it does                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `--output <file>` (`-o`)   | Write the report to this file. `--output -` writes it to standard output, for another program to read. |
+| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`.                  |
+| `--open`                   | Open the HTML report or SVG image with the default application.                                        |
+| `--quiet` (`-q`)           | Print only the report path, with no progress or summary.                                               |
 
 With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both. Progress appears only once a run has taken more than two seconds: one line updated in place on a terminal, or a line per tenth of the history in a log such as CI's.
 
@@ -76,12 +76,12 @@ Shields' `label`, `color`, and `style` query parameters change its look. [Runnin
 
 ### Exit status
 
-| Status | Meaning |
-| --- | --- |
-| 0 | Success |
-| 1 | Any other failure, such as a path that is not a Git repository |
-| 2 | The command line is invalid |
-| 3 | A [limit](#limits) you set was passed |
+| Status | Meaning                                                        |
+| ------ | -------------------------------------------------------------- |
+| 0      | Success                                                        |
+| 1      | Any other failure, such as a path that is not a Git repository |
+| 2      | The command line is invalid                                    |
+| 3      | A [limit](#limits) you set was passed                          |
 
 ## Compare two commits
 
@@ -106,12 +106,12 @@ Besides the token and file changes, the summary can include:
 
 Both commands can check token limits you choose. None is set by default, and Strata never treats growth as a failure on its own: a limit says only that a figure passed the number you gave it. Every limit is a whole number of tokens.
 
-| Flag | Checks | Commands |
-| --- | --- | --- |
-| `--limit-tokens <n>` | Stored instructional text at the head, or at the latest revision | `diff`, `analyze` |
-| `--limit-increase <n>` | Its growth from base to head | `diff` |
-| `--limit-up-front-tokens [agent=]<n>` | What each agent keeps at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
-| `--limit-up-front-increase [agent=]<n>` | Its growth from base to head | `diff` |
+| Flag                                    | Checks                                                                                         | Commands          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------- |
+| `--limit-tokens <n>`                    | Stored instructional text at the head, or at the latest revision                               | `diff`, `analyze` |
+| `--limit-increase <n>`                  | Its growth from base to head                                                                   | `diff`            |
+| `--limit-up-front-tokens [agent=]<n>`   | What each agent keeps at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
+| `--limit-up-front-increase [agent=]<n>` | Its growth from base to head                                                                   | `diff`            |
 
 Limits use the byte estimate, never the provider counts (Codex's, or those from `--precise`). The percentage change is shown beside each increase, but it is never a limit.
 
@@ -142,9 +142,9 @@ For pull requests, the opt-in [composite Action](pr-action.md) runs the same com
 
 Strata measures instructional text in two ways, with no option to choose:
 
-| Figure | Method |
-| --- | --- |
-| Every total, chart, comparison, and limit | The text's UTF-8 byte length divided by four |
+| Figure                                                                       | Method                                                                                   |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Every total, chart, comparison, and limit                                    | The text's UTF-8 byte length divided by four                                             |
 | Codex's own totals, in the report's Codex view and the `diff` provider table | OpenAI's `o200k_base` encoding, the one every current OpenAI model uses, counted offline |
 
 `--precise` adds Claude's and Gemini's own totals in the same way. Provider totals stay separate and are never added to the estimate. Neither method measures loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
@@ -247,14 +247,13 @@ The `skill` command refuses to overwrite an existing file.
 
 The report opens on **All files**, which counts each tracked file once. Each provider tab shows that provider's own files plus the shared files and other tools' files it reads:
 
-| Tab | Also shows |
-| --- | --- |
-| Claude Code | `AGENTS.md` |
-| Codex | `AGENTS.md`, `.agents/skills` |
-| Gemini CLI | `.agents/skills`. `AGENTS.md` and `GEMINI.md` appear as the revision's `.gemini/settings.json` `context.fileName` names them; by default, `GEMINI.md` alone. |
-| Cursor | `AGENTS.md`, `.agents/skills`, `.claude/skills`, only at revisions that track Cursor configuration |
+| Tab            | Also shows                                                                                                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude Code    | `AGENTS.md`                                                                                                                                                                                                                          |
+| Codex          | `AGENTS.md`, `.agents/skills`                                                                                                                                                                                                        |
+| Gemini CLI     | `.agents/skills`.`AGENTS.md` and `GEMINI.md` appear as the revision's `.gemini/settings.json` `context.fileName` names them; by default, `GEMINI.md` alone.                                                                          |
+| Cursor         | `AGENTS.md`, `.agents/skills`, `.claude/skills`, only at revisions that track Cursor configuration                                                                                                                                   |
 | GitHub Copilot | `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`, `.claude/agents`, `.claude/rules`, `.claude/skills`, `.agents/skills`, `.mcp.json`, only at revisions that track Copilot configuration such as `.github/copilot-instructions.md` |
-
 - A repository with no Cursor files has no Cursor tab.
 - Shared files can appear in several provider tabs, so do not add the tab totals together.
 - The Cursor tab labels the root `.cursorrules` `rules (legacy)`. The Copilot tab labels a `.chatmode.md` in `.github/agents` `agents (legacy)`.

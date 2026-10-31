@@ -45,12 +45,12 @@ The Action needs only the `contents: read` permission. It does not need `pull-re
 
 When you leave the `base` and `head` inputs empty, the Action picks the commits from the event that started the workflow:
 
-| Event | Base | Head |
-| --- | --- | --- |
-| `pull_request` and its review events | The base branch's tip | GitHub's merge commit |
-| `pull_request_target` | The base branch's tip | The merge commit named in the event payload |
-| `merge_group` | The queue entry's base | The queued commit |
-| `push` | The commit before the push | The commit after the push |
+| Event                                | Base                       | Head                                        |
+| ------------------------------------ | -------------------------- | ------------------------------------------- |
+| `pull_request` and its review events | The base branch's tip      | GitHub's merge commit                       |
+| `pull_request_target`                | The base branch's tip      | The merge commit named in the event payload |
+| `merge_group`                        | The queue entry's base     | The queued commit                           |
+| `push`                               | The commit before the push | The commit after the push                   |
 
 ### Why the merge commit
 
@@ -115,13 +115,13 @@ The Action builds Strata from its own source at that version, with the locked de
 
 ## Outputs
 
-| Output | Value |
-| --- | --- |
-| `tokens` | Stored instructional text at the head, in estimated tokens |
-| `delta-tokens` | Its change from base to head, negative when it shrank |
+| Output         | Value                                                                                                                                                            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tokens`       | Stored instructional text at the head, in estimated tokens                                                                                                       |
+| `delta-tokens` | Its change from base to head, negative when it shrank                                                                                                            |
 | `limit-result` | `over` when at least one limit is passed, `within` when every limit checked is met, `none` when no limit was checked: none was set, or none applied to any agent |
-| `summary-file` | Path of the Markdown delta, the same text as the job summary |
-| `json-file` | Path of the [JSON delta](#local-use), for anything the other outputs leave out |
+| `summary-file` | Path of the Markdown delta, the same text as the job summary                                                                                                     |
+| `json-file`    | Path of the [JSON delta](#local-use), for anything the other outputs leave out                                                                                   |
 
 The outputs are set whenever the summary is written. That includes runs where a limit fails the step, so a later step with `if: always()` can still read them. They are empty when the step skips a push that creates or deletes a branch or tag. If a job runs the Action more than once, each run writes its own files.
 
@@ -137,8 +137,8 @@ The outputs are set whenever the summary is written. That includes runs where a 
 
 Totals use the byte estimate. Codex files are also counted exactly, offline, with OpenAI's `o200k_base` encoding, and the delta shows them as Codex's own totals. One input adds Claude and Gemini counts:
 
-| Input | Default | Effect |
-| --- | --- | --- |
+| Input     | Default   | Effect                                                                              |
+| --------- | --------- | ----------------------------------------------------------------------------------- |
 | `precise` | `'false'` | `'true'` adds Claude and Gemini totals from their token-count APIs, described below |
 
 ### Precise counts
@@ -179,13 +179,13 @@ The Action can check token limits. No limit is set by default: each limit input 
 ```
 <!-- x-release-please-end -->
 
-| Input | Checks |
-| --- | --- |
-| `limit-tokens` | Stored instructional text at the head |
-| `limit-increase` | Its growth from base to head |
-| `limit-up-front-tokens` | What each agent keeps at session start at the head: one number for every agent, or `agent=number` entries separated by spaces or commas |
-| `limit-up-front-increase` | Its growth from base to head, in the same form |
-| `on-limit` | `fail` (default) fails the step after the summary is written; `warn` lets it pass. Used only when a limit is set |
+| Input                     | Checks                                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `limit-tokens`            | Stored instructional text at the head                                                                                                   |
+| `limit-increase`          | Its growth from base to head                                                                                                            |
+| `limit-up-front-tokens`   | What each agent keeps at session start at the head: one number for every agent, or `agent=number` entries separated by spaces or commas |
+| `limit-up-front-increase` | Its growth from base to head, in the same form                                                                                          |
+| `on-limit`                | `fail` (default) fails the step after the summary is written; `warn` lets it pass. Used only when a limit is set                        |
 
 How results are reported:
 

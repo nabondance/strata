@@ -50,9 +50,9 @@ The images on this page are Strata's report on its own repository.
 ## How it works
 
 1. **Strata reads your branch's history, oldest commit first.** It follows the first-parent history: the chain you get by following each commit's first parent back from the branch tip. That includes merge commits but skips the commits that came in only through a merge's other parent.
-2. **At each commit, it reads the files as Git stored them** (Git calls these stored file versions *blobs*). It never looks at the files in your working tree.
+2. **At each commit, it reads the files as Git stored them** (Git calls these stored file versions _blobs_). It never looks at the files in your working tree.
 3. **It measures the files that match a known agent-configuration path:**
-   - Instruction files get an estimate of their tokens, called *stored-text tokens*.
+   - Instruction files get an estimate of their tokens, called _stored-text tokens_.
    - Structured settings and bundled resources (scripts, templates, and other files that come with a skill) are measured in bytes. Strata does not invent a token count for them.
 4. **The default estimate is the file's size in UTF-8 bytes divided by four.** It is fast, works offline, and stays consistent across the whole history. Files Codex reads are also counted exactly with OpenAI's encoding, offline, and `--precise` adds Claude's and Gemini's own API counts.
 
@@ -113,13 +113,13 @@ Strata is clear about what it cannot tell you. It measures the text **stored in 
 
 Pick the way that fits how you want to use it:
 
-| You want to… | Use | Setup |
-| --- | --- | --- |
-| Look at one repository right now | `npx context-strata analyze --open` | None |
-| Run it regularly from your terminal | `npm install --global context-strata`, then `strata` | One install |
-| See what each pull request adds | The [GitHub Action](#in-pull-requests) | One workflow file |
-| Keep a history image in your README | The [image workflow](docs/ci.md#readme-image) | One workflow file |
-| Let a coding agent read the numbers | `--format json` and the [bundled skill](#with-a-coding-agent) | None |
+| You want to…                        | Use                                                           | Setup             |
+| ----------------------------------- | ------------------------------------------------------------- | ----------------- |
+| Look at one repository right now    | `npx context-strata analyze --open`                           | None              |
+| Run it regularly from your terminal | `npm install --global context-strata`, then `strata`          | One install       |
+| See what each pull request adds     | The [GitHub Action](#in-pull-requests)                        | One workflow file |
+| Keep a history image in your README | The [image workflow](docs/ci.md#readme-image)                 | One workflow file |
+| Let a coding agent read the numbers | `--format json` and the [bundled skill](#with-a-coding-agent) | None              |
 
 Not sure? Take the first one.
 
@@ -163,7 +163,7 @@ Strata estimates tokens as UTF-8 bytes divided by four. Files Codex reads are al
 
 ### In pull requests
 
-The GitHub Action [Strata agent context check](https://github.com/marketplace/actions/strata-agent-context-check), on the Marketplace ([guide](docs/pr-action.md)), shows what a pull request changes in your agent configuration. It writes this change (the *delta*) to the job summary. It runs only in workflows you add it to.
+The GitHub Action [Strata agent context check](https://github.com/marketplace/actions/strata-agent-context-check), on the Marketplace ([guide](docs/pr-action.md)), shows what a pull request changes in your agent configuration. It writes this change (the _delta_) to the job summary. It runs only in workflows you add it to.
 
 - It is one step after `actions/checkout`. It finds the pull request's commits itself and fetches the ones the checkout is missing.
 - It needs only the `contents: read` permission and posts no comments.
@@ -215,14 +215,14 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 - Structured configuration and bundled resources are measured in bytes, not given an invented token count.
 - Claude instruction files can import other files with an `@path` line. Strata follows these imports at each revision and includes the imported files. It lists the imports that point to no file.
 
-| | Claude Code | Codex | Gemini CLI | Cursor | GitHub Copilot |
-| --- | --- | --- | --- | --- | --- |
-| Instructions | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `REVIEW.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md` | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared)\* | `.github/copilot-instructions.md`; `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`\* |
-| Skills | `.claude/skills/*/SKILL.md` + resources | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources | `.cursor/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\* | `.github/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\* |
-| Agents | `.claude/agents/**/*.md` | `.codex/agents/*.toml` | `.gemini/agents/*.md` | | `.github/agents/**/*.md`, `.chatmode.md` (legacy); `.claude/agents`\* |
-| Rules | `.claude/rules/**/*.md` | `.codex/rules/**/*.rules` | | `.cursor/rules/**/*.mdc`, `.cursorrules` (legacy) | `.github/instructions/**/*.instructions.md`; `.claude/rules`\* |
-| Commands | `.claude/commands/**/*.md` | | `.gemini/commands/**/*.toml` | `.cursor/commands/*.md` | `.github/prompts/*.prompt.md` |
-| Settings and tools | `.claude/settings*.json`, `.mcp.json` | `.codex/config.toml` | `.gemini/settings.json` | `.cursor/mcp.json`, `.cursorignore` | `.github/mcp.json`, `.vscode/mcp.json`, `.github/hooks/*.json`, `.github/copilot/settings.json`, `copilot-setup-steps.yml`, `copilot-code-review.yml`; `.mcp.json`\* |
+|                    | Claude Code                                                                            | Codex                                            | Gemini CLI                                                                            | Cursor                                                                           | GitHub Copilot                                                                                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Instructions       | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, `REVIEW.md`, `AGENTS.md` (shared) | `AGENTS.md` (shared), `AGENTS.override.md`       | `GEMINI.md`, `.gemini/system.md`, `AGENTS.md` (shared), as `context.fileName` selects | `AGENTS.md` (shared)\*                                                           | `.github/copilot-instructions.md`; `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`\*                                                                              |
+| Skills             | `.claude/skills/*/SKILL.md` + resources                                                | `.agents/skills/*/SKILL.md` (shared) + resources | `.gemini/skills/*/SKILL.md`, `.agents/skills/*/SKILL.md` (shared) + resources         | `.cursor/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\* | `.github/skills/*/SKILL.md` + resources; `.agents/skills` and `.claude/skills`\*                                                                                     |
+| Agents             | `.claude/agents/**/*.md`                                                               | `.codex/agents/*.toml`                           | `.gemini/agents/*.md`                                                                 |                                                                                  | `.github/agents/**/*.md`, `.chatmode.md` (legacy); `.claude/agents`\*                                                                                                |
+| Rules              | `.claude/rules/**/*.md`                                                                | `.codex/rules/**/*.rules`                        |                                                                                       | `.cursor/rules/**/*.mdc`, `.cursorrules` (legacy)                                | `.github/instructions/**/*.instructions.md`; `.claude/rules`\*                                                                                                       |
+| Commands           | `.claude/commands/**/*.md`                                                             |                                                  | `.gemini/commands/**/*.toml`                                                          | `.cursor/commands/*.md`                                                          | `.github/prompts/*.prompt.md`                                                                                                                                        |
+| Settings and tools | `.claude/settings*.json`, `.mcp.json`                                                  | `.codex/config.toml`                             | `.gemini/settings.json`                                                               | `.cursor/mcp.json`, `.cursorignore`                                              | `.github/mcp.json`, `.vscode/mcp.json`, `.github/hooks/*.json`, `.github/copilot/settings.json`, `copilot-setup-steps.yml`, `copilot-code-review.yml`; `.mcp.json`\* |
 
 \* Cursor and Copilot also read these files from other tools. Strata counts them in the Cursor or Copilot view only at revisions that track that tool's own configuration. A repository without Cursor or Copilot files is reported without them.
 
@@ -241,7 +241,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 
 **Does the total equal what my agent loads into context?** No. Strata counts everything tracked, including skills and nested instructions that load only when needed. The total is an upper bound on the stored instructions, not a measurement of a session. The report also shows two smaller figures:
 
-- **For skills:** the part an agent keeps in context before a skill is used, which is the name and description at the top of the skill file (its *frontmatter*).
+- **For skills:** the part an agent keeps in context before a skill is used, which is the name and description at the top of the skill file (its _frontmatter_).
 - **For each agent:** what it keeps from the start of a session opened at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions), shown separately from what it reads later on demand.
 
 **Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, paths, and commit IDs with aliases. Check the report before you send it.

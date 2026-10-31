@@ -6,15 +6,15 @@ Thanks for helping make agent context history easier to understand. Before a sub
 
 Use Node.js 22.13 or newer, Git 2.31 or newer, and pnpm 10.29.3.
 
-| Command | When to run it |
-| --- | --- |
-| `pnpm install` | Once, to install dependencies |
-| `pnpm lint` | Before proposing a change |
-| `pnpm typecheck` | Before proposing a change |
-| `pnpm test` | Before proposing a change |
-| `pnpm format` | To apply the formatter and safe lint fixes |
-| `node scripts/smoke-package.mjs` | For packaging changes. It packs Strata, installs the tarball in a clean directory, and runs it on this repository's history |
-| `pnpm build && pnpm benchmark` | To analyze a disposable large-history fixture. [The benchmark notes](docs/benchmark.md) describe the baseline and a read-only mode for a real repository |
+| Command                          | When to run it                                                                                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install`                   | Once, to install dependencies                                                                                                                            |
+| `pnpm lint`                      | Before proposing a change                                                                                                                                |
+| `pnpm typecheck`                 | Before proposing a change                                                                                                                                |
+| `pnpm test`                      | Before proposing a change                                                                                                                                |
+| `pnpm format`                    | To apply the formatter and safe lint fixes                                                                                                               |
+| `node scripts/smoke-package.mjs` | For packaging changes. It packs Strata, installs the tarball in a clean directory, and runs it on this repository's history                              |
+| `pnpm build && pnpm benchmark`   | To analyze a disposable large-history fixture. [The benchmark notes](docs/benchmark.md) describe the baseline and a read-only mode for a real repository |
 
 From a checkout, `node dist/cli.js` or `pnpm dev` runs the CLI in place of `strata`.
 
@@ -37,9 +37,9 @@ Every change must respect these rules:
 
 Two optional reviewer agents focus on the correctness and privacy of analysis changes. Invoke one when that focused check is useful:
 
-| Tool | Reviewer | Definition |
-| --- | --- | --- |
-| Codex | `strata_reviewer` | [.codex/agents](.codex/agents/strata_reviewer.toml) |
+| Tool        | Reviewer          | Definition                                          |
+| ----------- | ----------------- | --------------------------------------------------- |
+| Codex       | `strata_reviewer` | [.codex/agents](.codex/agents/strata_reviewer.toml) |
 | Claude Code | `strata-reviewer` | [.claude/agents](.claude/agents/strata-reviewer.md) |
 
 ## Commit messages and releases
