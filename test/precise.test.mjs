@@ -88,7 +88,7 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
       onNotice: (line) => notices.push(line),
     });
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     assert.deepEqual(summary(report), {
       claude: ["api-counted", "signed-in Anthropic account (ant auth login)", "api.anthropic.com"],
       gemini: ["api-counted", "signed-in Google Cloud account (gcloud, Vertex AI)", "aiplatform.googleapis.com"],

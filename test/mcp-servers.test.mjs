@@ -76,7 +76,7 @@ test("lists the MCP servers tracked files define, without storing their commands
 
     const report = await analyzeRepository(repo);
     const revisions = expandRevisions(report);
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     assert.deepEqual(at(revisions[0]), {});
     assert.deepEqual(at(revisions[1]), {
       ".codex/config.toml": ["files:local", "paused docs:remote:off"],

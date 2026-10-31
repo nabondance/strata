@@ -8,7 +8,8 @@ import { pathToFileURL } from "node:url";
 import { getEncoding } from "js-tiktoken";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
-import { expandRevisions } from "../dist/expand.js";
+import { compactRevisions, expandRevisions, fillRevisions } from "../dist/expand.js";
+import { summarize } from "../dist/inventory.js";
 import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -20,7 +21,7 @@ import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { apiPlan } from "./provider-plans.mjs";
-import { exerciseReportUi } from "./report-ui.mjs";
+import { exerciseReportUi, loadReportUi } from "./report-ui.mjs";
 import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
 test("tracks configuration across first-parent history without reading untracked files", async () => {
@@ -118,7 +119,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerReport.schemaVersion, 20);
+    assert.equal(providerReport.schemaVersion, 21);
     assert.equal(providerReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -219,7 +220,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -507,7 +508,7 @@ test("tracks configuration across first-parent history without reading untracked
     for (const revision of report.revisions) assert.ok(!svg.includes(revision.id));
     assert.ok(svg.includes(`${report.repository} / ${report.branch}`));
     for (const category of categories) {
-      const present = report.revisions.some((revision) => revision.categoryTotals[category].estimatedTokens > 0);
+      const present = revisions.some((revision) => revision.categoryTotals[category].estimatedTokens > 0);
       assert.equal(svg.includes(`>${category}</text>`), present, category);
     }
     assert.match(svg, new RegExp(`<text[^>]*>${report.revisions.at(-1).date.slice(0, 10)}</text>`));
@@ -842,6 +843,95 @@ test("tracks configuration across first-parent history without reading untracked
     const detached = await analyzeRepository(repo);
     assert.equal(detached.branch, "detached HEAD");
     assert.equal(detached.revisions.length, splitReport.revisions.length);
+  } finally {
+    cleanup();
+  }
+});
+
+// Schema 21 leaves out what repeats the previous revision; `fillRevisions` restores it exactly.
+test("leaves out category totals and first parents that repeat the previous revision", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-carried-");
+  try {
+    put("CLAUDE.md", "Root instructions.\n");
+    put("AGENTS.md", "Shared instructions.\n");
+    put(".claude/skills/release/SKILL.md", "---\nname: release\ndescription: Prepare a release\n---\nShip it.\n");
+    const ids = [commit("configuration")];
+    put("README.md", "Not agent configuration.\n");
+    ids.push(commit("readme"));
+    put("src/index.ts", "export {};\n");
+    ids.push(commit("code"));
+    put("CLAUDE.md", "Root instructions, now longer.\n");
+    ids.push(commit("grow instructions"));
+    // Same size, so the same totals although a recognized file changed.
+    put("CLAUDE.md", "Root instructions, now LONGER.\n");
+    ids.push(commit("same-size edit"));
+    ids.push(commit("empty", { flags: ["--allow-empty"] }));
+
+    const report = await analyzeRepository(repo);
+    assert.equal(report.schemaVersion, 21);
+    const stored = report.revisions;
+    assert.equal(stored.length, 6);
+    // The first revision always carries both fields.
+    assert.equal(stored[0].firstParent, null);
+    assert.ok(stored[0].categoryTotals);
+    for (const revision of stored.slice(1)) assert.ok(!("firstParent" in revision), revision.id);
+    assert.deepEqual(
+      stored.map((revision) => "categoryTotals" in revision),
+      [true, false, false, true, false, false],
+    );
+    assert.equal(stored[4].changes.length, 1);
+    // Per-revision totals the README and the skill rely on stay on every revision.
+    for (const revision of stored) {
+      for (const field of ["id", "date", "componentCount", "estimatedTokens", "skillListingTokens", "changes"]) {
+        assert.ok(field in revision, `${revision.id} ${field}`);
+      }
+    }
+
+    // Filling restores every revision's totals and parent, which the JSON round trip keeps.
+    const filled = fillRevisions(JSON.parse(JSON.stringify(report)).revisions);
+    assert.deepEqual(fillRevisions(stored), filled);
+    assert.deepEqual(fillRevisions(filled), filled);
+    assert.deepEqual(compactRevisions(filled), stored);
+    assert.deepEqual(
+      filled.map((revision) => revision.firstParent),
+      [null, ...ids.slice(0, -1)],
+    );
+    const expanded = expandRevisions(report);
+    expanded.forEach((revision, index) => {
+      assert.deepEqual(revision.categoryTotals, summarize(revision.components).categoryTotals, `revision ${index}`);
+      assert.deepEqual(filled[index].categoryTotals, revision.categoryTotals);
+      assert.equal(revision.firstParent, filled[index].firstParent);
+    });
+    assert.notDeepEqual(filled[3].categoryTotals, filled[0].categoryTotals);
+    assert.throws(() => fillRevisions(stored.slice(1)), /first revision/);
+
+    // Shareable aliases keep the same fields out, and the HTML embeds the compacted revisions.
+    const shareable = redactReport(report);
+    assert.deepEqual(
+      shareable.revisions.map((revision) => ["firstParent" in revision, "categoryTotals" in revision]),
+      stored.map((revision) => ["firstParent" in revision, "categoryTotals" in revision]),
+    );
+    assert.deepEqual(
+      fillRevisions(shareable.revisions).map((revision) => revision.firstParent),
+      [null, ...shareable.revisions.slice(0, -1).map((revision) => revision.id)],
+    );
+    // The last revision has no stored totals, so the legend it draws on startup reads filled ones.
+    const legendCategories = categories.filter((category) => filled.at(-1).categoryTotals[category].count);
+    for (const subject of [report, shareable]) {
+      const html = renderHtml(subject);
+      assert.equal(html.match(/"categoryTotals":/g).length, 2);
+      assert.equal(html.match(/"firstParent":/g).length, 1);
+      const ui = loadReportUi(html);
+      assert.deepEqual(
+        ui.get("legend").children.map((label) => [label.textContent, label.children.at(-1).textContent]),
+        legendCategories.map((category) => {
+          const total = filled.at(-1).categoryTotals[category];
+          const files = `${total.count} file${total.count === 1 ? "" : "s"}`;
+          return [category, total.count === total.sourceOnlyCount ? files : String(total.estimatedTokens)];
+        }),
+      );
+    }
+    assert.match(renderSvg(report), /<polygon/);
   } finally {
     cleanup();
   }

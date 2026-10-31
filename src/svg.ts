@@ -1,6 +1,7 @@
 import { type Category, categories } from "./adapters.js";
 import { markSvg } from "./brand.js";
-import type { Report } from "./model.js";
+import { fillRevisions } from "./expand.js";
+import type { FilledRevision, Report } from "./model.js";
 import { categoryColors } from "./palette.js";
 import { timelineBuckets } from "./timeline.js";
 
@@ -28,7 +29,7 @@ const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maxi
  * text, axes, or legend, and no repository or branch name.
  */
 export function renderSvg(report: Report, options: { minimal?: boolean } = {}): string {
-  const revisions = report.revisions;
+  const revisions = fillRevisions(report.revisions);
   const latest = revisions.at(-1);
   const chartStart = Math.max(
     0,
@@ -182,7 +183,7 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
 
 /** Each category is a stepped layer stacked on the ones before it, like strata in a cut. */
 function layerPolygons(
-  charted: Report["revisions"],
+  charted: readonly FilledRevision[],
   layers: Category[],
   x: (index: number) => number,
   y: (value: number) => number,
@@ -202,7 +203,7 @@ function layerPolygons(
   });
 }
 
-function tokens(revision: Report["revisions"][number], category: Category): number {
+function tokens(revision: FilledRevision, category: Category): number {
   return revision.categoryTotals[category].estimatedTokens;
 }
 

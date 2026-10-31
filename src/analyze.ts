@@ -4,6 +4,7 @@ import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
 import { addImportedFiles } from "./claude-imports.js";
 import { ContentPass } from "./content-pass.js";
+import { compactRevisions } from "./expand.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { blobSizes, git, gitText, gitTokens } from "./git.js";
 import {
@@ -19,7 +20,7 @@ import {
 } from "./inventory.js";
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
-import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
+import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -309,7 +310,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   };
 
   const inventory = new Map<string, number>();
-  const revisions: Revision[] = [];
+  const revisions: FilledRevision[] = [];
   for (const delta of deltas) {
     const previous = revisions.at(-1);
     const { id, date, firstParent } = delta;
@@ -338,7 +339,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     // Unchanged settings keep the previous revision's array, so views can compare by identity.
     const geminiContext =
       names && previous?.geminiContextFiles?.join() === names.join() ? previous.geminiContextFiles : names;
-    const providerTokenTotals: NonNullable<Revision["providerTokenTotals"]> = {};
+    const providerTokenTotals: NonNullable<FilledRevision["providerTokenTotals"]> = {};
     for (const component of components) {
       for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {}) as Array<
         [CountedProvider, ProviderTextCount]
@@ -371,7 +372,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 20,
+    schemaVersion: 21,
     repository: basename(root),
     branch,
     shallow,
@@ -381,7 +382,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     ...(hasProviderCounts ? { providerMeasurements: provided!.metadata } : {}),
     lineAgeMethod,
     components: order.map((index) => table[index]!),
-    revisions,
+    revisions: compactRevisions(revisions),
   };
 }
 

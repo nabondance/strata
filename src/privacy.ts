@@ -77,9 +77,14 @@ export function redactReport(report: Report): Report {
     revisions: report.revisions.map((revision) => ({
       ...revision,
       id: revisions.get(revision.id)!,
-      firstParent: revision.firstParent
-        ? (revisions.get(revision.firstParent) ?? outsideParents.get(revision.firstParent)!)
-        : null,
+      // An absent firstParent is the previous revision's id, whose alias is the previous alias, so it stays absent.
+      ...(revision.firstParent === undefined
+        ? {}
+        : {
+            firstParent: revision.firstParent
+              ? (revisions.get(revision.firstParent) ?? outsideParents.get(revision.firstParent)!)
+              : null,
+          }),
       changes: revision.changes.map((change) => ({
         ...change,
         path: paths.get(change.path)!,
