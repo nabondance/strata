@@ -2,13 +2,23 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import type { CountCache, CountMethod, ProviderCountPlan } from "./provider-count.js";
 
+/**
+ * Codex instructions are counted on this machine with OpenAI's o200k_base encoding, which every
+ * current OpenAI model uses, so this runs on every analysis and comparison, with or without `--precise`.
+ */
+export const codexMethods: CountMethod[] = [{ kind: "local" }, { kind: "estimate" }];
+
+/** The plan without `--precise`: only the local Codex count, so nothing leaves the machine. */
+export function localPlan(): ProviderCountPlan {
+  return { methods: { codex: codexMethods } };
+}
+
 /** Models counted with when `--precise` is given no model flag. */
-export const defaultModels = { claude: "claude-opus-5-5", gemini: "gemini-3.8-flash", codex: "gpt-5" } as const;
+export const defaultModels = { claude: "claude-opus-5-5", gemini: "gemini-3.8-flash" } as const;
 
 export interface PreciseOptions {
   claudeModel?: string;
   geminiModel?: string;
-  codexModel?: string;
   env?: NodeJS.ProcessEnv;
   cache?: CountCache;
   dryRun?: boolean;
@@ -77,7 +87,6 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
   const run = options.run ?? runCommand;
   const claudeModel = options.claudeModel ?? defaultModels.claude;
   const geminiModel = options.geminiModel ?? defaultModels.gemini;
-  const codexModel = options.codexModel ?? defaultModels.codex;
 
   // One gcloud lookup serves Claude and Gemini on Vertex AI, and runs only when one of them needs it.
   let google: { project: string; location: string; token: string } | string | undefined;
@@ -176,7 +185,7 @@ export function resolvePrecisePlan(options: PreciseOptions = {}): ProviderCountP
     methods: {
       claude: claudeMethods,
       gemini: geminiMethods,
-      codex: [{ kind: "local", model: codexModel }, { kind: "estimate" }],
+      codex: codexMethods,
     },
     subtractWrapper: true,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),

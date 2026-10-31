@@ -121,7 +121,7 @@ export function reportBody(report: Report): string {
       </div>
       <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ summary</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
     </section>
-    <details class="panel" id="files-panel"${report.providerMeasurements ? " open" : ""}>
+    <details class="panel" id="files-panel"${report.providerMeasurements?.some(({ provider }) => provider !== "codex") ? " open" : ""}>
       <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
       <div class="inventory-controls">
         <label>Provider<select id="provider-filter"><option value="">All providers</option></select></label>

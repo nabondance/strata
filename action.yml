@@ -16,21 +16,13 @@ inputs:
     description: Full Git commit ID to compare to. Give it with base, or leave both empty.
     required: false
     default: ''
-  tokenizer:
-    description: Offline token mode (estimate, openai-cl100k_base, or openai-o200k_base).
-    required: false
-    default: estimate
-  model:
-    description: Named OpenAI model; when set, this takes precedence over the default tokenizer input.
-    required: false
-    default: ''
   precise:
     description: >-
-      Set to 'true' to add precise per-provider totals. Claude and Gemini instruction text is sent to
+      Set to 'true' to add Claude and Gemini totals from their own token counts. Claude and Gemini instruction text is sent to
       their token-count APIs when ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY is in the step's
       environment, or to Vertex AI when the job has a signed-in gcloud with a project (Claude only
       without ANTHROPIC_API_KEY). A provider with neither falls back to the estimate. Codex is counted
-      locally with gpt-5; the tokenizer and model inputs are not used with precise.
+      locally, with or without precise.
     required: false
     default: 'false'
   limit-tokens:
@@ -76,7 +68,7 @@ outputs:
     description: Path of the Markdown delta, the same text as the job summary.
     value: ${{ steps.compare.outputs.summary-file }}
   json-file:
-    description: Path of the JSON delta (schema version 12), for later steps.
+    description: Path of the JSON delta (schema version 13), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
 runs:
   using: composite
@@ -105,8 +97,6 @@ runs:
         # The commit that merges the pull request: what a pull_request checkout holds (also on its
         # review events), and on pull_request_target the payload's test merge, which can be missing.
         STRATA_EVENT_MERGE: ${{ github.event_name != 'pull_request_target' && github.sha || github.event.pull_request.merge_commit_sha }}
-        STRATA_TOKENIZER: ${{ inputs.tokenizer }}
-        STRATA_MODEL: ${{ inputs.model }}
         STRATA_PRECISE: ${{ inputs.precise }}
         STRATA_LIMIT_TOKENS: ${{ inputs.limit-tokens }}
         STRATA_LIMIT_INCREASE: ${{ inputs.limit-increase }}
@@ -194,15 +184,8 @@ runs:
         json="$out/strata-pr-delta.json"
         args=(diff "$GITHUB_WORKSPACE" --base "$base" --head "$head" --output "$markdown" --json-output "$json")
         if [ "$STRATA_PRECISE" = "true" ]; then
-          if [ -n "$STRATA_MODEL" ] || [ "$STRATA_TOKENIZER" != "estimate" ]; then
-            echo "::warning::The tokenizer and model inputs are not used with precise: 'true'."
-          fi
           # Precise counts accompany the estimate; the runner's cache would not outlive the job.
           args+=(--precise --no-cache)
-        elif [ -n "$STRATA_MODEL" ]; then
-          args+=(--model "$STRATA_MODEL")
-        else
-          args+=(--tokenizer "$STRATA_TOKENIZER")
         fi
         # Each input holds one value or several separated by spaces or commas; set -f keeps them literal.
         limits=()

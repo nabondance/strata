@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import test from "node:test";
-import { getEncoding } from "js-tiktoken";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
@@ -81,7 +79,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     const renamed = commit("Rename a skill");
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 19);
+    assert.equal(report.schemaVersion, 20);
     const listing = (path) => report.components.find((component) => component.path === path)?.skill?.listing;
     const reviewListing = { status: "listed", tokens: estimate("review\nReview this project carefully.") };
     assert.deepEqual(listing(".claude/skills/review/SKILL.md"), reviewListing);
@@ -169,7 +167,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     put(".claude/skills/broken/SKILL.md", `---\ndescription: Fixed\n---\n${body}`);
     const edited = commit("Edit two descriptions");
     const delta = compareGitCommits(repo, renamed, edited);
-    assert.equal(delta.schemaVersion, 12);
+    assert.equal(delta.schemaVersion, 13);
     assert.deepEqual(delta.comparison.skillListing, {
       beforeTokens: latest.skillListingTokens,
       afterTokens:
@@ -208,17 +206,6 @@ test("measures each manifest's listing separately from its stored tokens", async
     assert.match(
       cli.stderr,
       /Skills: \d+ listed tokens, the names and descriptions kept in context before a skill is used; the skill files store \d+\. 2 manifests have frontmatter Strata could not read and are not counted\./,
-    );
-
-    // An OpenAI encoding rejects text that is not UTF-8, so its check uses a history without that manifest.
-    git("checkout", "-q", "--orphan", "utf8");
-    git("rm", "-rq", "--cached", ".gemini");
-    rmSync(join(repo, ".gemini"), { recursive: true });
-    commit("Only UTF-8 manifests");
-    const exact = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(
-      exact.components.find((component) => component.path === ".agents/skills/release/SKILL.md").skill.listing.tokens,
-      getEncoding("o200k_base").encode("release\nPrepare and tag a release.").length,
     );
   } finally {
     cleanup();

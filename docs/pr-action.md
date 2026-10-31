@@ -117,7 +117,7 @@ The Action builds Strata from its own source at that version, with the locked de
 
 | Output | Value |
 | --- | --- |
-| `tokens` | Stored instructional text at the head, in tokens, in the run's measurement |
+| `tokens` | Stored instructional text at the head, in estimated tokens |
 | `delta-tokens` | Its change from base to head, negative when it shrank |
 | `limit-result` | `over` when at least one limit is passed, `within` when every limit checked is met, `none` when no limit was checked: none was set, or none applied to any agent |
 | `summary-file` | Path of the Markdown delta, the same text as the job summary |
@@ -135,13 +135,11 @@ The outputs are set whenever the summary is written. That includes runs where a 
 
 ## Measurement
 
-These inputs choose how tokens are counted:
+Totals use the byte estimate. Codex files are also counted exactly, offline, with OpenAI's `o200k_base` encoding, and the delta shows them as Codex's own totals. One input adds Claude and Gemini counts:
 
 | Input | Default | Effect |
 | --- | --- | --- |
-| `tokenizer` | `estimate` | Offline token mode: `estimate`, `openai-cl100k_base`, or `openai-o200k_base` |
-| `model` | empty | A named OpenAI model, such as `gpt-4o`, counted offline through a documented model-to-encoding mapping. When set, it is used instead of `tokenizer` |
-| `precise` | `'false'` | `'true'` adds precise totals for each provider, described below. `tokenizer` and `model` are not used with it |
+| `precise` | `'false'` | `'true'` adds Claude and Gemini totals from their token-count APIs, described below |
 
 ### Precise counts
 
@@ -149,7 +147,7 @@ For precise totals per provider, set `precise: 'true'` and give the step the API
 
 - Claude is counted with `ANTHROPIC_API_KEY`.
 - Gemini is counted with `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
-- Codex is counted locally for `gpt-5`, so its text is not sent.
+- Codex is counted locally, as without `precise`, so its text is not sent.
 - A provider with neither a key nor a signed-in `gcloud` (see below) falls back to the estimate.
 
 <!-- x-release-please-start-version -->
@@ -165,7 +163,7 @@ For precise totals per provider, set `precise: 'true'` and give the step the API
 
 A job that signs in `gcloud` first, for example with `google-github-actions/auth`, can count through Vertex AI instead of a Gemini key. Claude also counts through Vertex AI when the step has no `ANTHROPIC_API_KEY`. Pull requests from forks do not receive secrets, so their counts fall back to the estimate.
 
-With `precise: 'true'`, the summary gains a table of each provider's totals at both commits and the host that counted them.
+When Codex reads a file at either commit, the summary gains a table of each provider's totals at both commits, counted on the runner. With `precise: 'true'`, Claude and Gemini join it, with the host that counted them.
 
 ## Limits
 
@@ -209,7 +207,7 @@ strata diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --outp
 
 The last form writes both files from one comparison, as the Action does.
 
-The JSON delta has its own schema version, 12, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
+The JSON delta has its own schema version, 13, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
 
 ### What the delta contains
 
@@ -223,7 +221,7 @@ The JSON delta has its own schema version, 12, and includes the report's measure
 
 Strata's [manual Action smoke workflow](https://github.com/nabondance/strata/actions/workflows/action-smoke.yml) runs the Action on GitHub's runner. It compares the last two commits in this repository, from a shallow checkout that lacks the earlier commit, and runs it:
 
-- with a model and a limit it stays within;
+- with a limit it stays within;
 - with a limit passed under `warn`;
 - with a limit passed under `fail`.
 

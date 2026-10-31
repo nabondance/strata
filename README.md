@@ -54,7 +54,7 @@ The images on this page are Strata's report on its own repository.
 3. **It measures the files that match a known agent-configuration path:**
    - Instruction files get an estimate of their tokens, called *stored-text tokens*.
    - Structured settings and bundled resources (scripts, templates, and other files that come with a skill) are measured in bytes. Strata does not invent a token count for them.
-4. **The default estimate is the file's size in UTF-8 bytes divided by four.** It is fast, works offline, and stays consistent across the whole history. An opt-in flag counts with an exact OpenAI encoding instead.
+4. **The default estimate is the file's size in UTF-8 bytes divided by four.** It is fast, works offline, and stays consistent across the whole history. Files Codex reads are also counted exactly with OpenAI's encoding, offline, and `--precise` adds Claude's and Gemini's own API counts.
 
 Every measurement describes what the repository **stores**. It does not say what an agent loaded in a session or what you were billed.
 
@@ -159,7 +159,7 @@ Run the same command again to update. The canary passes the same checks as a rel
 
 ### Token counts
 
-By default Strata estimates tokens as UTF-8 bytes divided by four. For exact counts under an OpenAI encoding, still offline, pass `--model gpt-4o` or `--tokenizer openai-o200k_base`. Every report names the method it used. [The tokenizer study](docs/tokenizers.md) gives the evidence and the limits of each method.
+Strata estimates tokens as UTF-8 bytes divided by four. Files Codex reads are also counted exactly, offline, with the encoding of current OpenAI models (`o200k_base`), and shown as Codex's own totals. For Claude's and Gemini's own counts, `--precise` asks their token-count APIs. Every report names the method it used. [The tokenizer study](docs/tokenizers.md) gives the evidence and the limits of each method.
 
 ### In pull requests
 
@@ -234,7 +234,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 
 **How accurate is "bytes divided by four"?** It is an estimate for comparison. It is good enough to see growth and find the largest files, and it stays consistent across revisions. For more exact counts:
 
-- Under an OpenAI encoding, use `--model` or `--tokenizer`.
+- Codex files are always counted exactly, offline, under OpenAI's `o200k_base` encoding.
 - For Claude and Gemini, `--precise` asks each provider's token-count endpoint ([setup](docs/usage.md#precise-counts)).
 
 [The tokenizer study](docs/tokenizers.md) shows how the methods differ. No mode measures billing tokens.
@@ -251,7 +251,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 - [Using Strata](docs/usage.md): CLI output options, reading the report, and the JSON format.
 - [Pull-request delta](docs/pr-action.md): the GitHub Action and the `strata diff` command.
 - [Running Strata in CI](docs/ci.md): reports, README images, and pull-request deltas from a workflow.
-- [Token counting](docs/tokenizers.md): the estimate, the OpenAI encodings, and their limits.
+- [Token counting](docs/tokenizers.md): the estimate, the local Codex count, `--precise`, and their limits.
 - [Analysis scope](docs/analysis-scope.md): recognized paths and exclusions.
 - [Decisions](docs/decisions.md): measurement and report contracts.
 - [Benchmark notes](docs/benchmark.md): performance on large histories.

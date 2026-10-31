@@ -290,16 +290,15 @@ The report lists the links with unresolved imports first, and the command line c
 
 ### Token figures
 
-The default token figure is a **comparison estimate**: `ceil(UTF-8 byte length / 4)` for each recognized instructional file, that is, its size in bytes divided by four and rounded up, summed across files. The same method is applied to every revision. It is neither an Anthropic nor an OpenAI tokenizer.
+The token figure is a **comparison estimate**: `ceil(UTF-8 byte length / 4)` for each recognized instructional file, that is, its size in bytes divided by four and rounded up, summed across files. The same method is applied to every revision and every provider, so totals stay comparable, and limits use it. It is neither an Anthropic nor an OpenAI tokenizer. There is no option to change it.
 
-Local tokenizers:
+Codex's own count, on every run:
 
-- The optional `--tokenizer openai-cl100k_base` and `openai-o200k_base` modes use the local `js-tiktoken@1.0.21` package for encoding-exact counts of valid UTF-8 instructional text.
-- `--model` maps a small supported set of OpenAI model names to those encodings, and records the selected name. Unknown names fail. [Token-counting methods](tokenizers.md) lists the names.
-- The selected encoding applies to every instructional file, whatever its provider label, so historical totals stay comparable.
-- In an encoding mode, an instructional blob that is not valid UTF-8 makes the run fail, instead of silently producing an inexact count.
+- Each instructional file version Codex reads (its own files and shared ones such as `AGENTS.md`) is also counted with OpenAI's `o200k_base` encoding through the local `js-tiktoken@1.0.21` package. Every current OpenAI model uses that encoding.
+- These counts are Codex's own totals, labeled `encoding-exact`, beside the estimate; they never replace it.
+- Nothing is sent. A Codex file version that is not valid UTF-8 makes Codex's totals use the estimate, and the run says so.
 
-`--precise` is a separate, explicit opt-in for `strata analyze`:
+`--precise` is the explicit opt-in for Claude's and Gemini's own counts:
 
 - For each provider, it picks a signed-in provider CLI account, then an API key, then a local exact tokenizer, then the estimate; see [the decision record](decisions.md#measurement).
 - It sends only recognized instructional text, to [Anthropic's Messages count endpoint](https://platform.claude.com/docs/en/api/messages/count_tokens), [Gemini's countTokens endpoint](https://ai.google.dev/api/tokens), or Vertex AI's count endpoints.
@@ -307,11 +306,10 @@ Local tokenizers:
 - Markdown that a Claude import reaches is counted, and sent, as a Claude instruction file.
 - A shared instruction file gets a separate count for each selected provider in its `readers`. Counts from different providers are never added together.
 - A Gemini context file version is sent to Gemini only when it is present in some revision whose settings make Gemini read it. Its count joins the Gemini total, and appears in the report's Gemini column, only in such revisions.
-- An optional `--codex-model` adds a local OpenAI encoding count for Codex files.
 - API counts exclude the endpoint's one-message wrapper, the tokens the request adds around the text, measured per model. They describe stored text, not actual loaded context or billing.
 - `strata diff --precise` uses the same methods for its two commits.
 
-The deprecated `--provider-api` requires named models and both API keys. The default and local tokenizer modes never send repository content.
+Without `--precise`, no repository content is sent.
 
 ### Source-only files and category counts
 
@@ -323,11 +321,11 @@ The deprecated `--provider-api` requires named models and both API keys. The def
 
 ### Report fields
 
-The report is schema version 19. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
+The report is schema version 20. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
 
 | Field | Meaning | Since version |
 | --- | --- | --- |
-| `providerTokenCounts` on instructional components, `providerTokenTotals` on revisions | provider counts from `--precise`, kept apart from the default estimate | 8 |
+| `providerTokenCounts` on instructional components, `providerTokenTotals` on revisions | each provider's own counts, kept apart from the estimate: Codex's on every run, Claude's and Gemini's with `--precise` | 8 |
 | `privacy.mode` | `local`, or `shareable` for a report with aliased identifiers | 9 or earlier |
 | `measurement` (`family`, `accuracy`, `encoding`, `model`, `implementation`) | how the report's token figures were measured | 9 or earlier |
 | `skill` (`root`, `role`) on skill components | the skill directory a file belongs to, and whether it is the manifest or a resource | 9 or earlier |
@@ -364,6 +362,6 @@ The HTML comparison view can compare any two sampled revisions, including a targ
 
 - The SVG image contains only the repository and branch names, dates, category labels, and totals. With `--minimal`, it contains only the layer shapes and, in its accessible description, the latest totals.
 - The default HTML and JSON contain full commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no file contents.
-- Provider API mode (`--precise` when it finds a credential, or `--provider-api`) sends recognized instruction text to the named services during analysis. `--shareable` changes report identifiers but does not change that transfer.
+- `--precise`, when it finds a credential, sends recognized instruction text to the named services during analysis. `--shareable` changes report identifiers but does not change that transfer.
 - `--shareable` replaces the repository and branch names, commit IDs, paths (including import targets), skill roots, and blob IDs with deterministic aliases, local to that report. It keeps dates and measurements. These values can still reveal the shape and timing of a project, so inspect reports before sharing them.
 - Use `--output` to choose where the report is written. Strata does not write to the repository it analyzes unless that path is chosen explicitly.

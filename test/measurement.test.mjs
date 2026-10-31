@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { getEncoding } from "js-tiktoken";
-import { createMeasurer, modeForModel } from "../dist/measurement.js";
+import { createMeasurer } from "../dist/measurement.js";
 
 const samples = [
   "",
@@ -23,10 +23,7 @@ const samples = [
 ];
 
 test("cached per-piece counting equals whole-text encoding", () => {
-  for (const [mode, encoding] of [
-    ["openai-o200k_base", "o200k_base"],
-    ["openai-cl100k_base", "cl100k_base"],
-  ]) {
+  for (const [mode, encoding] of [["openai-o200k_base", "o200k_base"]]) {
     const reference = getEncoding(encoding);
     const measurer = createMeasurer(mode);
     // Twice: once filling the cache, once reading from it. Then all samples as one document.
@@ -53,23 +50,9 @@ test("repeated long runs are counted once, not once per file version", () => {
 });
 
 test("text that is not valid UTF-8 is rejected rather than counted", () => {
-  assert.throws(() => createMeasurer("openai-cl100k_base").count(Buffer.from([0xff])), /encoded data was not valid/);
+  assert.throws(() => createMeasurer("openai-o200k_base").count(Buffer.from([0xff])), /encoded data was not valid/);
 });
 
-test("model names resolve exactly or by tiktoken's prefixes, and unknown names fail", () => {
-  for (const [model, mode] of [
-    ["gpt-5", "openai-o200k_base"],
-    ["gpt-5-codex", "openai-o200k_base"],
-    ["gpt-5.1-codex-max", "openai-o200k_base"],
-    ["gpt-4o-mini", "openai-o200k_base"],
-    ["gpt-4.1-nano", "openai-o200k_base"],
-    ["o4-mini-2025-04-16", "openai-o200k_base"],
-    ["gpt-4", "openai-cl100k_base"],
-    ["gpt-4-0613", "openai-cl100k_base"],
-  ]) {
-    assert.equal(modeForModel(model), mode, model);
-  }
-  for (const model of ["gpt-oss-120b", "claude-opus-5-5", "gpt-3.5-turbo", "gpt-4o2"]) {
-    assert.throws(() => modeForModel(model), /Unsupported model/, model);
-  }
+test("only the estimate and o200k_base are supported", () => {
+  assert.throws(() => createMeasurer("openai-cl100k_base"), /Unsupported tokenizer mode/);
 });

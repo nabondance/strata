@@ -9,6 +9,7 @@ import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
+import { apiPlan } from "./provider-plans.mjs";
 import { loadReportUi } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
@@ -82,22 +83,16 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     const sentBodies = [];
     const report = await analyzeRepository(repo, {
-      providerCounts: {
-        claudeModel: "claude-test-model",
-        geminiModel: "gemini-test-model",
-        anthropicApiKey: "anthropic-test-key",
-        geminiApiKey: "gemini-test-key",
-        fetchImpl: async (url, init) => {
-          sentBodies.push(init.body);
-          return new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        },
-      },
+      providerPlan: apiPlan(async (url, init) => {
+        sentBodies.push(init.body);
+        return new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
     });
     assertLineAgesMatchTrees(repo, report);
-    assert.equal(report.schemaVersion, 19);
+    assert.equal(report.schemaVersion, 20);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -227,7 +222,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     // `strata diff` uses the same labels; a .claude/skills change stays in Claude's row.
     const delta = compareGitCommits(repo, added, migrated);
-    assert.equal(delta.schemaVersion, 12);
+    assert.equal(delta.schemaVersion, 13);
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");

@@ -18,15 +18,10 @@ import {
   versionKey,
 } from "./inventory.js";
 import { McpServerLists } from "./mcp-servers.js";
-import { createMeasurer, type MeasurementMode } from "./measurement.js";
+import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
-import {
-  type ProviderCountOptions,
-  type ProviderCountPlan,
-  type ProviderTextCount,
-  providerApiPlan,
-} from "./provider-count.js";
-import { countedProviders, countProviderBlobs, GeminiSettings, TextCheck } from "./provider-counting.js";
+import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
+import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
 import { RuleLoading } from "./rule-loading.js";
 import { SkillListings } from "./skill-listing.js";
@@ -43,11 +38,7 @@ export interface AnalysisProgress {
 
 export interface AnalysisOptions {
   onProgress?: (progress: AnalysisProgress) => void;
-  mode?: MeasurementMode;
-  model?: string | null;
-  /** `--provider-api`: explicit models and API keys, failing rather than falling back. */
-  providerCounts?: ProviderCountOptions;
-  /** `--precise`: each provider's counting methods, most precise first. */
+  /** Each counted provider's methods, most precise first: `localPlan()` by default in the CLI, or `--precise`. */
   providerPlan?: ProviderCountPlan;
   /** Called with a line for a person, such as which host is about to receive instruction text. */
   onNotice?: (line: string) => void;
@@ -233,12 +224,9 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
 }
 
 export async function analyzeRepository(repoPath: string, options: AnalysisOptions = {}): Promise<Report> {
-  const { onProgress, onNotice, mode = "estimate", model = null } = options;
-  const plan = options.providerPlan ?? (options.providerCounts ? providerApiPlan(options.providerCounts) : undefined);
-  if (plan && mode !== "estimate") {
-    throw new Error("Provider counts accompany the default estimate; do not combine them with another tokenizer");
-  }
-  const measurer = createMeasurer(mode, model);
+  const { onProgress, onNotice } = options;
+  const plan = options.providerPlan;
+  const measurer = createMeasurer("estimate");
   const root = gitText(resolve(repoPath), ["rev-parse", "--show-toplevel"]);
   const branch = gitText(root, ["branch", "--show-current"]) || "detached HEAD";
   const shallowRepository = gitText(root, ["rev-parse", "--is-shallow-repository"]) === "true";
@@ -263,7 +251,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
-  const text = plan ? new TextCheck() : null;
+  const text = plan ? new TextCheck(countsLocally(plan)) : null;
   const pass = new ContentPass([tokens, lineCounter, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
@@ -287,6 +275,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, text!, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
+  // A provider with no instructions in the history gets no count, so a report with none has no provider fields.
+  const hasProviderCounts = countedByPlan.length > 0;
 
   // Each distinct file version is stored once; revisions refer to it by index.
   const table: Component[] = [];
@@ -363,7 +353,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       firstParent,
       ...summarize(components),
       changes,
-      ...(plan ? { providerTokenTotals } : {}),
+      ...(hasProviderCounts ? { providerTokenTotals } : {}),
       ...(geminiContext ? { geminiContextFiles: geminiContext } : {}),
       ...(lineAge ? { lineAge } : {}),
     });
@@ -381,14 +371,14 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 19,
+    schemaVersion: 20,
     repository: basename(root),
     branch,
     shallow,
     ...(submodules.size ? { submodules: inspectSubmodules(root, submodules) } : {}),
     privacy: { mode: "local" },
     measurement: measurer.measurement,
-    ...(provided ? { providerMeasurements: provided.metadata } : {}),
+    ...(hasProviderCounts ? { providerMeasurements: provided!.metadata } : {}),
     lineAgeMethod,
     components: order.map((index) => table[index]!),
     revisions,

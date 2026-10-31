@@ -69,10 +69,10 @@ On a `pull_request` event, the checked-out commit is GitHub's temporary merge co
 
 ### Measurement
 
+Totals use the byte estimate, and Codex files are also counted exactly with OpenAI's `o200k_base` encoding, all offline. The one measurement flag sends content:
+
 | Flag | Network | Notes |
 | --- | --- | --- |
-| `--tokenizer estimate` | None | The default |
-| `--tokenizer openai-o200k_base` or `--model gpt-4o` | None | Counts offline with an OpenAI encoding |
 | `--precise` | Sends recognized instruction text to the Claude and Gemini token-count APIs | Add `--no-cache` on runners that are discarded after each job |
 
 `--precise` uses a provider's API when it finds `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), or a signed-in `gcloud` account in the job. It falls back to the estimate for a provider without one. Leave it off unless sending that content is acceptable.
@@ -172,7 +172,7 @@ In the README of a public repository, reference the published files:
 ![Agent context](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/<owner>/<repository>/strata-image/strata-badge.json)
 ```
 
-The badge reads `agent context | ≈1,151 tokens`. The `≈` marks the default estimate; it is absent when the tokenizer counts an exact encoding. The JSON holds that number only, with no repository name, path, or commit ID. Shields caches it for a few minutes.
+The badge reads `agent context | ≈1,151 tokens`. The `≈` marks the estimate. The JSON holds that number only, with no repository name, path, or commit ID. Shields caches it for a few minutes.
 
 GitHub also caches images, so a new version can take a few minutes to appear.
 

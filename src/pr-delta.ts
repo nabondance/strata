@@ -23,7 +23,7 @@ import {
 } from "./inventory.js";
 import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
 import { McpServerLists } from "./mcp-servers.js";
-import { createMeasurer, type Measurement, type MeasurementMode } from "./measurement.js";
+import { createMeasurer, type Measurement } from "./measurement.js";
 import type { ClaudeImport } from "./model.js";
 import {
   type CountedProvider,
@@ -31,7 +31,7 @@ import {
   type ProviderMeasurementMetadata,
   textRecipients,
 } from "./provider-count.js";
-import { countProviderBlobs, GeminiSettings, providerName, TextCheck } from "./provider-counting.js";
+import { countProviderBlobs, countsLocally, GeminiSettings, providerName, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
 import { RuleLoading } from "./rule-loading.js";
 import { type SkillListing, SkillListings } from "./skill-listing.js";
@@ -93,28 +93,23 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 12;
+  schemaVersion: 13;
   base: string;
   head: string;
   measurement: Measurement;
   comparison: Comparison;
   /** Per provider that reads stored text at either commit, for a session started at the repository root. */
   upFront: UpFrontDelta[];
-  /** With `--precise`: how each provider was counted, and its totals at both commits. */
+  /** How each provider was counted (Codex always, Claude and Gemini with `--precise`), and its totals at both commits. */
   providerMeasurements?: ProviderMeasurementMetadata[];
   providerTotals?: ProviderTotalDelta[];
   /** With limits such as `--limit-tokens`: each limit checked, in the comparison's measurement. */
   limits?: LimitCheck[];
 }
 
-export interface CompareOptions {
-  mode?: MeasurementMode;
-  model?: string | null;
-}
-
 /** With `text`, the shared read also finds which instruction blobs are blank or not UTF-8, for provider counts. */
-function readCommits(repo: string, base: string, head: string, options: CompareOptions, text?: TextCheck) {
-  const measurer = createMeasurer(options.mode ?? "estimate", options.model ?? null);
+function readCommits(repo: string, base: string, head: string, text?: TextCheck) {
+  const measurer = createMeasurer("estimate");
   git(repo, ["rev-parse", "--git-dir"]);
   const ids = [commitId(repo, base), commitId(repo, head)] as const;
   const imports = new Map<string, ClaudeImport[]>();
@@ -170,7 +165,7 @@ function readCommits(repo: string, base: string, head: string, options: CompareO
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 12,
+    schemaVersion: 13,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,
@@ -194,27 +189,23 @@ export function limitFigures(delta: PullRequestDelta): LimitFigures {
 }
 
 /** Compare two Git commits without checking them out or writing into the target repository. */
-export function compareGitCommits(
-  repo: string,
-  base: string,
-  head: string,
-  options: CompareOptions = {},
-): PullRequestDelta {
-  return readCommits(repo, base, head, options).delta;
+export function compareGitCommits(repo: string, base: string, head: string): PullRequestDelta {
+  return readCommits(repo, base, head).delta;
 }
 
 /**
- * Compare two commits and add each provider's precise totals at both. A provider reads a file at a
- * commit by `providerReads`, with that commit's Gemini settings; the counts never mix providers.
+ * Compare two commits and add each provider's own totals at both: Codex counted locally, and Claude
+ * and Gemini too with `--precise`. A provider reads a file at a commit by `providerReads`, with that
+ * commit's Gemini settings; the counts never mix providers.
  */
-export async function compareGitCommitsPrecise(
+export async function compareGitCommitsWithProviders(
   repo: string,
   base: string,
   head: string,
-  options: CompareOptions & { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void },
+  options: { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void },
 ): Promise<PullRequestDelta> {
-  const text = new TextCheck();
-  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options, text);
+  const text = new TextCheck(countsLocally(options.providerPlan));
+  const { delta, files, measured, snapshots } = readCommits(repo, base, head, text);
   const all = files.flat();
   const geminiBlobs = new Set(
     snapshots.flatMap(({ snapshot, names }) =>
@@ -242,6 +233,8 @@ export async function compareGitCommitsPrecise(
       0,
     );
   };
+  // No counted provider reads stored text at either commit: the delta has no provider fields.
+  if (!metadata.length) return delta;
   return {
     ...delta,
     providerMeasurements: metadata,
@@ -264,7 +257,7 @@ function cell(value: string): string {
     .replace(/([`*_[\]])/g, "\\$1");
 }
 
-/** The precise-count table: each provider's totals under the method it was counted with. */
+/** The provider-count table: each provider's totals under the method it was counted with. */
 function providerLines(delta: PullRequestDelta): string[] {
   if (!delta.providerTotals?.length) return [];
   const lines = ["| Provider | Counted with | Before | After | Δ tokens |", "| --- | --- | ---: | ---: | ---: |"];

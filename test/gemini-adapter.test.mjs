@@ -7,6 +7,7 @@ import { expandRevisions } from "../dist/expand.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
+import { apiPlan } from "./provider-plans.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's agent and skill discovery", async () => {
@@ -41,19 +42,13 @@ test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's 
 
     const geminiBodies = [];
     const report = await analyzeRepository(repo, {
-      providerCounts: {
-        claudeModel: "claude-test-model",
-        geminiModel: "gemini-test-model",
-        anthropicApiKey: "anthropic-test-key",
-        geminiApiKey: "gemini-test-key",
-        fetchImpl: async (url, init) => {
-          if (!url.includes("anthropic")) geminiBodies.push(init.body);
-          return new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        },
-      },
+      providerPlan: apiPlan(async (url, init) => {
+        if (!url.includes("anthropic")) geminiBodies.push(init.body);
+        return new Response(JSON.stringify(url.includes("anthropic") ? { input_tokens: 7 } : { totalTokens: 9 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
     });
     assertLineAgesMatchTrees(repo, report);
     assert.deepEqual(

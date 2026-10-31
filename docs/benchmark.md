@@ -45,7 +45,7 @@ Trailhead-Banner changes configuration in only 16 of its 505 revisions. What rem
 
 ## Tokenizer cost
 
-With an OpenAI encoding selected, tokenization takes most of the time.
+With an OpenAI encoding (the removed `--tokenizer` option, measured before version 20), tokenization took most of the time.
 
 Example: one local repository with 181 revisions and 627 distinct instruction blobs.
 

@@ -28,43 +28,33 @@ Strata uses the OSI-approved MIT license, chosen to allow broad use and redistri
 
 ## Measurement
 
-### Default estimate and local tokenizers
+### The estimate and Codex's local count
 
-By default, Strata measures stored instructional text with its `utf8-bytes-divided-by-four-v1` comparison estimate: `ceil(UTF-8 bytes / 4)` for each file, then the sum.
+Strata measures stored instructional text with its `utf8-bytes-divided-by-four-v1` comparison estimate: `ceil(UTF-8 bytes / 4)` for each file, then the sum. It is the only report-wide measurement: every total, chart, comparison, limit, badge, and image uses it, for every provider, and no option changes it. Earlier versions offered `--tokenizer` and `--model` to apply one OpenAI encoding to every file instead; they were removed because an OpenAI encoding says nothing exact about Claude, Gemini, Cursor, or Copilot files, and mixing methods inside one total would make it neither an estimate nor exact.
 
-Two options count tokens locally instead, with `js-tiktoken@1.0.21`, for valid UTF-8 text:
+Files Codex reads are also counted on every run, with OpenAI's `o200k_base` encoding through `js-tiktoken@1.0.21`, for valid UTF-8 text. Every current OpenAI model (GPT-4o, GPT-4.1, GPT-5, o3, o4-mini, and Codex) uses that encoding, so no model name is needed; the count's `model` names the encoding. Older encodings such as `cl100k_base` (GPT-4) and `o200k_harmony` (`gpt-oss`) are not shipped. These counts are Codex's own totals in `providerMeasurements`, `providerTokenCounts`, and `providerTokenTotals`, as with `--precise`; they never replace the estimate.
 
-- `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base` selects an encoding directly.
-- `--model` selects the encoding [OpenAI's tiktoken model map](https://github.com/openai/tiktoken/blob/main/tiktoken/model.py) documents for an explicitly supported OpenAI model name. As in tiktoken's prefix table, a name that starts with a listed prefix also resolves, so variants such as `gpt-5-codex` work.
+What the local count means:
 
-| `--model` value | Encoding |
-| --- | --- |
-| `gpt-4`, or a name starting with `gpt-4-` | `cl100k_base` |
-| `gpt-4o`, `gpt-4.1`, `gpt-5`, `o3`, `o4-mini`, or a name starting with `gpt-5`, `gpt-4.1-`, `gpt-4o-`, `o3-`, or `o4-mini-` | `o200k_base` |
-
-Any other name fails rather than guessing. That includes `gpt-oss-` models, whose `o200k_harmony` encoding Strata does not ship.
-
-What a local count means:
-
-- It is exact for the selected encoding. It excludes message framing, special-token handling, actual loaded context, and billing.
+- It is exact for `o200k_base`. It excludes message framing, special-token handling, actual loaded context, and billing.
 - Text that spells a special token, such as `<|endoftext|>` in a file about language models, is counted as ordinary text rather than rejected.
 - Text is counted one pattern piece at a time, with a cache of distinct pieces. This gives the same total as encoding the whole text (see [the benchmark notes](benchmark.md)).
+- It is taken from the shared content pass, so it rarely reads a file version a second time; see [History extraction](#history-extraction).
 - It does not claim accuracy for Claude or Gemini.
-- One encoding is applied to every instructional file and every revision in a report.
 
-The default and local modes make no network request and transfer no content. Structured configuration and supporting resources are measured in source bytes only. See [the tokenizer study](tokenizers.md) for evidence.
+Without `--precise`, Strata makes no network request and transfers no content. Structured configuration and supporting resources are measured in source bytes only. See [the tokenizer study](tokenizers.md) for evidence.
 
 ### Precise per-provider counts
 
-`strata analyze --precise` is the explicit opt-in for precise counts per provider. It needs no other flag. Each provider is counted with the most precise method available, tried in the order below. The report and the run output say which method was used and why each earlier one was skipped.
+`strata analyze --precise` is the explicit opt-in for Claude's and Gemini's own counts. It needs no other flag. Each provider is counted with the most precise method available, tried in the order below. The report and the run output say which method was used and why each earlier one was skipped.
 
 | Provider | 1. Signed-in account | 2. API key | 3. Local exact | 4. Estimate |
 | --- | --- | --- | --- | --- |
 | Claude (default `claude-opus-5-5`, `--claude-model`) | `ant auth login` profile, through `ant auth print-credentials --access-token`; Anthropic count endpoint. With neither that nor `ANTHROPIC_API_KEY`, a ready `gcloud` account; Vertex AI `count-tokens:rawPredict` | `ANTHROPIC_API_KEY`; Anthropic count endpoint | none exists | byte estimate |
 | Gemini (default `gemini-3.8-flash`, `--gemini-model`) | `gcloud` account with a project (`GOOGLE_CLOUD_PROJECT` or `gcloud config`), through `gcloud auth print-access-token`; Vertex AI `countTokens` in `GOOGLE_CLOUD_LOCATION` (default `global`) | `GEMINI_API_KEY` or `GOOGLE_API_KEY`; Gemini API `countTokens` | none exists | byte estimate |
-| Codex (default `gpt-5`, `--codex-model`) | not used | not used | `js-tiktoken` encoding for the model | byte estimate |
+| Codex (with or without `--precise`) | not used | not used | `js-tiktoken` `o200k_base` | byte estimate |
 
-`strata diff --precise` uses the same methods and reports each provider's totals at the base and head commits. PR delta schema version 5 added `providerMeasurements` and `providerTotals` for this.
+`strata diff --precise` uses the same methods and reports each provider's totals at the base and head commits. PR delta schema version 5 added `providerMeasurements` and `providerTotals` for this; since version 13, `strata diff` reports Codex's totals without `--precise` too.
 
 #### Which providers and credentials are used
 
@@ -84,7 +74,7 @@ The default and local modes make no network request and transfer no content. Str
   - A version that is not valid UTF-8 has no text count, so its providers use the byte estimate for every file and send nothing.
 - Before sending, the CLI prints which host will receive how many instruction file versions. This notice is shown even with `--quiet`.
 - A method that fails during the run, such as one whose token is rejected, is discarded whole and the next method is tried. So one provider's counts never mix methods.
-- `--dry-run` resolves credentials and reports each provider's method and what would be sent, without counting or sending anything.
+- `--dry-run` resolves credentials and reports each provider's method and what would be sent, without sending anything or counting remotely. The local Codex count, taken with the shared read, still runs.
 - Access tokens and keys are held in memory for the run only. They are never written to reports or output.
 
 Each provider's metadata in the report records:
@@ -107,17 +97,6 @@ Remote counts are cached between runs:
 - The cache file is readable by its owner only and holds no paths or text.
 
 
-### Deprecated `--provider-api`
-
-`strata analyze --provider-api` is the earlier form of `--precise`. It prints a deprecation warning and otherwise behaves as before:
-
-- It requires a Claude model and a Gemini model, and uses `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` (or `GOOGLE_API_KEY`).
-- It sends each recognized Claude or Gemini instruction blob to the matching count endpoint as one user text message. Shared instructions are counted separately for both selected provider models.
-- `--codex-model` optionally adds a local OpenAI encoding count for Codex instructions.
-- Provider counts are cached by provider, model, and blob, so the same provider and blob is requested once across the whole history.
-- Separate provider counts are never added to each other or to the generic estimate. The legacy `estimatedTokens` history remains the default byte estimate.
-- `--dry-run` and `--no-cache` are rejected with `--provider-api`.
-
 ## History extraction
 
 Analysis reads the whole first-parent history from one streamed `git log --first-parent --diff-merges=first-parent --raw -M` process, which needs Git 2.31 or newer. Each commit's raw diff against its first parent updates an in-memory inventory of recognized regular files:
@@ -135,7 +114,7 @@ Blob sizes come from `git cat-file --batch-check`. Blob content is read in bound
 
 Settings, MCP, and other source-only files are otherwise read only where a section below says so.
 
-One shared pass reads each of these blobs once and gives its content to every step that needs it: token counting with `--tokenizer` or `--model`, line counts, Gemini settings, skill listings, rule loading, MCP server names, and, with `--precise`, the check for blank or non-UTF-8 text. Claude import parsing runs first, because it decides which files join the analysis; the blobs it reads are handed to the shared pass, which does not read them again. The one exception is `--precise` counting with a local tokenizer or a provider API: each of those methods reads the text again when it counts it, so instruction text is never kept in memory waiting for a request.
+One shared pass reads each of these blobs once and gives its content to every step that needs it: line counts, Gemini settings, skill listings, rule loading, MCP server names, and the provider-count check for blank or non-UTF-8 text, which also takes the local Codex count. Claude import parsing runs first, because it decides which files join the analysis; the blobs it reads are handed to the shared pass, which does not read them again. The local Codex count is taken in the pass, from the content it reads for the provider-count text check. Two cases read text again: `--precise` counting with a provider API reads each file version when it sends it, so instruction text is never kept in memory waiting for a request, and a Codex file version whose blob the pass first read for a file Codex does not read (such as `CLAUDE.md` text moved unchanged to `AGENTS.md`) is read again to count it.
 
 Each instructional version is reduced to counts of its lines as soon as it is read, and each distinct line's text is kept once. Memory therefore grows with the number of distinct lines, plus a few bytes for each line of each distinct version, not with the history's text.
 
@@ -170,7 +149,7 @@ A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 19,
+  "schemaVersion": 20,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -213,12 +192,12 @@ A shortened, illustrative JSON shape:
 - Default HTML and JSON reports contain commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no source text. Paths and blob IDs can still disclose the repository's structure.
 - HTML and JSON reports are local artifacts. The CLI writes them with mode `0600`.
 - The HTML report carries a Content-Security-Policy that allows only its own inline style and script, so a browser will not load anything from the network on its behalf.
-- The default measurement modes make no network request and upload no content.
-- Explicit `--precise` (or the deprecated `--provider-api`) sends recognized Claude and Gemini instructional text to the provider APIs it finds credentials for. Reports store counts and measurement metadata, never the submitted text, the credentials, or the Google Cloud project.
+- Without `--precise`, Strata makes no network request and uploads no content.
+- Explicit `--precise` sends recognized Claude and Gemini instructional text to the provider APIs it finds credentials for. Reports store counts and measurement metadata, never the submitted text, the credentials, or the Google Cloud project.
 
 ### Shareable reports
 
-`--shareable` produces schema version 19 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 20 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
@@ -253,6 +232,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 17 | `upFront` |
 | 18 | `mcp` |
 | 19 | `lineAgeMethod` and `lineAge`; a narrower `shallow` |
+| 20 | Codex provider counts on every run; `measurement` always the byte estimate |
 
 #### Version 8: provider counts
 
@@ -270,7 +250,7 @@ Gemini CLI reads `AGENTS.md` and `GEMINI.md` according to the `context.fileName`
 - A revision whose repository-root `.gemini/settings.json` sets `context.fileName` carries `geminiContextFiles`, the labels the setting names. Other revisions omit it, which means `GEMINI.md` only.
 - The labels are deliberately not file names, so they cannot match an aliased path in a shareable report. Configured names Strata does not recognize are not stored.
 
-`providerReads` in `src/provider-view.ts` is the one rule for whether a provider reads a component at a revision. Analysis totals, provider views, and the report's provider columns all use it. In provider API mode, a context-file version is sent to Gemini only if it is present at some revision where Gemini reads it.
+`providerReads` in `src/provider-view.ts` is the one rule for whether a provider reads a component at a revision. Analysis totals, provider views, and the report's provider columns all use it. With `--precise`, a context-file version is sent to Gemini only if it is present at some revision where Gemini reads it.
 
 #### Version 11: `--precise` metadata
 
@@ -401,6 +381,16 @@ Version 18 adds `mcp` to MCP configuration files, and to Gemini CLI and Codex se
 Version 19 adds the top-level `lineAgeMethod` and a `lineAge` on each revision that added or removed instruction lines; see [Instruction age](#instruction-age). Earlier versions have no instruction age. Analysis of the same history now reads every instructional file version.
 
 It also narrows `shallow`. It is true only when the first revision is a shallow boundary that has a parent, meaning the commit where a shallow fetch cut the history. Two cases are no longer flagged: a full history in a repository that fetched some other branch shallowly, and a depth-limited clone that reached the root commit anyway.
+
+#### Version 20: Codex counted on every run
+
+Version 20 removes `--tokenizer`, `--model`, `--codex-model`, and `--provider-api`; see [The estimate and Codex's local count](#the-estimate-and-codexs-local-count). The shape is unchanged, but:
+
+- `measurement` is always the byte estimate, so its `encoding` and `model` are always `null`.
+- `providerMeasurements`, `providerTokenCounts`, and `providerTokenTotals` are present without `--precise` whenever Codex reads an instructional file, holding Codex's `o200k_base` counts. They are absent, rather than empty, when no counted provider reads one, with or without `--precise`; the PR delta's `providerMeasurements` and `providerTotals` follow the same rule.
+- Codex's `model` is `o200k_base`, the encoding, instead of a model name such as `gpt-5`.
+
+Version 19 and earlier have Codex counts only with `--precise`, and their `measurement` may be an OpenAI encoding.
 
 ## MCP servers
 
@@ -766,7 +756,7 @@ The HTML report's masthead names the analyzed repository and holds the figures f
 
 ### Tables and the measurement disclosure
 
-- The tracked-components table is collapsed under its heading, which gives the file count. Selecting a treemap rectangle opens it. With `--precise` or `--provider-api` it starts open, because the per-provider counts appear only there.
+- The tracked-components table is collapsed under its heading, which gives the file count. Selecting a treemap rectangle opens it. It starts open when Claude or Gemini was counted with `--precise`, because those per-provider counts appear only there. A Codex-only count, present on every run with Codex files, leaves it closed, so the default report looks as it did before Codex was counted by default.
 - That table and the changed-components list show their first 25 rows, each with a control to show the rest. This limits what is drawn, not what is counted: totals, filters, and comparisons always cover every file.
 - The measurement method and its limits sit behind a disclosure. Its visible label states that the figures describe what Git stores, not loaded session context.
 - With provider counts, that label also names each provider's method in one word: `API count` for `api-counted` (Anthropic documents its count endpoint as an estimate, so the report does not call it exact), `exact (local)` for `encoding-exact`, or `estimate`.
@@ -821,9 +811,9 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 ## Pull-request comparison
 
-`strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and selected measurement mode as the history report.
+`strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
-Its JSON has its own schema version, currently 12. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
+Its JSON has its own schema version, currently 13. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
 | Version | Adds |
 | --- | --- |
@@ -835,6 +825,7 @@ Its JSON has its own schema version, currently 12. Compared components carry the
 | 10 | `upFront`: for each provider that reads stored text at either commit, its [up-front and on-demand totals](#up-front-context) at both, with the file count and unresolved counts. The Markdown adds a table of the providers whose figures changed, or a line saying none did. |
 | 11 | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each. |
 | 12 | `limits` when a [limit](#limits) is set. |
+| 13 | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate. |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 
@@ -852,7 +843,7 @@ Limits are opt-in. Nothing is checked unless a limit is given, and none is set b
 | `--limit-up-front-increase` | yes | no |
 
 - **Tokens only.** Every limit is a whole number of tokens. Percentage limits were considered and left out: a percentage cannot be taken from a zero base, needs exact decimal comparison, and needs rounding that never contradicts its result, while a token limit has none of these cases. The percentage change is still shown beside each increase.
-- **Figures.** `--limit-tokens` and `--limit-increase` use the stored instructional text total, the same `comparison` or revision total the run reports. The session-start limits use each agent's `tokens` from [up-front context](#up-front-context): listed files plus skill listings, for a session at the repository root. All limits use the run's measurement mode. With `--precise`, the provider counts are not used, so a limit means the same with or without network access. A source-only file adds nothing to any limit.
+- **Figures.** `--limit-tokens` and `--limit-increase` use the stored instructional text total, the same `comparison` or revision total the run reports. The session-start limits use each agent's `tokens` from [up-front context](#up-front-context): listed files plus skill listings, for a session at the repository root. All limits use the byte estimate. Provider counts (Codex's, and those from `--precise`) are not used, so a limit means the same with or without network access. A source-only file adds nothing to any limit.
 - **Agents.** A session-start limit without an agent applies to every agent that keeps text at session start (up-front tokens or files) at either commit, or, in `analyze`, at the last revision. An agent that only reads on demand has nothing to limit. `agent=n` sets one agent's limit and replaces the general one for that agent; it is checked even when that agent keeps nothing at session start, as zero tokens. When the general limit applies to no agent, it gives one entry that says why: `no-agent` when no agent keeps text at session start, `replaced` when each agent that does has its own limit. A limit that was set is never silently dropped.
 - **Comparisons.** A figure is over its limit when it is strictly greater. An absolute limit compares the head value. An increase limit compares head minus base, so a decrease is always within.
 
@@ -867,7 +858,7 @@ Limits are opt-in. Nothing is checked unless a limit is given, and none is set b
 - `strata analyze` adds nothing to its report, whose schema is unchanged.
 - `strata diff` puts a table of every limit at the top of its Markdown.
 
-`strata diff` also adds the `limits` array to its JSON (schema version 12). Each entry has:
+`strata diff` also adds the `limits` array to its JSON (since schema version 12). Each entry has:
 
 | Field | Value |
 | --- | --- |
