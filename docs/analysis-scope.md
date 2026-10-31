@@ -237,7 +237,7 @@ Claude Code expands `@path` imports in the instruction files it loads. The file 
 - A home-directory (`~/`) path, an absolute path, or a relative path that climbs above the repository root points outside the repository and is `external`.
 - Paths are matched exactly, so a case-insensitive file system that loads `@agents.md` as `AGENTS.md` is not modeled.
 - An import of a Git symlink reaches the file the link leads to, as Claude Code reads it. The link's text resolves against the link's directory, and a chain of links is followed for up to four links. A link that points outside the repository, or a chain that is longer or ends at no file, leaves the import `missing`.
-  - In history analysis, a link is followed only when every version of it in the analyzed history points to the same place. The import then reaches that file at each revision where the path it names has no regular file. So an import of a file later replaced by a link to its new place resolves before and after the change.
+  - In history analysis, a link is followed only when every version of it in the analyzed history points to the same place. The import then reaches that file at each revision where the path it names has no regular file. So an import of a file later replaced by a link to its new place resolves before and after the change, and an import reaches the file even at revisions where the link was not there yet or had been deleted; `strata diff` follows each tree's own links exactly.
   - `strata diff` follows the links in each of its two trees as they are there.
 
 ### What counts as an import
