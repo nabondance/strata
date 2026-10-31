@@ -106,7 +106,7 @@ Strata is clear about what it cannot tell you. It measures the text **stored in 
 
 - **Read-only.** Strata reads tracked Git blobs. It never touches your working tree, index, or history.
 - **Offline.** Strata uses no network unless you ask for precise token counts from the providers with `--precise`. That option uses your signed-in [`ant`](https://github.com/anthropics/anthropic-cli) or `gcloud` account, or an API key, and tells you what it sent where ([setup](docs/usage.md#precise-counts)).
-- **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions.
+- **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions. The one path-shaped token they keep from the text is the target of a Claude `@path` import, so a broken import can be named.
 - **Shareable mode.** `--shareable` replaces repository and branch names, paths, and commit IDs with stable aliases before you send a report to someone else.
 
 ## Usage
