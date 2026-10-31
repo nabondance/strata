@@ -98,29 +98,33 @@ export const historyScript = `    function renderLegend() {
     }
 
     const slider = $('slider');
-    slider.max = revisions.length - 1;
-    // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
-    slider.addEventListener('input', () => render(Number(slider.value), true));
-    slider.addEventListener('change', () => render(Number(slider.value)));
-    // The bars are one tab stop; arrow keys, Home, and End move the selection between them.
-    $('chart').addEventListener('keydown', (event) => {
-      const at = chartBuckets.findIndex((bucket) => bucket.button === event.target);
-      const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: chartBuckets.length - 1 }[event.key];
-      if (at < 0 || next === undefined) return;
-      event.preventDefault();
-      const bucket = chartBuckets[Math.max(0, Math.min(chartBuckets.length - 1, next))];
-      render(bucket.end);
-      bucket.button.focus();
-    });
-    $('baseline').append(text('option', 'Previous revision'));
-    $('baseline').children[0].value = 'previous';
-    for (const [index, revision] of revisions.entries()) {
-      const label = (index + 1) + ' · ' + revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8);
-      for (const id of ['baseline', 'target']) {
-        const option = text('option', label);
-        option.value = String(index);
-        $(id).append(option);
+
+    /** Wires the slider, the chart's arrow keys, and the revision selects. */
+    function setupHistory() {
+      slider.max = revisions.length - 1;
+      // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
+      slider.addEventListener('input', () => render(Number(slider.value), true));
+      slider.addEventListener('change', () => render(Number(slider.value)));
+      // The bars are one tab stop; arrow keys, Home, and End move the selection between them.
+      $('chart').addEventListener('keydown', (event) => {
+        const at = chartBuckets.findIndex((bucket) => bucket.button === event.target);
+        const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: chartBuckets.length - 1 }[event.key];
+        if (at < 0 || next === undefined) return;
+        event.preventDefault();
+        const bucket = chartBuckets[Math.max(0, Math.min(chartBuckets.length - 1, next))];
+        render(bucket.end);
+        bucket.button.focus();
+      });
+      $('baseline').append(text('option', 'Previous revision'));
+      $('baseline').children[0].value = 'previous';
+      for (const [index, revision] of revisions.entries()) {
+        const label = (index + 1) + ' · ' + revision.date.slice(0, 10) + ' · ' + revision.id.slice(0, 8);
+        for (const id of ['baseline', 'target']) {
+          const option = text('option', label);
+          option.value = String(index);
+          $(id).append(option);
+        }
       }
-    }
-    $('baseline').addEventListener('change', () => { baseline = $('baseline').value === 'previous' ? 'previous' : Number($('baseline').value); renderComparison(); });
-    $('target').addEventListener('change', () => render(Number($('target').value)));`;
+      $('baseline').addEventListener('change', () => { baseline = $('baseline').value === 'previous' ? 'previous' : Number($('baseline').value); renderComparison(); });
+      $('target').addEventListener('change', () => render(Number($('target').value)));
+    }`;

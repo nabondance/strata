@@ -33,7 +33,7 @@ export function renderHtml(report: Report): string {
   <title>Strata — ${escapeHtml(report.repository)}</title>
   <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(markSvg(64))}">
   <style>
-${reportStyles()}
+${reportStyles}
   </style>
 </head>
 <body>

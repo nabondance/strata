@@ -11,13 +11,9 @@ const code = (path) =>
     .split("\n")
     .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
     .join("\n");
-// The report is assembled from src/report.ts and the modules under src/report.
+// The text the report shows: its page markup and the script parts that fill it, not its styles or helpers.
 const reportCode = () =>
-  [
-    "src/report.ts",
-    ...readdirSync(new URL("src/report", root), { recursive: true }).map((file) => `src/report/${file}`),
-  ]
-    .filter((path) => path.endsWith(".ts"))
+  ["src/report/body.ts", ...readdirSync(new URL("src/report/client", root)).map((file) => `src/report/client/${file}`)]
     .map(code)
     .join("\n");
 

@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -9,23 +7,11 @@ import { expandRevisions } from "../dist/expand.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's agent and skill discovery", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-gemini-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    const fullPath = join(repo, path);
-    mkdirSync(join(fullPath, ".."), { recursive: true });
-    writeFileSync(fullPath, content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-m", message);
-  };
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-gemini-");
   try {
-    git("init", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
     put("AGENTS.md", "Shared project instructions.\n");
     put("packages/app/AGENTS.md", "Nested shared instructions.\n");
     put("GEMINI.md", "Gemini project instructions.\n");
@@ -157,6 +143,6 @@ test("follows Gemini context.fileName for AGENTS.md and GEMINI.md, and Gemini's 
       ],
     );
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

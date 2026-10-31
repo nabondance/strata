@@ -6,6 +6,7 @@ import { importLinks } from "../import-links.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../instruction-age.js";
 import type { Report } from "../model.js";
 import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "../palette.js";
+import { providerName } from "../provider-counting.js";
 import { providerReads, viewRevision } from "../provider-view.js";
 import { timelineBuckets } from "../timeline.js";
 import { layoutTreemap } from "../treemap.js";
@@ -19,14 +20,15 @@ import { labelsScript } from "./client/labels.js";
 import { mapScript } from "./client/map.js";
 import { renderScript } from "./client/render.js";
 import { skillsScript } from "./client/skills.js";
+import { startScript } from "./client/start.js";
 import { stateScript } from "./client/state.js";
 import { treemapScript } from "./client/treemap.js";
 import { upFrontScript } from "./client/up-front.js";
 import { viewsScript } from "./client/views.js";
 
 /**
- * The report's script. Its parts share one scope and run in this order, so a part may use what an earlier
- * part declared; functions are hoisted, but a const or let must be declared before code runs that reads it.
+ * The report's script. Its parts share one scope. The data block and the shared state come first; the panel parts
+ * after them only declare state and functions, so their order does not matter; the start part runs last.
  */
 export function clientScript(report: Report, tokenAdjective: string): string {
   const serialized = JSON.stringify(report)
@@ -67,10 +69,12 @@ export function clientScript(report: Report, tokenAdjective: string): string {
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};
     const shades = ${JSON.stringify(categoryShade)};
-    const shadeInks = ${JSON.stringify(categoryShadeInk)};`;
+    const shadeInks = ${JSON.stringify(categoryShadeInk)};
+    const tokenAdjective = ${JSON.stringify(tokenAdjective)};
+    const providerNames = ${JSON.stringify(providerName)};`;
   return [
     data,
-    stateScript(tokenAdjective),
+    stateScript,
     historyScript,
     viewsScript,
     filesScript,
@@ -83,5 +87,6 @@ export function clientScript(report: Report, tokenAdjective: string): string {
     compareScript,
     ageScript,
     renderScript,
+    startScript,
   ].join("\n\n");
 }

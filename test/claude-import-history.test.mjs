@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,23 +12,18 @@ import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { loadReportUi } from "./report-ui.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("the imports table says where an import past the depth limit points", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-import-depth-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-import-depth-");
   try {
-    git("init", "-q", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
-    git("config", "commit.gpgsign", "false");
     // CLAUDE.md reaches d.md in four hops, so d.md's own imports are past the limit.
-    writeFileSync(join(repo, "CLAUDE.md"), "@a.md\n@~/.claude/near.md\n");
-    writeFileSync(join(repo, "a.md"), "@b.md\n");
-    writeFileSync(join(repo, "b.md"), "@c.md\n");
-    writeFileSync(join(repo, "c.md"), "@d.md\n");
-    writeFileSync(join(repo, "d.md"), "@~/.claude/me.md\n@nowhere.md\n");
-    git("add", "-A");
-    git("commit", "-q", "-m", "chain");
+    put("CLAUDE.md", "@a.md\n@~/.claude/near.md\n");
+    put("a.md", "@b.md\n");
+    put("b.md", "@c.md\n");
+    put("c.md", "@d.md\n");
+    put("d.md", "@~/.claude/me.md\n@nowhere.md\n");
+    commit("chain");
     const ui = loadReportUi(renderHtml(await analyzeRepository(repo)));
     const rows = ui.get("imports").children.map((row) => row.children.map((cell) => cell.textContent));
     assert.deepEqual(
@@ -49,7 +44,7 @@ test("the imports table says where an import past the depth limit points", async
       /3 Claude @path imports are unresolved at the last revision \(1 outside the repository, 2 beyond four hops \(1 points outside the repository\)\)/,
     );
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });
 
@@ -58,26 +53,12 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
   const { listTree } = await import("../dist/git.js");
   const { trackedFile } = await import("../dist/inventory.js");
   const { importLinks } = await import("../dist/import-links.js");
-  const repo = mkdtempSync(join(tmpdir(), "strata-imports-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    mkdirSync(join(repo, path, ".."), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-q", "-m", message);
-    return git("rev-parse", "HEAD");
-  };
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-imports-");
   const at = (revision) =>
     Object.fromEntries(revision.components.map((component) => [component.path, component.imported ? "imported" : ""]));
   const links = (revision) =>
     importLinks(revision.components).map(({ source, target, status }) => `${source} -> ${target} ${status}`);
   try {
-    git("init", "-q", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
-    git("config", "commit.gpgsign", "false");
     // With one path to follow, this setting would otherwise make Git report renames.
     git("config", "log.follow", "true");
     put("CLAUDE.md", "@AGENTS.md\n@docs/guide.md\n- personal @~/.claude/me.md\n@docs/missing.md\n`@docs/unused.md`\n");
@@ -391,6 +372,6 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
       /Note: 6 Claude @path imports are unresolved at the last revision \(5 missing, 1 beyond four hops\); the report lists them\./,
     );
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

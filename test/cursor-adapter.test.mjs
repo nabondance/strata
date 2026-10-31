@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -12,20 +10,10 @@ import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { loadReportUi } from "./report-ui.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("recognizes Cursor configuration, and has Cursor read other tools' files only where Cursor is configured", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-cursor-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    const fullPath = join(repo, path);
-    mkdirSync(join(fullPath, ".."), { recursive: true });
-    writeFileSync(fullPath, content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-m", message);
-    return git("rev-parse", "HEAD");
-  };
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-cursor-");
   const cursorFiles = {
     ".cursorrules": "Legacy Cursor rules for the whole project.\n",
     ".cursorignore": "secrets/\n",
@@ -46,9 +34,6 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
     ".cursor/skills/SKILL.md": "---\nname: loose\ndescription: Loose\n---\n",
   };
   try {
-    git("init", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
     put("AGENTS.md", "Shared project instructions.\n");
     put(".claude/skills/review/SKILL.md", "Review the change.\n");
     put(".claude/skills/SKILL.md", "---\nname: loose\ndescription: Loose\n---\n");
@@ -310,6 +295,6 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
       ),
     );
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

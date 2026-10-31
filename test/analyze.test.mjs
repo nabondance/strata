@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -19,25 +19,12 @@ import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { exerciseReportUi } from "./report-ui.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("tracks configuration across first-parent history without reading untracked files", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-history-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    const fullPath = join(repo, path);
-    mkdirSync(join(fullPath, ".."), { recursive: true });
-    writeFileSync(fullPath, content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-m", message);
-    return git("rev-parse", "HEAD");
-  };
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-history-");
 
   try {
-    git("init", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
     await assert.rejects(analyzeRepository(repo), /no commits to analyze/);
 
     put("CLAUDE.md", "Root instructions.\n");
@@ -938,6 +925,6 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(detached.branch, "detached HEAD");
     assert.equal(detached.revisions.length, splitReport.revisions.length);
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -11,20 +9,11 @@ import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
 import { loadReportUi } from "./report-ui.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("lists the MCP servers tracked files define, without storing their commands or URLs", async () => {
   const { codexServers, mcpServers } = await import("../dist/mcp-servers.js");
-  const repo = mkdtempSync(join(tmpdir(), "strata-mcp-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  const put = (path, content) => {
-    mkdirSync(join(repo, path, ".."), { recursive: true });
-    writeFileSync(join(repo, path), content);
-  };
-  const commit = (message) => {
-    git("add", "-A");
-    git("commit", "-q", "-m", message);
-    return git("rev-parse", "HEAD");
-  };
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-mcp-");
   const secret = "sk-test-do-not-store";
   // A server name is repository text: Markdown and HTML must escape it, and control characters must not reach a terminal.
   const hostile = "a|b<i>\u001b[31m";
@@ -37,10 +26,6 @@ test("lists the MCP servers tracked files define, without storing their commands
       revision.components.filter((component) => component.mcp).map((component) => [component.path, servers(component)]),
     );
   try {
-    git("init", "-q", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
-    git("config", "commit.gpgsign", "false");
     put("CLAUDE.md", "Project memory.\n");
     // A Gemini or Codex settings file that does not mention MCP servers has no server list.
     put(".gemini/settings.json", '{"general":{"vimMode":true}}\n');
@@ -224,6 +209,6 @@ test("lists the MCP servers tracked files define, without storing their commands
     assert.equal(codexServers('# mcp_servers are configured per user\nmodel = "x"\n'), null);
     assert.deepEqual(codexServers('[mcp_servers.open\ncommand = "x"\n'), { status: "unresolved" });
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });

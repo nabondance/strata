@@ -42,12 +42,14 @@ export const renderScript = `    function render(index, dragging) {
       if (drawn.mcp !== revision.components) renderMcp();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }
-    if (typeof ResizeObserver !== 'undefined') {
-      let treemapWidth = 0;
-      new ResizeObserver(([entry]) => {
-        if (Math.abs(entry.contentRect.width - treemapWidth) < 1) return;
-        treemapWidth = entry.contentRect.width;
-        renderTreemap(false);
-      }).observe($('treemap'));
-    }
-    render(selected);`;
+    /** Lays the treemap out again when its width changes. */
+    function observeTreemapWidth() {
+      if (typeof ResizeObserver !== 'undefined') {
+        let treemapWidth = 0;
+        new ResizeObserver(([entry]) => {
+          if (Math.abs(entry.contentRect.width - treemapWidth) < 1) return;
+          treemapWidth = entry.contentRect.width;
+          renderTreemap(false);
+        }).observe($('treemap'));
+      }
+    }`;

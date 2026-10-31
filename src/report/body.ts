@@ -1,23 +1,23 @@
 import { brandUrl, markSvg } from "../brand.js";
 import type { Report } from "../model.js";
 import { textRecipients } from "../provider-count.js";
+import { providerName } from "../provider-counting.js";
 import { escapeHtml } from "./escape-html.js";
 
 /** The page markup: the masthead and every panel, empty until the script fills them. */
 export function reportBody(report: Report, tokenAdjective: string): string {
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
-  const providerNames = { claude: "Claude", gemini: "Gemini", codex: "Codex" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
     .map(
       (measured) =>
-        `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerNames[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
+        `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerName[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
     )
     .join("");
   const sentTo = (report.providerMeasurements ?? []).filter((measured) => textRecipients(measured).length);
   const providerNote = report.providerMeasurements
     ? `Provider columns are each provider's own count and are never added together. ${
         sentTo.length
-          ? `Text sent to: ${sentTo.map((measured) => `${escapeHtml(textRecipients(measured).join(" and "))} (${providerNames[measured.provider]})`).join(", ")}.`
+          ? `Text sent to: ${sentTo.map((measured) => `${escapeHtml(textRecipients(measured).join(" and "))} (${providerName[measured.provider]})`).join(", ")}.`
           : "No text was sent to a provider."
       }`
     : "";

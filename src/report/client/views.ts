@@ -7,14 +7,6 @@ export const viewsScript = `    const allComponents = data.components;
         key: provider, label: provider === 'unknown' ? 'Unknown' : provider[0].toUpperCase() + provider.slice(1) + ' + shared',
       })),
       ...(providers.includes('shared') ? [{ key: 'shared', label: 'Shared only' }] : [])];
-    for (const view of viewTabs) {
-      const button = text('button', view.label, 'provider-tab');
-      button.type = 'button';
-      button.setAttribute('aria-pressed', String(view.key === activeView));
-      // A provider view opens on that provider's own counts when the report has them.
-      button.addEventListener('click', () => setView(view.key, measures.has(view.key) ? view.key : 'estimate'));
-      $('provider-tabs').append(button);
-    }
     function setView(view, measure) {
       activeView = view;
       activeMeasure = measure;
@@ -66,27 +58,34 @@ export const viewsScript = `    const allComponents = data.components;
             : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : activeView === 'cursor' ? '. Cursor also reads AGENTS.md, .agents/skills, and .claude/skills, which it includes only at revisions that track Cursor configuration' : activeView === 'copilot' ? '. Copilot also reads AGENTS.md, CLAUDE.md, REVIEW.md, GEMINI.md, .claude/agents, .claude/rules, .claude/skills, .agents/skills, and .mcp.json, which it includes only at revisions that track Copilot configuration. Which Copilot client (chat, cloud agent, code review, CLI, or an IDE) reads a file is not resolved' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
       $('view-note').hidden = activeView === 'all';
     }
-    for (const category of categories) {
-      if (!allComponents.some((component) => component.category === category)) continue;
-      const option = text('option', category);
-      option.value = category;
-      $('category-filter').append(option);
-    }
-    $('provider-filter').addEventListener('change', () => { providerFilter = $('provider-filter').value; renderInventory(); });
-    $('category-filter').addEventListener('change', () => { categoryFilter = $('category-filter').value; renderInventory(); });
-    $('path-search').addEventListener('input', () => { pathSearch = $('path-search').value.trim().toLocaleLowerCase(); renderInventory(); });
-    $('clear-filters').addEventListener('click', () => {
-      providerFilter = '';
-      categoryFilter = '';
-      pathSearch = '';
-      $('provider-filter').value = '';
-      $('category-filter').value = '';
-      $('path-search').value = '';
-      renderInventory();
-      $('path-search').focus();
-    });
-    $('skill-toggle').addEventListener('click', () => { showAllSkills = !showAllSkills; renderSkills(); });
-    renderProviderOptions();
-    renderViewNote();
-    renderMeasureSwitch();
-    renderChart();`;
+    /** Adds the view tabs and category options, and wires the file filters. */
+    function setupViews() {
+      for (const view of viewTabs) {
+        const button = text('button', view.label, 'provider-tab');
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(view.key === activeView));
+        // A provider view opens on that provider's own counts when the report has them.
+        button.addEventListener('click', () => setView(view.key, measures.has(view.key) ? view.key : 'estimate'));
+        $('provider-tabs').append(button);
+      }
+      for (const category of categories) {
+        if (!allComponents.some((component) => component.category === category)) continue;
+        const option = text('option', category);
+        option.value = category;
+        $('category-filter').append(option);
+      }
+      $('provider-filter').addEventListener('change', () => { providerFilter = $('provider-filter').value; renderInventory(); });
+      $('category-filter').addEventListener('change', () => { categoryFilter = $('category-filter').value; renderInventory(); });
+      $('path-search').addEventListener('input', () => { pathSearch = $('path-search').value.trim().toLocaleLowerCase(); renderInventory(); });
+      $('clear-filters').addEventListener('click', () => {
+        providerFilter = '';
+        categoryFilter = '';
+        pathSearch = '';
+        $('provider-filter').value = '';
+        $('category-filter').value = '';
+        $('path-search').value = '';
+        renderInventory();
+        $('path-search').focus();
+      });
+      $('skill-toggle').addEventListener('click', () => { showAllSkills = !showAllSkills; renderSkills(); });
+    }`;

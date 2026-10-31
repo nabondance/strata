@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -9,25 +7,17 @@ import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { loadReportUi } from "./report-ui.mjs";
+import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
 test("draws instruction age by period, marks a shallow start, and follows the keyboard and the baseline", async () => {
   const repos = [];
   /** A repository with one commit per entry, each writing its files at its date. */
   const history = (commits) => {
-    const repo = mkdtempSync(join(tmpdir(), "strata-age-ui-"));
-    repos.push(repo);
-    const git = (args, date) =>
-      execFileSync("git", ["-C", repo, ...args], {
-        encoding: "utf8",
-        env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
-      });
-    git(["init", "-q", "-b", "main"]);
-    git(["config", "user.name", "Strata Test"]);
-    git(["config", "user.email", "strata-test@example.invalid"]);
+    const { repo, put, commit, cleanup } = syntheticRepo("strata-age-ui-");
+    repos.push(cleanup);
     for (const [index, { date, files }] of commits.entries()) {
-      for (const [path, content] of Object.entries(files)) writeFileSync(join(repo, path), content);
-      git(["add", "-A"], date);
-      git(["commit", "-q", "-m", `commit ${index}`], date);
+      for (const [path, content] of Object.entries(files)) put(path, content);
+      commit(`commit ${index}`, date);
     }
     return analyzeRepository(repo);
   };
@@ -146,37 +136,21 @@ test("draws instruction age by period, marks a shallow start, and follows the ke
     assert.match(sameWeekUi("age-count").textContent, /^half added by 2026-03-03 · /);
     assert.match(sameWeekUi("age-note").textContent, /This shallow clone starts at revision 1/);
   } finally {
-    for (const repo of repos) rmSync(repo, { recursive: true, force: true });
+    for (const cleanup of repos) cleanup();
   }
 });
 
 test("names submodules that hold agent configuration it did not analyze", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "strata-submodules-"));
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+  const { repo, git, cleanup } = syntheticRepo("strata-submodules-");
   // A submodule entry records a commit from another repository; `nested` makes that repository in place.
   const link = (path, commit) => git("update-index", "--add", "--cacheinfo", `160000,${commit},${path}`);
   const missing = "1".repeat(40);
   const nested = (path, files) => {
-    const dir = join(repo, path);
-    const sub = (...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
-    mkdirSync(dir, { recursive: true });
-    sub("init", "-q", "-b", "main");
-    sub("config", "user.name", "Strata Test");
-    sub("config", "user.email", "strata-test@example.invalid");
-    sub("config", "commit.gpgsign", "false");
-    for (const [file, content] of Object.entries(files)) {
-      mkdirSync(join(dir, file, ".."), { recursive: true });
-      writeFileSync(join(dir, file), content);
-    }
-    sub("add", "-A");
-    sub("commit", "-q", "-m", "Submodule content");
-    return sub("rev-parse", "HEAD");
+    const sub = gitRepository(join(repo, path));
+    for (const [file, content] of Object.entries(files)) sub.put(file, content);
+    return sub.commit("Submodule content");
   };
   try {
-    git("init", "-q", "-b", "main");
-    git("config", "user.name", "Strata Test");
-    git("config", "user.email", "strata-test@example.invalid");
-    git("config", "commit.gpgsign", "false");
     writeFileSync(join(repo, "CLAUDE.md"), "Root instructions.\n");
     git("add", "CLAUDE.md");
     git("commit", "-q", "-m", "No submodules");
@@ -252,7 +226,7 @@ test("names submodules that hold agent configuration it did not analyze", async 
         "lib/1 (1), lib/2 (2), lib/3 (3), lib/4 (4), lib/5 (5), and 2 more. Run Strata on one to see its history.",
     );
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    cleanup();
   }
 });
 

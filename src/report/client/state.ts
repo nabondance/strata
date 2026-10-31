@@ -1,6 +1,5 @@
 /** Shared helpers and state: measures, the counting notice, the submodule notice, and capped lists. */
-export function stateScript(tokenAdjective: string): string {
-  return `    const $ = (id) => document.getElementById(id);
+export const stateScript = `    const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);
     const plural = (count, word) => fmt(count) + ' ' + word + (count === 1 ? '' : 's');
@@ -17,8 +16,6 @@ export function stateScript(tokenAdjective: string): string {
     // 'estimate', or a provider whose own counts the provider view is drawn with.
     let activeMeasure = 'estimate';
     let viewRevisions = revisions;
-    const tokenAdjective = ${JSON.stringify(tokenAdjective)};
-    const providerNames = { claude: 'Claude', gemini: 'Gemini', codex: 'Codex' };
     const accuracyNames = { 'api-counted': 'API-counted', 'encoding-exact': 'exact (local encoding)', estimate: 'byte estimate' };
     // Providers counted with something better than the estimate can chart their own counts.
     const measures = new Map((data.providerMeasurements ?? []).filter((measured) => measured.accuracy !== 'estimate').map((measured) => [measured.provider, measured]));
@@ -123,26 +120,6 @@ export function stateScript(tokenAdjective: string): string {
     const expanded = {};
     let settleTimer;
 
-    $('repo').textContent = data.repository;
-    renderMethod();
-    $('shallow').hidden = !data.shallow;
-    // Name the submodules holding agent configuration that was not analyzed; count those that could not be checked.
-    const configuredSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles);
-    const uncheckedSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles === null).length;
-    const configFileCount = (count) => fmt(count) + ' recognized agent configuration file' + (count === 1 ? '' : 's');
-    const submoduleNotes = [];
-    if (configuredSubmodules.length === 1) {
-      submoduleNotes.push('Not analyzed: the Git submodule ' + configuredSubmodules[0].path + ' holds ' + configFileCount(configuredSubmodules[0].configFiles) + '. Run Strata on it to see its history.');
-    } else if (configuredSubmodules.length) {
-      const listed = configuredSubmodules.slice(0, 5).map((submodule) => submodule.path + ' (' + fmt(submodule.configFiles) + ')');
-      if (configuredSubmodules.length > 5) listed.push('and ' + fmt(configuredSubmodules.length - 5) + ' more');
-      submoduleNotes.push('Not analyzed: ' + fmt(configuredSubmodules.length) + ' Git submodules hold recognized agent configuration files: ' + listed.join(', ') + '. Run Strata on one to see its history.');
-    }
-    if (uncheckedSubmodules) {
-      submoduleNotes.push(fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.');
-    }
-    $('submodules').hidden = !submoduleNotes.length;
-    $('submodules').textContent = submoduleNotes.join(' ');
     function capped(id, items, limit, redraw) {
       const button = $(id + '-more');
       button.hidden = items.length <= limit;
@@ -150,5 +127,27 @@ export function stateScript(tokenAdjective: string): string {
       button.setAttribute('aria-expanded', String(Boolean(expanded[id])));
       button.onclick = () => { expanded[id] = !expanded[id]; redraw(); };
       return expanded[id] ? items : items.slice(0, limit);
+    }
+    /** The repository name, the counting notice, and the shallow-clone and submodule notices. */
+    function setupNotices() {
+      $('repo').textContent = data.repository;
+      renderMethod();
+      $('shallow').hidden = !data.shallow;
+      // Name the submodules holding agent configuration that was not analyzed; count those that could not be checked.
+      const configuredSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles);
+      const uncheckedSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles === null).length;
+      const configFileCount = (count) => fmt(count) + ' recognized agent configuration file' + (count === 1 ? '' : 's');
+      const submoduleNotes = [];
+      if (configuredSubmodules.length === 1) {
+        submoduleNotes.push('Not analyzed: the Git submodule ' + configuredSubmodules[0].path + ' holds ' + configFileCount(configuredSubmodules[0].configFiles) + '. Run Strata on it to see its history.');
+      } else if (configuredSubmodules.length) {
+        const listed = configuredSubmodules.slice(0, 5).map((submodule) => submodule.path + ' (' + fmt(submodule.configFiles) + ')');
+        if (configuredSubmodules.length > 5) listed.push('and ' + fmt(configuredSubmodules.length - 5) + ' more');
+        submoduleNotes.push('Not analyzed: ' + fmt(configuredSubmodules.length) + ' Git submodules hold recognized agent configuration files: ' + listed.join(', ') + '. Run Strata on one to see its history.');
+      }
+      if (uncheckedSubmodules) {
+        submoduleNotes.push(fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.');
+      }
+      $('submodules').hidden = !submoduleNotes.length;
+      $('submodules').textContent = submoduleNotes.join(' ');
     }`;
-}

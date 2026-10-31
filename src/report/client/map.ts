@@ -19,8 +19,7 @@ export const mapScript = `    // The map draws the view's files; its import line
       if (linksCache.components !== components) linksCache = { components, links: importLinks(components) };
       return linksCache.links;
     }
-    $('map-expand').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'expanded'; renderMap(); });
-    $('map-collapse').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'collapsed'; renderMap(); });
+
 
     function renderMap(focus) {
       const revision = viewRevisions[selected];
@@ -201,58 +200,64 @@ export const mapScript = `    // The map draws the view's files; its import line
       const node = target?.closest?.('.map-row');
       return node ? mapDrawn.rowIndex.get(node) ?? -1 : -1;
     };
-    const mapRoot = $('config-map');
-    mapRoot.addEventListener('mouseover', (event) => {
-      const index = mapRowAt(event.target);
-      if (index === mapHovered) return;
-      mapHovered = index;
-      // Between rows, the focused row keeps its lines.
-      traceMap(index >= 0 ? index : mapRowAt(document.activeElement));
-    });
-    mapRoot.addEventListener('mouseleave', () => {
-      mapHovered = -1;
-      traceMap(mapRowAt(document.activeElement));
-    });
-    mapRoot.addEventListener('focusin', (event) => {
-      const index = mapRowAt(event.target);
-      if (index < 0) return;
-      const node = mapDrawn.nodes[index];
-      mapCurrent = mapDrawn.map.rows[index].path;
-      if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
-      node.tabIndex = 0;
-      mapTabStop = node;
-      traceMap(index);
-    });
-    // Losing focus goes back to the row under the pointer.
-    mapRoot.addEventListener('focusout', () => traceMap(mapHovered));
-    mapRoot.addEventListener('click', (event) => {
-      const index = mapRowAt(event.target);
-      if (index >= 0) activateMapRow(index);
-    });
-    mapRoot.addEventListener('keydown', (event) => {
-      const { map, nodes } = mapDrawn;
-      const at = mapRowAt(event.target);
-      // Modified keys stay the browser's, such as Alt+Left for Back.
-      if (at < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
-      const row = map.rows[at];
-      const folder = row.kind === 'folder';
-      let next;
-      if (event.key === 'ArrowDown') next = at + 1;
-      else if (event.key === 'ArrowUp') next = at - 1;
-      else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = nodes.length - 1;
-      else if (event.key === 'ArrowRight') {
-        if (folder && row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
-        next = folder ? at + 1 : undefined;
-      } else if (event.key === 'ArrowLeft') {
-        if (folder && !row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
-        next = row.parent >= 0 ? row.parent : undefined;
-      } else if (event.key === 'Enter' || event.key === ' ') {
+
+    /** Wires the folder buttons, and the map's pointer, focus, and keyboard handling. */
+    function setupMap() {
+      $('map-expand').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'expanded'; renderMap(); });
+      $('map-collapse').addEventListener('click', () => { mapToggled.clear(); mapFallback = 'collapsed'; renderMap(); });
+      const mapRoot = $('config-map');
+      mapRoot.addEventListener('mouseover', (event) => {
+        const index = mapRowAt(event.target);
+        if (index === mapHovered) return;
+        mapHovered = index;
+        // Between rows, the focused row keeps its lines.
+        traceMap(index >= 0 ? index : mapRowAt(document.activeElement));
+      });
+      mapRoot.addEventListener('mouseleave', () => {
+        mapHovered = -1;
+        traceMap(mapRowAt(document.activeElement));
+      });
+      mapRoot.addEventListener('focusin', (event) => {
+        const index = mapRowAt(event.target);
+        if (index < 0) return;
+        const node = mapDrawn.nodes[index];
+        mapCurrent = mapDrawn.map.rows[index].path;
+        if (mapTabStop && mapTabStop !== node) mapTabStop.tabIndex = -1;
+        node.tabIndex = 0;
+        mapTabStop = node;
+        traceMap(index);
+      });
+      // Losing focus goes back to the row under the pointer.
+      mapRoot.addEventListener('focusout', () => traceMap(mapHovered));
+      mapRoot.addEventListener('click', (event) => {
+        const index = mapRowAt(event.target);
+        if (index >= 0) activateMapRow(index);
+      });
+      mapRoot.addEventListener('keydown', (event) => {
+        const { map, nodes } = mapDrawn;
+        const at = mapRowAt(event.target);
+        // Modified keys stay the browser's, such as Alt+Left for Back.
+        if (at < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
+        const row = map.rows[at];
+        const folder = row.kind === 'folder';
+        let next;
+        if (event.key === 'ArrowDown') next = at + 1;
+        else if (event.key === 'ArrowUp') next = at - 1;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = nodes.length - 1;
+        else if (event.key === 'ArrowRight') {
+          if (folder && row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
+          next = folder ? at + 1 : undefined;
+        } else if (event.key === 'ArrowLeft') {
+          if (folder && !row.collapsed) { event.preventDefault(); activateMapRow(at); return; }
+          next = row.parent >= 0 ? row.parent : undefined;
+        } else if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          activateMapRow(at);
+          return;
+        }
+        if (next === undefined) return;
         event.preventDefault();
-        activateMapRow(at);
-        return;
-      }
-      if (next === undefined) return;
-      event.preventDefault();
-      nodes[Math.max(0, Math.min(nodes.length - 1, next))].focus();
-    });`;
+        nodes[Math.max(0, Math.min(nodes.length - 1, next))].focus();
+      });
+    }`;
