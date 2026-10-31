@@ -456,7 +456,32 @@ test("tracks configuration across first-parent history without reading untracked
     const longUi = exerciseReportUi(renderHtml(longHistory), longHistory);
     assert.equal(longUi("chart").children.length, 100);
     // A grouped bar names the revisions it covers.
-    assert.ok(longUi("chart").children.some((bar) => /^Revisions \d+–\d+ · /.test(bar.title)));
+    assert.ok(longUi("chart").children.some((bar) => /^Revisions \d+–\d+ · /.test(bar.getAttribute("aria-label"))));
+    // The latest revision changed nothing, so "Previous change" reaches back past the unchanged ones.
+    longUi("baseline").value = "change";
+    longUi("baseline").listeners.change();
+    longUi("target").value = String(longHistory.revisions.length - 1);
+    longUi("target").listeners.change();
+    assert.equal(longUi("baseline").value, "change");
+    assert.equal(
+      longUi("compare-components").children.length,
+      compareRevisions(revisions.at(-2) ?? { components: [], estimatedTokens: 0 }, revisions.at(-1)).components
+        .length || 1,
+    );
+    assert.equal(
+      longUi("compare-span").textContent,
+      `Previous change: revision ${report.revisions.length} · ${report.revisions.at(-1).date.slice(0, 10)}, compared with revision ${report.revisions.length - 1} before it.`,
+    );
+    // A target the selects do not list, because it changed nothing, is shown first while selected.
+    const unchanged = report.revisions.length;
+    longUi("slider").value = String(unchanged);
+    longUi("slider").listeners.change();
+    assert.equal(longUi("target").value, String(unchanged));
+    assert.equal(longUi("target").children[0].value, String(unchanged));
+    assert.match(longUi("target").children[0].textContent, new RegExp(`^${unchanged + 1} · .* · no change$`));
+    longUi("target").value = String(longHistory.revisions.length - 1);
+    longUi("target").listeners.change();
+    assert.notEqual(longUi("target").children[0].value, String(unchanged));
     // History before the first tracked file is left off the chart and stays selectable.
     const nothingTracked = {
       ...report.revisions[0],
@@ -478,8 +503,12 @@ test("tracks configuration across first-parent history without reading untracked
     const lateUi = exerciseReportUi(renderHtml(lateStart), lateStart);
     assert.equal(lateUi("chart").children.length, report.revisions.length);
     assert.equal(lateUi("slider").min, 2);
-    assert.equal(lateUi("baseline").children.length, lateStart.revisions.length + 1);
-    assert.match(lateUi("chart").children[0].title, /^Revision 3 · /);
+    // The first revision is listed although nothing changed there; the second is not.
+    assert.equal(
+      lateUi("baseline").children.length,
+      2 + lateStart.revisions.filter((revision, index) => !index || revision.changes.length).length,
+    );
+    assert.match(lateUi("chart").children[0].getAttribute("aria-label"), /^Revision 3 · /);
     assert.ok(!html.includes("Follow the project conventions."));
     const shareable = redactReport(report);
     const shareableJson = JSON.stringify(shareable);

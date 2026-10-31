@@ -6,7 +6,7 @@ export const renderScript = `    function render(index, dragging) {
       const delta = revision.estimatedTokens - (previous?.estimatedTokens ?? 0);
       slider.value = index;
       renderLegend();
-      $('target').value = String(index);
+      selectTarget(index);
       for (const bucket of chartBuckets) {
         const isSelected = bucket.start <= index && index <= bucket.end;
         bucket.button.classList.toggle('selected', isSelected);

@@ -238,9 +238,9 @@ The `skill` command refuses to overwrite an existing file.
 
 ### Timeline and comparison
 
-- **Comparison.** Select a baseline and a target revision to compare them. The comparison shows signed changes (`+` or `-`) in estimated tokens and file counts, by provider, category, and component. When either revision has a skill, the change in listed skill tokens is shown beside them. It starts against the previous revision, so it lists what the selected revision changed.
-- **Timeline.** The timeline sets the target revision. For histories longer than 100 revisions, the chart groups neighboring revisions into at most 100 bars. Each bar shows its group's last revision, while the slider still reaches every charted commit.
-- **Where the chart starts.** The chart and slider start at the first revision with tracked configuration in the current view. Earlier revisions stay available in the baseline and target selectors.
+- **Comparison.** Select a baseline and a target revision to compare them. The comparison shows signed changes (`+` or `-`) in estimated tokens and file counts, by provider, category, and component. When either revision has a skill, the change in listed skill tokens is shown beside them. It starts against the previous change: the revision before the latest change at or before the target, so it lists that change even when the selected revision changed nothing. "Previous revision" compares with the revision just before the target. The selectors list only revisions that changed something, plus the first and the latest.
+- **Timeline.** The timeline sets the target revision. For histories longer than 100 revisions, the chart groups neighboring revisions into at most 100 bars. Each bar shows its group's last revision, a line under the chart says how many revisions the bars stand for, and the slider still reaches every charted commit. Hovering or focusing a bar shows the revisions it covers and its tokens by category.
+- **Where the chart starts.** The chart and slider start at the first revision with tracked configuration in the current view. Earlier revisions that changed something stay available in the baseline and target selectors.
 - **Moved files.** The comparison is based on the stored files at those two points, so a moved file may appear as a removal and an addition.
 
 ### Provider tabs

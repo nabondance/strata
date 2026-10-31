@@ -8,10 +8,11 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
     const revisions = expandRevisions(data);
     let selected = revisions.length - 1;
-    // The baseline follows the revision before the selected one until a specific revision is chosen.
-    let baseline = 'previous';
+    // The baseline follows the selected revision until a specific revision is chosen: 'change' is the revision
+    // before the latest change at or before it, 'previous' the revision just before it.
+    let baseline = 'change';
     const beforeHistory = { components: [], estimatedTokens: 0 };
-    const baselineRevision = () => baseline === 'previous' ? viewRevisions[selected - 1] ?? beforeHistory : viewRevisions[baseline];
+    const baselineRevision = () => viewRevisions[baselineIndex()] ?? beforeHistory;
     let activeView = 'all';
     // 'estimate', or a provider whose own counts the provider view is drawn with.
     let activeMeasure = 'estimate';
