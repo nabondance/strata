@@ -4,11 +4,11 @@ The visual identity is called **Fault line**. It shows layers of sediment cut by
 
 ## Logo
 
-| File | Use |
-| --- | --- |
-| [logo.svg](logo.svg) | The mark alone: icons, avatars, anywhere under about 100px wide. It stays legible at 16px. |
-| [logo-wordmark.svg](logo-wordmark.svg) | Mark and wordmark in bedrock, for light backgrounds. |
-| [logo-wordmark-dark.svg](logo-wordmark-dark.svg) | Mark and wordmark in bone, for dark backgrounds. |
+| File                                             | Use                                                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| [logo.svg](logo.svg)                             | The mark alone: icons, avatars, anywhere under about 100px wide. It stays legible at 16px. |
+| [logo-wordmark.svg](logo-wordmark.svg)           | Mark and wordmark in bedrock, for light backgrounds.                                       |
+| [logo-wordmark-dark.svg](logo-wordmark-dark.svg) | Mark and wordmark in bone, for dark backgrounds.                                           |
 
 The mark is the layered symbol; the wordmark is the name "STRATA" set beside it.
 
@@ -45,13 +45,13 @@ GitHub does not read the file from the repository. To change GitHub's preview, u
 
 ## Color
 
-| Name | Hex | Use |
-| --- | --- | --- |
-| Bedrock | `#1d2622` | Masthead and badge background |
-| Bone | `#efeadb` | Text on bedrock |
-| Ochre | `#d9a441` | Accent and labels on bedrock |
-| Clay | `#b5573a` | Mark layer |
-| Verdigris | `#5f8f8a` | Mark layer |
+| Name      | Hex       | Use                           |
+| --------- | --------- | ----------------------------- |
+| Bedrock   | `#1d2622` | Masthead and badge background |
+| Bone      | `#efeadb` | Text on bedrock               |
+| Ochre     | `#d9a441` | Accent and labels on bedrock  |
+| Clay      | `#b5573a` | Mark layer                    |
+| Verdigris | `#5f8f8a` | Mark layer                    |
 
 Charts and other data take their colors from [src/palette.ts](../../src/palette.ts), one color per category:
 
@@ -63,11 +63,11 @@ Below the masthead (the dark band at the top of the report), the page background
 
 ## Type
 
-| Role | Face |
-| --- | --- |
+| Role                                                                     | Face                                                                             |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
 | Display: wordmark, repository headline, panel headings, headline figures | Archivo ExtraBold at 70% width; the repository name keeps its own capitalization |
-| Text and tables | The system sans-serif stack already in the report |
-| Labels, commit IDs, dates | The system monospace stack |
+| Text and tables                                                          | The system sans-serif stack already in the report                                |
+| Labels, commit IDs, dates                                                | The system monospace stack                                                       |
 
 Only the display face is embedded in the report. It is inlined as a `data:` URL, so the HTML stays a single file that works offline. If the embedded face cannot load, the report falls back to a condensed face installed on the system.
 

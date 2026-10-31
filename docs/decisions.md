@@ -4,19 +4,19 @@ Recorded 2026-10-08. These choices describe the current implementation. They are
 
 These terms are used throughout:
 
-| Term | Meaning |
-| --- | --- |
-| Revision | One commit on the analyzed branch's first-parent history, stored as one entry in the report's `revisions`. |
+| Term                 | Meaning                                                                                                                                                                                                                                                                           |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Revision             | One commit on the analyzed branch's first-parent history, stored as one entry in the report's `revisions`.                                                                                                                                                                        |
 | First-parent history | The chain of commits found by following each commit's first parent back from the branch tip. A merge commit's first parent is the commit the receiving branch pointed to before the merge, so the commits of a merged branch are not separate revisions: the merge is one change. |
-| Blob | The content of one file version as Git stores it. A blob ID identifies that content. |
-| Component | One distinct file version, a path paired with a blob, listed once in the report's `components` table. |
-| Instructional file | A file whose text Strata measures in tokens, such as `CLAUDE.md`, a rule, or a skill manifest (`estimatedTokens` is not null). |
-| Stored-text tokens | A token figure for the text as Git stores it. It is not the context an agent loads in a session, and not billing tokens. |
-| Source-only | A file recorded by byte size alone, with no token figure: settings, MCP files, skill resources, and other structured or supporting files. |
-| Provider | An agent tool whose file conventions Strata recognizes: `claude` (Claude Code), `codex`, `gemini` (Gemini CLI), `cursor`, and `copilot` (GitHub Copilot). A path convention that belongs to several of them, such as `AGENTS.md`, is labeled `shared`. |
-| Readers | On a component, the providers documented as reading its path. |
-| Provider view | The report narrowed to the files one provider reads. |
-| Shallow clone | A clone that holds only recent history, so the analyzed history starts where the fetch cut it. |
+| Blob                 | The content of one file version as Git stores it. A blob ID identifies that content.                                                                                                                                                                                              |
+| Component            | One distinct file version, a path paired with a blob, listed once in the report's `components` table.                                                                                                                                                                             |
+| Instructional file   | A file whose text Strata measures in tokens, such as `CLAUDE.md`, a rule, or a skill manifest (`estimatedTokens` is not null).                                                                                                                                                    |
+| Stored-text tokens   | A token figure for the text as Git stores it. It is not the context an agent loads in a session, and not billing tokens.                                                                                                                                                          |
+| Source-only          | A file recorded by byte size alone, with no token figure: settings, MCP files, skill resources, and other structured or supporting files.                                                                                                                                         |
+| Provider             | An agent tool whose file conventions Strata recognizes: `claude` (Claude Code), `codex`, `gemini` (Gemini CLI), `cursor`, and `copilot` (GitHub Copilot). A path convention that belongs to several of them, such as `AGENTS.md`, is labeled `shared`.                            |
+| Readers              | On a component, the providers documented as reading its path.                                                                                                                                                                                                                     |
+| Provider view        | The report narrowed to the files one provider reads.                                                                                                                                                                                                                              |
+| Shallow clone        | A clone that holds only recent history, so the analyzed history starts where the fetch cut it.                                                                                                                                                                                    |
 
 ## Name and command
 
@@ -48,11 +48,11 @@ Without `--precise`, Strata makes no network request and transfers no content. S
 
 `strata analyze --precise` is the explicit opt-in for Claude's and Gemini's own counts. It needs no other flag. Each provider is counted with the most precise method available, tried in the order below. The report and the run output say which method was used and why each earlier one was skipped.
 
-| Provider | 1. Signed-in account | 2. API key | 3. Local exact | 4. Estimate |
-| --- | --- | --- | --- | --- |
-| Claude (default `claude-opus-5-5`, `--claude-model`) | `ant auth login` profile, through `ant auth print-credentials --access-token`; Anthropic count endpoint. With neither that nor `ANTHROPIC_API_KEY`, a ready `gcloud` account; Vertex AI `count-tokens:rawPredict` | `ANTHROPIC_API_KEY`; Anthropic count endpoint | none exists | byte estimate |
-| Gemini (default `gemini-3.8-flash`, `--gemini-model`) | `gcloud` account with a project (`GOOGLE_CLOUD_PROJECT` or `gcloud config`), through `gcloud auth print-access-token`; Vertex AI `countTokens` in `GOOGLE_CLOUD_LOCATION` (default `global`) | `GEMINI_API_KEY` or `GOOGLE_API_KEY`; Gemini API `countTokens` | none exists | byte estimate |
-| Codex (with or without `--precise`) | not used | not used | `js-tiktoken` `o200k_base` | byte estimate |
+| Provider                                              | 1. Signed-in account                                                                                                                                                                                              | 2. API key                                                     | 3. Local exact             | 4. Estimate   |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------- | ------------- |
+| Claude (default `claude-opus-5-5`, `--claude-model`)  | `ant auth login` profile, through `ant auth print-credentials --access-token`; Anthropic count endpoint. With neither that nor `ANTHROPIC_API_KEY`, a ready `gcloud` account; Vertex AI `count-tokens:rawPredict` | `ANTHROPIC_API_KEY`; Anthropic count endpoint                  | none exists                | byte estimate |
+| Gemini (default `gemini-3.8-flash`, `--gemini-model`) | `gcloud` account with a project (`GOOGLE_CLOUD_PROJECT` or `gcloud config`), through `gcloud auth print-access-token`; Vertex AI `countTokens` in `GOOGLE_CLOUD_LOCATION` (default `global`)                      | `GEMINI_API_KEY` or `GOOGLE_API_KEY`; Gemini API `countTokens` | none exists                | byte estimate |
+| Codex (with or without `--precise`)                   | not used                                                                                                                                                                                                          | not used                                                       | `js-tiktoken` `o200k_base` | byte estimate |
 
 `strata diff --precise` uses the same methods and reports each provider's totals at the base and head commits. PR delta schema version 5 added `providerMeasurements` and `providerTotals` for this; since version 13, `strata diff` reports Codex's totals without `--precise` too.
 
@@ -218,21 +218,21 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 
 ### Schema versions
 
-| Version | Adds |
-| --- | --- |
-| 8 | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals` |
-| 9 | the `components` table and per-revision `changes` ([Report layout](#report-layout)) |
-| 10 | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared` |
-| 11 | `estimate` provider counts and the `--precise` metadata fields |
-| 12 | `submodules` |
-| 13 | skill `listing`, `skillListingTokens`, and `skillListingUnresolved` |
-| 14 | the `cursor` provider and `legacy` |
-| 15 | the `copilot` provider and `REVIEW.md` |
-| 16 | Claude `@path` imports: `imports`, `importRoot`, and `imported` |
-| 17 | `upFront` |
-| 18 | `mcp` |
-| 19 | `lineAgeMethod` and `lineAge`; a narrower `shallow` |
-| 20 | Codex provider counts on every run; `measurement` always the byte estimate |
+| Version | Adds                                                                                  |
+| ------- | ------------------------------------------------------------------------------------- |
+| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`             |
+| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))   |
+| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared` |
+| 11      | `estimate` provider counts and the `--precise` metadata fields                        |
+| 12      | `submodules`                                                                          |
+| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                   |
+| 14      | the `cursor` provider and `legacy`                                                    |
+| 15      | the `copilot` provider and `REVIEW.md`                                                |
+| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                       |
+| 17      | `upFront`                                                                             |
+| 18      | `mcp`                                                                                 |
+| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                   |
+| 20      | Codex provider counts on every run; `measurement` always the byte estimate            |
 
 #### Version 8: provider counts
 
@@ -301,11 +301,11 @@ Cursor also reads files that belong to other tools: `AGENTS.md`, `.agents/skills
 
 Where some revision has Cursor configuration, Cursor joins these `readers`:
 
-| Path | `readers` |
-| --- | --- |
-| `AGENTS.md` | `["claude", "codex", "cursor"]` |
-| `.agents/skills` | `["codex", "cursor", "gemini"]` |
-| `.claude/skills` (provider stays `claude`) | `["claude", "cursor"]` |
+| Path                                       | `readers`                       |
+| ------------------------------------------ | ------------------------------- |
+| `AGENTS.md`                                | `["claude", "codex", "cursor"]` |
+| `.agents/skills`                           | `["codex", "cursor", "gemini"]` |
+| `.claude/skills` (provider stays `claude`) | `["claude", "cursor"]`          |
 
 Where no revision has Cursor configuration, `readers` is exactly as in version 13, so a Claude-only report has no Cursor label anywhere. `cursor` in `readers` therefore means Cursor can read the path, not that it read that file version: a version present only before Cursor configuration appeared still lists it. Cursor's condition is resolved per revision, like Gemini CLI's `context.fileName`, which is carried by `contextFile` rather than `readers`.
 
@@ -322,14 +322,14 @@ Reports from version 13 and earlier recognize no Cursor files. [The adapter stud
 
 Version 15 adds the `copilot` provider for GitHub Copilot:
 
-| Path | Category |
-| --- | --- |
-| `.github/copilot-instructions.md` | instructions |
-| `.github/instructions/**/*.instructions.md` | rules |
-| `.github/prompts/*.prompt.md` | commands |
-| `.github/agents/**/*.md`, except `README.md` | agents |
-| `.github/skills/<name>/` | skills |
-| `.github/mcp.json`, root `.vscode/mcp.json` | tools (source-only) |
+| Path                                                                                                                                     | Category               |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `.github/copilot-instructions.md`                                                                                                        | instructions           |
+| `.github/instructions/**/*.instructions.md`                                                                                              | rules                  |
+| `.github/prompts/*.prompt.md`                                                                                                            | commands               |
+| `.github/agents/**/*.md`, except `README.md`                                                                                             | agents                 |
+| `.github/skills/<name>/`                                                                                                                 | skills                 |
+| `.github/mcp.json`, root `.vscode/mcp.json`                                                                                              | tools (source-only)    |
 | root `.github/hooks/*.json`, `.github/copilot/settings*.json`, and the `copilot-setup-steps.yml` and `copilot-code-review.yml` workflows | settings (source-only) |
 
 Nothing else under `.github/` is inventoried, so ordinary workflows, issue templates, and `CODEOWNERS` stay out of the report.
@@ -340,13 +340,13 @@ Nothing else under `.github/` is inventoried, so ordinary workflows, issue templ
 
 Like Cursor, Copilot needs no repository file and reads other tools' files, so the same rule applies to it separately. At a revision with at least one component labeled `copilot`, Copilot reads `AGENTS.md`, `.agents/skills`, and the Claude and Gemini files it documents reading. Those files keep their own provider and gain `readers`:
 
-| Path | `readers` |
-| --- | --- |
-| `AGENTS.md` | gains `copilot`: `["claude", "codex", "copilot", "cursor"]` where Cursor also applies |
-| `.agents/skills` | gains `copilot` |
-| `CLAUDE.md`, `.claude/CLAUDE.md`, `REVIEW.md` (at any depth), `.claude/agents` and `.claude/rules` (except a `README.md`), the root `.mcp.json` | `["claude", "copilot"]` |
-| `.claude/skills` | `["claude", "copilot"]`, with `cursor` where Cursor is configured |
-| `GEMINI.md` | `["copilot", "gemini"]` |
+| Path                                                                                                                                            | `readers`                                                                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `AGENTS.md`                                                                                                                                     | gains `copilot`: `["claude", "codex", "copilot", "cursor"]` where Cursor also applies |
+| `.agents/skills`                                                                                                                                | gains `copilot`                                                                       |
+| `CLAUDE.md`, `.claude/CLAUDE.md`, `REVIEW.md` (at any depth), `.claude/agents` and `.claude/rules` (except a `README.md`), the root `.mcp.json` | `["claude", "copilot"]`                                                               |
+| `.claude/skills`                                                                                                                                | `["claude", "copilot"]`, with `cursor` where Cursor is configured                     |
+| `GEMINI.md`                                                                                                                                     | `["copilot", "gemini"]`                                                               |
 
 Notes on this table:
 
@@ -403,22 +403,22 @@ Each version of an MCP file carries `mcp`, with a `status` of:
 
 A server has:
 
-| Field | Value |
-| --- | --- |
-| `name` | the server's name |
+| Field       | Value                                                                                                                                                                                                                                                                                                                                    |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`      | the server's name                                                                                                                                                                                                                                                                                                                        |
 | `transport` | `local` when the tool starts a process: a `command`, or a `type` of `stdio` or `local`; `remote` when it connects to a URL: `url` or `httpUrl`, or a `type` of `http`, `streamable-http`, `sse`, or `ws`; `unknown` otherwise, including an entry without a `type` that has both a command and a URL, since tools disagree on which wins |
-| `disabled` | `true` when the file turns the server off: Codex `enabled = false`, or a name that Gemini CLI's `mcp.excluded` lists or its `mcp.allowed` leaves out (`excludeMCPServers` and `allowMCPServers` in older settings) |
+| `disabled`  | `true` when the file turns the server off: Codex `enabled = false`, or a name that Gemini CLI's `mcp.excluded` lists or its `mcp.allowed` leaves out (`excludeMCPServers` and `allowMCPServers` in older settings)                                                                                                                       |
 
 Commands, arguments, URLs, headers, and environment values are never read into the report, because committed MCP files often hold credentials.
 
-| File | Servers read from | Syntax accepted |
-| --- | --- | --- |
-| Root `.mcp.json` (Claude, also Copilot) | `mcpServers` | strict JSON |
-| `.cursor/mcp.json` | `mcpServers` | JSON with comments and trailing commas |
-| `.github/mcp.json` | `mcpServers`, or, when it is absent, the top-level entries that have a `command`, `url`, or `type`, as Copilot CLI accepts | strict JSON |
-| `.vscode/mcp.json` | `servers` | JSON with comments and trailing commas |
-| Root `.gemini/settings.json` | `mcpServers`, only when the file has it; nested settings are not read, as for context files | JSON with comments |
-| `.codex/config.toml` | `[mcp_servers.<name>]` tables and dotted `mcp_servers.<name>.<key>` keys, only when the file has them; `enabled = false` disables | a TOML subset; inline `mcp_servers` tables are unresolved |
+| File                                    | Servers read from                                                                                                                 | Syntax accepted                                           |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Root `.mcp.json` (Claude, also Copilot) | `mcpServers`                                                                                                                      | strict JSON                                               |
+| `.cursor/mcp.json`                      | `mcpServers`                                                                                                                      | JSON with comments and trailing commas                    |
+| `.github/mcp.json`                      | `mcpServers`, or, when it is absent, the top-level entries that have a `command`, `url`, or `type`, as Copilot CLI accepts        | strict JSON                                               |
+| `.vscode/mcp.json`                      | `servers`                                                                                                                         | JSON with comments and trailing commas                    |
+| Root `.gemini/settings.json`            | `mcpServers`, only when the file has it; nested settings are not read, as for context files                                       | JSON with comments                                        |
+| `.codex/config.toml`                    | `[mcp_servers.<name>]` tables and dotted `mcp_servers.<name>.<key>` keys, only when the file has them; `enabled = false` disables | a TOML subset; inline `mcp_servers` tables are unresolved |
 
 Parsing rules:
 
@@ -497,13 +497,13 @@ Both figures are stored text under the report's measurement, never provider coun
 
 The boundary follows each tool's documentation:
 
-| Tool | Up front at the repository root | Read later or conditionally |
-| --- | --- | --- |
-| Claude Code ([memory](https://code.claude.com/docs/en/memory)) | `CLAUDE.md`, `.claude/CLAUDE.md`, and `CLAUDE.local.md` in the starting directory and above, with their imports; rules in `.claude/rules` without `paths` frontmatter. By default, a root `AGENTS.md` only when none of those three files exists at the root, or when an import reaches it. | files in subdirectories, path-scoped rules, and rules in nested `.claude/rules` folders, when it works there |
-| Codex ([AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)) | the root `AGENTS.md`, or a non-empty `AGENTS.override.md` in its place | none: nested files below the starting directory are not read |
-| Gemini CLI ([context files](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md)) | context files in the workspace directory and its parents at startup, so only the root `GEMINI.md` and, when `context.fileName` names it, `AGENTS.md` | context files in subdirectories, when a tool touches them |
-| Cursor ([rules](https://cursor.com/docs/rules)) | the root `AGENTS.md` and rules with `alwaysApply: true`, applied to every chat | other rules, by glob, by agent request, or by mention |
-| Copilot ([repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)) | `.github/copilot-instructions.md`, applied to every request in the repository; the root `AGENTS.md`, `CLAUDE.md` (and `.claude/CLAUDE.md`, as Strata's Copilot readers do), and `GEMINI.md` | `.instructions.md` files, only for files their `applyTo` matches; the nearest nested `AGENTS.md` wins for work in its folder |
+| Tool                                                                                                                                      | Up front at the repository root                                                                                                                                                                                                                                                             | Read later or conditionally                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code ([memory](https://code.claude.com/docs/en/memory))                                                                            | `CLAUDE.md`, `.claude/CLAUDE.md`, and `CLAUDE.local.md` in the starting directory and above, with their imports; rules in `.claude/rules` without `paths` frontmatter. By default, a root `AGENTS.md` only when none of those three files exists at the root, or when an import reaches it. | files in subdirectories, path-scoped rules, and rules in nested `.claude/rules` folders, when it works there                 |
+| Codex ([AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md))                                                         | the root `AGENTS.md`, or a non-empty `AGENTS.override.md` in its place                                                                                                                                                                                                                      | none: nested files below the starting directory are not read                                                                 |
+| Gemini CLI ([context files](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md))                                 | context files in the workspace directory and its parents at startup, so only the root `GEMINI.md` and, when `context.fileName` names it, `AGENTS.md`                                                                                                                                        | context files in subdirectories, when a tool touches them                                                                    |
+| Cursor ([rules](https://cursor.com/docs/rules))                                                                                           | the root `AGENTS.md` and rules with `alwaysApply: true`, applied to every chat                                                                                                                                                                                                              | other rules, by glob, by agent request, or by mention                                                                        |
+| Copilot ([repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)) | `.github/copilot-instructions.md`, applied to every request in the repository; the root `AGENTS.md`, `CLAUDE.md` (and `.claude/CLAUDE.md`, as Strata's Copilot readers do), and `GEMINI.md`                                                                                                 | `.instructions.md` files, only for files their `applyTo` matches; the nearest nested `AGENTS.md` wins for work in its folder |
 
 `REVIEW.md` is read only by code review, and `.gemini/system.md` only with `GEMINI_SYSTEM_MD` set.
 
@@ -815,17 +815,17 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 Its JSON has its own schema version, currently 13. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
-| Version | Adds |
-| --- | --- |
-| 5 | With `--precise`, `providerMeasurements` and `providerTotals` (see [Measurement](#measurement)). |
-| 6 | The comparison's `skillListing` totals, with the manifests at each side and the unresolved ones the totals leave out, and a `listing` on each changed skill manifest, measured as in [Skill listings](#skill-listings). The Markdown adds a listed-token line when either commit has a skill manifest, and a `Δ listed` column when a manifest changed. |
-| 7 | Cursor files, so compared components and `byProvider` can carry `cursor`, and a changed `.cursorrules` carries `legacy: true`. The same two commits can give larger totals than under version 6. |
-| 8 | Copilot files in the same way, with `copilot`, and `legacy: true` on a changed `.chatmode.md`. |
-| 9 | Claude `@path` imports resolved in each tree, so files they reach are compared too and carry `imported: true`; the Markdown file table adds "(imported)" to their change. Totals can be larger than under version 8. |
-| 10 | `upFront`: for each provider that reads stored text at either commit, its [up-front and on-demand totals](#up-front-context) at both, with the file count and unresolved counts. The Markdown adds a table of the providers whose figures changed, or a line saying none did. |
-| 11 | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each. |
-| 12 | `limits` when a [limit](#limits) is set. |
-| 13 | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate. |
+| Version | Adds                                                                                                                                                                                                                                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 5       | With `--precise`, `providerMeasurements` and `providerTotals` (see [Measurement](#measurement)).                                                                                                                                                                                                                                                        |
+| 6       | The comparison's `skillListing` totals, with the manifests at each side and the unresolved ones the totals leave out, and a `listing` on each changed skill manifest, measured as in [Skill listings](#skill-listings). The Markdown adds a listed-token line when either commit has a skill manifest, and a `Δ listed` column when a manifest changed. |
+| 7       | Cursor files, so compared components and `byProvider` can carry `cursor`, and a changed `.cursorrules` carries `legacy: true`. The same two commits can give larger totals than under version 6.                                                                                                                                                        |
+| 8       | Copilot files in the same way, with `copilot`, and `legacy: true` on a changed `.chatmode.md`.                                                                                                                                                                                                                                                          |
+| 9       | Claude `@path` imports resolved in each tree, so files they reach are compared too and carry `imported: true`; the Markdown file table adds "(imported)" to their change. Totals can be larger than under version 8.                                                                                                                                    |
+| 10      | `upFront`: for each provider that reads stored text at either commit, its [up-front and on-demand totals](#up-front-context) at both, with the file count and unresolved counts. The Markdown adds a table of the providers whose figures changed, or a line saying none did.                                                                           |
+| 11      | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each.                                                                     |
+| 12      | `limits` when a [limit](#limits) is set.                                                                                                                                                                                                                                                                                                                |
+| 13      | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate.                                                                     |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 
@@ -835,13 +835,12 @@ The Markdown output is intended for a local file or an opt-in GitHub Actions job
 
 Limits are opt-in. Nothing is checked unless a limit is given, and none is set by default, because a growing configuration is not a worse one: a limit only compares a figure with a number the user chose. The Markdown table and the messages say "over" and "within", not "failed" or "regression", and the Markdown states that being over a limit does not mean the configuration got worse.
 
-| Option | `strata diff` | `strata analyze` |
-| --- | --- | --- |
-| `--limit-tokens` | yes | yes, at the last revision |
-| `--limit-increase` | yes | no |
-| `--limit-up-front-tokens` | yes | yes, at the last revision |
-| `--limit-up-front-increase` | yes | no |
-
+| Option                      | `strata diff` | `strata analyze`          |
+| --------------------------- | ------------- | ------------------------- |
+| `--limit-tokens`            | yes           | yes, at the last revision |
+| `--limit-increase`          | yes           | no                        |
+| `--limit-up-front-tokens`   | yes           | yes, at the last revision |
+| `--limit-up-front-increase` | yes           | no                        |
 - **Tokens only.** Every limit is a whole number of tokens. Percentage limits were considered and left out: a percentage cannot be taken from a zero base, needs exact decimal comparison, and needs rounding that never contradicts its result, while a token limit has none of these cases. The percentage change is still shown beside each increase.
 - **Figures.** `--limit-tokens` and `--limit-increase` use the stored instructional text total, the same `comparison` or revision total the run reports. The session-start limits use each agent's `tokens` from [up-front context](#up-front-context): listed files plus skill listings, for a session at the repository root. All limits use the byte estimate. Provider counts (Codex's, and those from `--precise`) are not used, so a limit means the same with or without network access. A source-only file adds nothing to any limit.
 - **Agents.** A session-start limit without an agent applies to every agent that keeps text at session start (up-front tokens or files) at either commit, or, in `analyze`, at the last revision. An agent that only reads on demand has nothing to limit. `agent=n` sets one agent's limit and replaces the general one for that agent; it is checked even when that agent keeps nothing at session start, as zero tokens. When the general limit applies to no agent, it gives one entry that says why: `no-agent` when no agent keeps text at session start, `replaced` when each agent that does has its own limit. A limit that was set is never silently dropped.
@@ -860,14 +859,14 @@ Limits are opt-in. Nothing is checked unless a limit is given, and none is set b
 
 `strata diff` also adds the `limits` array to its JSON (since schema version 12). Each entry has:
 
-| Field | Value |
-| --- | --- |
-| `name` | the option without its dashes, such as `limit-tokens` |
-| `agent` | the agent, or `null` for the total and when not applied |
-| `limit` | the number set |
+| Field    | Value                                                        |
+| -------- | ------------------------------------------------------------ |
+| `name`   | the option without its dashes, such as `limit-tokens`        |
+| `agent`  | the agent, or `null` for the total and when not applied      |
+| `limit`  | the number set                                               |
 | `before` | the base value, or `null` for `analyze` and when not applied |
-| `after` | the head value, or `null` when not applied |
-| `result` | `within`, `over`, `no-agent`, or `replaced` |
+| `after`  | the head value, or `null` when not applied                   |
+| `result` | `within`, `over`, `no-agent`, or `replaced`                  |
 
 ### In the composite Action
 
@@ -879,11 +878,11 @@ Inputs and limits:
 
 Which commits it compares, when `base` and `head` are empty:
 
-| Event | Commits compared |
-| --- | --- |
+| Event                                                        | Commits compared                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `pull_request`, its review events, and `pull_request_target` | GitHub's merge commit and its first parent, the base branch's tip. Changes the base branch made after the pull request branched are therefore not counted, reversed, as the pull request's. Without a merge commit whose second parent is the pull request's head, it compares the two tips and warns. |
-| `merge_group` | the queued commit and its base |
-| `push` | the commits before and after; a push that creates or deletes a branch or tag is skipped with a notice |
+| `merge_group`                                                | the queued commit and its base                                                                                                                                                                                                                                                                         |
+| `push`                                                       | the commits before and after; a push that creates or deletes a branch or tag is skipped with a notice                                                                                                                                                                                                  |
 
 Fetching and outputs:
 

@@ -2,23 +2,23 @@
 
 The benchmark times **analysis only**. It does not include fixture creation, compilation, or HTML rendering time.
 
-| Command | What it does |
-| --- | --- |
-| `pnpm build && pnpm benchmark` | Creates a disposable repository with 1,000 commits and 32 tracked skill manifests, times its analysis, and removes it after the run. |
-| `pnpm benchmark --commits N --files M` | Same, with `N` commits and `M` skill manifests. |
-| `pnpm benchmark --repo /path/to/repository` | Times an existing repository, read-only. |
+| Command                                     | What it does                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm build && pnpm benchmark`              | Creates a disposable repository with 1,000 commits and 32 tracked skill manifests, times its analysis, and removes it after the run. |
+| `pnpm benchmark --commits N --files M`      | Same, with `N` commits and `M` skill manifests.                                                                                      |
+| `pnpm benchmark --repo /path/to/repository` | Times an existing repository, read-only.                                                                                             |
 
-The output reports the revision count, the latest revision's component count and estimated tokens, analysis seconds, and revisions per second. A *revision* is one commit in the analyzed history; a *component* is one tracked configuration file.
+The output reports the revision count, the latest revision's component count and estimated tokens, analysis seconds, and revisions per second. A _revision_ is one commit in the analyzed history; a _component_ is one tracked configuration file.
 
 ## Analysis time: per-commit Git processes vs. streamed log
 
 Measured on 2026-10-09, macOS arm64, Node 24.21.0, Git 2.48.1, default estimate mode:
 
-| Input | Revisions | Latest components | Per-commit Git processes (before) | Streamed log (current) |
-| --- | ---: | ---: | ---: | ---: |
-| Synthetic, 32 skill manifests | 1,000 | 32 | 23.944 s | 0.778 s |
-| Synthetic, 128 skill manifests | 300 | 128 | 7.858 s (2026-10-08) | 0.158 s |
-| Local Claudes repository | 89 | 69 | 3.41 s | 0.191 s |
+| Input                          | Revisions | Latest components | Per-commit Git processes (before) | Streamed log (current) |
+| ------------------------------ | --------: | ----------------: | --------------------------------: | ---------------------: |
+| Synthetic, 32 skill manifests  |     1,000 |                32 |                          23.944 s |                0.778 s |
+| Synthetic, 128 skill manifests |       300 |               128 |              7.858 s (2026-10-08) |                0.158 s |
+| Local Claudes repository       |        89 |                69 |                            3.41 s |                0.191 s |
 
 These are single runs, not a performance guarantee. The local repository is only an example workload; its content was not copied into the benchmark file or uploaded.
 
@@ -35,11 +35,11 @@ Report size no longer grows with revisions multiplied by tracked files. Schema v
 
 HTML report sizes on local repositories, schema 8 against schema 9. About 62 KB of each is the page itself.
 
-| Repository | Revisions | Inventory rows across history | Distinct file versions | Schema 8 | Schema 9 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Agents-Template | 181 | 177,750 | 2,838 | 57.5 MB | 1.5 MB |
-| Claudes | 89 | 3,965 | 204 | 1.4 MB | 211 KB |
-| Trailhead-Banner | 505 | 785 | 45 | 748 KB | 504 KB |
+| Repository       | Revisions | Inventory rows across history | Distinct file versions | Schema 8 | Schema 9 |
+| ---------------- | --------: | ----------------------------: | ---------------------: | -------: | -------: |
+| Agents-Template  |       181 |                       177,750 |                  2,838 |  57.5 MB |   1.5 MB |
+| Claudes          |        89 |                         3,965 |                    204 |   1.4 MB |   211 KB |
+| Trailhead-Banner |       505 |                           785 |                     45 |   748 KB |   504 KB |
 
 Trailhead-Banner changes configuration in only 16 of its 505 revisions. What remains of its report is the per-revision totals, not file lists.
 
