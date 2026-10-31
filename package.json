@@ -1,6 +1,6 @@
 {
   "name": "context-strata",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "See how your agent context evolved across Git history.",
   "license": "MIT",
   "repository": {

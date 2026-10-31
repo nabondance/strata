@@ -184,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: nabondance/strata@v0.6.0
+      - uses: nabondance/strata@v0.7.0
         with:
           limit-up-front-tokens: 8000 # optional
 ```
