@@ -152,17 +152,19 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
         }
         if (!nameFits()) {
           name.style.fontSize = '11px';
-          // A name with folders gives up whole folders first, then letters from the left of its first folder, and
-          // only in forms no other rectangle can show; shorterTreemapNames lists them in that order.
+          // A name with folders gives up whole folders, in forms no other rectangle can show, and then every folder
+          // behind one ellipsis, a form another rectangle may share; shorterTreemapNames lists them in that order.
           if (!nameFits() && shorter.length) {
             if (!shorter.some((option) => { name.textContent = option; return nameFits(); })) name.textContent = label;
           }
           if (!nameFits()) {
-            // Last resort: one small line, cut short with an ellipsis. A name with folders keeps them at its start,
-            // so two rectangles of the same name still read differently.
+            // Last resort: one small line. It shows the name or a shorter form whole when one fits, and otherwise
+            // the name cut short with an ellipsis; a name with folders keeps them at its start, so two rectangles of
+            // the same name still read differently.
             name.style.fontSize = '';
             button.classList.add('compact');
             [bottom, right] = inner();
+            if (!nameFits() && !shorter.some((option) => { name.textContent = option; return nameFits(); })) name.textContent = label;
             const compactBox = name.getBoundingClientRect();
             if (right - compactBox.left < 28 || compactBox.bottom > bottom + 1) name.hidden = true;
           }

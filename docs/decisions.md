@@ -734,8 +734,8 @@ Labels are checked against their rendered space, and again on resize. Names brea
 
 1. When both lines do not fit, the token count is removed.
 2. Then the name is reduced.
-3. Then a name with folders drops whole folders behind an ellipsis, first those after its first folder and then from the left, down to `…/<name>`, and only then cuts letters from the left of its first folder. `shorterTreemapNames` offers only forms that no other name at the revision, or any shorter form of one, could show, so two rectangles never read the same.
-4. Then it is cut to one small line ending in an ellipsis. A name with folders keeps them at its start, so two rectangles of the same name still differ.
+3. Then a name with folders drops whole folders behind an ellipsis, first those after its first folder and then from the left, and finally all of them for `…/<name>`. It never cuts letters from a folder or name. `shorterTreemapNames` offers a form that keeps a folder only when no other name at the revision, or any shorter form of one, could show it, so two rectangles showing a folder never read the same. `…/<name>` is offered even when another rectangle shows it too: a whole name reads better than a cut word, and the full path stays in the rectangle's hover line and accessible name.
+4. Then it is set on one small line, whole or in the first of those shorter forms that fits whole, and only when none does is it cut short with an ellipsis. A cut name with folders keeps them at its start, so two rectangles of the same name still differ.
 5. It is removed only when even that cannot fit.
 
 A tall, narrow rectangle sets its name top to bottom rather than breaking it mid-word.

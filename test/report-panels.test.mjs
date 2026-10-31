@@ -397,27 +397,18 @@ test("names repeated treemap labels by the folders that tell them apart", async 
   ]);
   assert.deepEqual(treemapNames([]), []);
 
-  // Shorter forms drop whole folders before cutting letters, and none reads like another name or its shorter forms.
+  // Shorter forms drop whole folders and never cut a word; two narrow rectangles may both read `…/<name>`.
   assert.deepEqual(shorterTreemapNames(["playground/CLAUDE.md", "background/CLAUDE.md", "CLAUDE.md"]), [
-    ["…ayground/CLAUDE.md", "…yground/CLAUDE.md"],
-    ["…ckground/CLAUDE.md", "…kground/CLAUDE.md"],
+    ["…/CLAUDE.md"],
+    ["…/CLAUDE.md"],
     [],
   ]);
-  assert.deepEqual(shorterTreemapNames(["a/p/q/M", "b/…/M"]), [["a/…/M", "…/q/M"], []]);
-  // `…/<name>` is offered when no other name can read the same, such as beside the root-level file.
-  assert.deepEqual(shorterTreemapNames(["AGENTS.md", "templates/…/AGENTS.md"]), [
-    [],
-    [
-      "…/AGENTS.md",
-      "…mplates/…/AGENTS.md",
-      "…plates/…/AGENTS.md",
-      "…lates/…/AGENTS.md",
-      "…ates/…/AGENTS.md",
-      "…tes/…/AGENTS.md",
-      "…es/…/AGENTS.md",
-      "…s/…/AGENTS.md",
-    ],
-  ]);
+  // A form that keeps a folder is offered only when no other name, or its shorter forms, reads the same.
+  assert.deepEqual(shorterTreemapNames(["a/p/q/M", "b/…/M"]), [["a/…/M", "…/q/M", "…/M"], ["…/M"]]);
+  assert.deepEqual(shorterTreemapNames(["a/p/q/M", "a/…/M"]), [["…/q/M", "…/M"], ["…/M"]]);
+  assert.deepEqual(shorterTreemapNames(["AGENTS.md", "templates/…/AGENTS.md"]), [[], ["…/AGENTS.md"]]);
+  // A name with one short folder has no shorter form.
+  assert.deepEqual(shorterTreemapNames(["a/AGENTS.md"]), [[]]);
 
   const { repo, put, commit, cleanup } = syntheticRepo("strata-treemap-names-");
   try {
@@ -441,11 +432,32 @@ test("names repeated treemap labels by the folders that tell them apart", async 
       "core/AGENTS.md",
       "server/AGENTS.md",
     ]);
-    // In narrow rectangles, names lose folders and then letters from the left, and still all differ.
+    // In narrow rectangles, names lose whole folders, never letters, even when two then read the same.
     layout.labelFits = (text) => text.length <= 12;
     get("target").value = "0";
     get("target").listeners.change();
-    assert.deepEqual(drawnNames(), ["AGENTS.md", "…de/…/review", "…e/AGENTS.md", "…r/AGENTS.md", "…ts/…/review"]);
+    assert.deepEqual(drawnNames(), ["AGENTS.md", "…/AGENTS.md", "…/AGENTS.md", "…/review", "…/review"]);
+    // On one compact line, a shorter form that fits whole is shown rather than the name cut short.
+    layout.labelFits = (text, leaf) => text.length <= (leaf.classes.has("compact") ? 11 : 8);
+    get("target").listeners.change();
+    const leaves = () => get("treemap").children.filter((child) => child.className === "treemap-leaf");
+    const core = leaves().find((leaf) => leaf.attributes["aria-label"].startsWith("packages/core/AGENTS.md"));
+    assert.equal(core.children[0].textContent, "…/AGENTS.md");
+    assert.ok(core.classes.has("compact"));
+    assert.deepEqual(drawnNames(), ["AGENTS.md", "…/AGENTS.md", "…/AGENTS.md", "…/review", "…/review"]);
+    // When no form fits on that line either, the name is cut short with an ellipsis, or hidden when that cannot fit.
+    layout.labelFits = (text) => text.length <= 8;
+    get("target").listeners.change();
+    const server = leaves().find((leaf) => leaf.attributes["aria-label"].startsWith("packages/server/AGENTS.md"));
+    assert.equal(server.children[0].textContent, "server/AGENTS.md");
+    assert.ok(server.classes.has("compact"));
+    // The fake layout fits no cut line, so only the two `…/review` names stay shown.
+    assert.deepEqual(
+      leaves()
+        .filter((leaf) => !leaf.children[0].hidden)
+        .map((leaf) => leaf.children[0].textContent),
+      ["…/review", "…/review"],
+    );
   } finally {
     cleanup();
   }

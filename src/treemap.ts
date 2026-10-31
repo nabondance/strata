@@ -164,9 +164,11 @@ export function treemapNames(paths: readonly string[]): string[] {
 
 /**
  * Shorter forms of each treemap name, for a rectangle too narrow for the whole name, in the order to try them. Whole
- * folders go first: those between the first folder and the name, then leading ones, down to `…/<name>`. Only then are
- * letters cut from the left of the first folder. A form is offered only when no other name, or shorter form of
- * another name, reads the same, so two rectangles never show the same text; a root-level name has none.
+ * folders go first: those between the first folder and the name, then leading ones. A form that keeps any folder is
+ * offered only when no other name, or shorter form of another name, reads the same, so two rectangles that show a
+ * folder never show the same text. Last comes `…/<name>`, offered even when another rectangle shows it too: the
+ * rectangle's full path stays in its hover line and accessible name, and a whole name reads better than a cut word. A
+ * root-level name has none.
  *
  * The HTML report embeds this function's source; it may use only its argument.
  */
@@ -175,19 +177,20 @@ export function shorterTreemapNames(labels: readonly string[]): string[][] {
     const parts = label.split("/");
     if (parts.length < 2) return [];
     const name = parts.at(-1) ?? "";
-    const first = parts[0] ?? "";
-    const rest = parts.length > 2 ? `/…/${name}` : `/${name}`;
-    const shorter = [`${first}${rest}`];
+    const shorter = [`${parts[0]}${parts.length > 2 ? "/…" : ""}/${name}`];
     for (let drop = 1; drop < parts.length - 1; drop += 1) {
       if (parts[drop] !== "…") shorter.push(`…/${parts.slice(drop).join("/")}`);
     }
-    shorter.push(`…/${name}`);
-    for (let cut = 1; cut < first.length; cut += 1) shorter.push(`…${first.slice(cut)}${rest}`);
     return [...new Set(shorter)].filter((option) => option.length < label.length);
   });
   const uses = new Map<string, number>();
   for (const [index, label] of labels.entries()) {
     for (const option of new Set([label, ...(options[index] ?? [])])) uses.set(option, (uses.get(option) ?? 0) + 1);
   }
-  return options.map((list) => list.filter((option) => uses.get(option) === 1));
+  return options.map((list, index) => {
+    const label = labels[index] ?? "";
+    const forms = list.filter((option) => uses.get(option) === 1);
+    const bare = `…/${label.split("/").at(-1)}`;
+    return label.includes("/") && bare.length < label.length ? [...forms, bare] : forms;
+  });
 }
