@@ -1,8 +1,8 @@
 /** The Compare revisions panel: its revision selects and the comparison. */
-export const compareScript = `    // The selects list the first revision, the latest, and each revision that changed a tracked file: listing every
-    // revision would give a long history thousands of options that each read "no change".
-    const listedRevisions = revisions.flatMap((revision, index) => index === 0 || index === revisions.length - 1 || revision.changes.length ? [index] : []);
-    const listedSet = new Set(listedRevisions);
+export const compareScript = `    // The selects list the first revision, the latest, and each revision that changed a tracked file in the current
+    // view, the same changes "Previous change" follows: listing every revision would give a long history thousands of
+    // options that each read "no change". They are refilled with the view.
+    let listedSet = new Set();
     const revisionLabel = (index) => fmt(index + 1) + ' · ' + revisions[index].date.slice(0, 10) + ' · ' + revisions[index].id.slice(0, 8);
     // A target picked on the chart or the slider that changed nothing is listed first while it is selected.
     const unlistedTarget = text('option', '');
@@ -19,31 +19,44 @@ export const compareScript = `    // The selects list the first revision, the la
       if (baseline === 'change') return Math.max(-1, latestChange(selected) - 1);
       return baseline;
     }
-    function fillRevisionSelect(select) {
+    /** Lists the view's changed revisions in both selects; a fixed baseline the view did not change stays listed. */
+    function fillRevisionSelects() {
+      const listed = viewRevisions.flatMap((revision, index) => index === 0 || index === viewRevisions.length - 1 || revision.changes.length ? [index] : []);
+      listedSet = new Set(listed);
+      const pinned = typeof baseline === 'number' && !listedSet.has(baseline) ? [baseline] : [];
+      const baselines = [...listed, ...pinned].sort((a, b) => a - b);
+      const modes = [['change', 'Previous change'], ['previous', 'Previous revision']].map(([value, label]) => {
+        const option = text('option', label);
+        option.value = value;
+        return option;
+      });
+      $('baseline').replaceChildren(...modes);
+      fillRevisionSelect($('baseline'), baselines);
+      $('target').replaceChildren();
+      unlistedShown = false;
+      fillRevisionSelect($('target'), listed);
+      $('baseline').value = String(baseline);
+      $('target').value = String(selected);
+    }
+    function fillRevisionSelect(select, indexes) {
       // Past about fifty options, months group them so the list can be scanned.
-      const grouped = listedRevisions.length > 50;
+      const grouped = indexes.length > 50;
       let group = select;
       let month = '';
-      for (const index of listedRevisions) {
+      for (const index of indexes) {
         if (grouped && revisions[index].date.slice(0, 7) !== month) {
           month = revisions[index].date.slice(0, 7);
           group = document.createElement('optgroup');
           group.label = month;
           select.append(group);
         }
-        const option = text('option', revisionLabel(index));
+        const option = text('option', revisionLabel(index) + (listedSet.has(index) ? '' : ' · no change'));
         option.value = String(index);
         group.append(option);
       }
     }
+    /** Wires the selects; the history chart fills them, since it is redrawn with each view. */
     function setupComparison() {
-      for (const [value, label] of [['change', 'Previous change'], ['previous', 'Previous revision']]) {
-        const option = text('option', label);
-        option.value = value;
-        $('baseline').append(option);
-      }
-      fillRevisionSelect($('baseline'));
-      fillRevisionSelect($('target'));
       $('baseline').addEventListener('change', () => {
         const value = $('baseline').value;
         baseline = value === 'previous' || value === 'change' ? value : Number(value);

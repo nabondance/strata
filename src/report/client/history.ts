@@ -45,7 +45,8 @@ export const historyScript = `    function renderLegend() {
     function renderChart() {
       const chart = $('chart');
       chart.replaceChildren();
-      $('chart-tip').hidden = true;
+      hideChartTip();
+      fillRevisionSelects();
       chartBuckets = [];
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
@@ -142,20 +143,37 @@ export const historyScript = `    function renderLegend() {
         const bucket = barAt(event.target);
         if (bucket) showChartTip(bucket, event.clientX);
       });
-      $('chart').addEventListener('pointerleave', () => { $('chart-tip').hidden = true; });
+      $('chart').addEventListener('pointerleave', hideChartTip);
       $('chart').addEventListener('focusin', (event) => {
         const bucket = barAt(event.target);
         if (!bucket) return;
         const bar = bucket.button.getBoundingClientRect();
         showChartTip(bucket, (bar.left || 0) + (bar.width || 0) / 2);
       });
-      $('chart').addEventListener('focusout', () => { $('chart-tip').hidden = true; });
+      $('chart').addEventListener('focusout', hideChartTip);
       setupComparison();
     }
 
+    // The bucket the hover card describes, and the layout read when it was filled, so moving the pointer within
+    // one bar only moves the card.
+    let tipBucket = null;
+    let tipLayout = { left: 0, width: 0, tipWidth: 0 };
+    function hideChartTip() {
+      $('chart-tip').hidden = true;
+      tipBucket = null;
+    }
     /** The hover card: the revisions a bar covers, the date it shows, and its tokens by category, top layer first. */
     function showChartTip(bucket, clientX) {
       const tip = $('chart-tip');
+      if (bucket !== tipBucket) fillChartTip(tip, bucket);
+      // Beside the pointer, on the side with more room, and inside the plot.
+      const { left: plotLeft, width, tipWidth } = tipLayout;
+      const x = clientX - plotLeft;
+      const left = x > width / 2 ? Math.max(0, x - 14 - tipWidth) : Math.min(Math.max(0, width - tipWidth), x + 14);
+      tip.style.left = left.toFixed(0) + 'px';
+    }
+    function fillChartTip(tip, bucket) {
+      tipBucket = bucket;
       const revision = viewRevisions[bucket.end];
       const steps = bucket.end - bucket.start + 1;
       const rows = [text('b', bucketRange(bucket)), text('span', revision.date.slice(0, 10) + (steps > 1 ? ' · the last of these ' + fmt(steps) : ''), 'history-tip-date')];
@@ -174,11 +192,6 @@ export const historyScript = `    function renderLegend() {
       rows.push(total);
       tip.replaceChildren(...rows);
       tip.hidden = false;
-      // Beside the pointer, on the side with more room, and inside the plot.
       const plot = $('history-plot').getBoundingClientRect();
-      const width = plot.width || 0;
-      const x = clientX - (plot.left || 0);
-      const tipWidth = tip.offsetWidth || 0;
-      const left = x > width / 2 ? Math.max(0, x - 14 - tipWidth) : Math.min(Math.max(0, width - tipWidth), x + 14);
-      tip.style.left = left.toFixed(0) + 'px';
+      tipLayout = { left: plot.left || 0, width: plot.width || 0, tipWidth: tip.offsetWidth || 0 };
     }`;

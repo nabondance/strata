@@ -78,6 +78,14 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   const bar = chart.children.find((child) => child.getAttribute("aria-label").startsWith("Revisions "));
   chart.listeners.pointermove({ target: bar.children[0], clientX: 300 });
   assert.equal(tip.hidden, false);
+  // Moving within the same bar only moves the card; another bar refills it.
+  const rows = tip.children;
+  chart.listeners.pointermove({ target: bar, clientX: 310 });
+  assert.equal(tip.children, rows);
+  const next = chart.children[chart.children.indexOf(bar) + 1];
+  chart.listeners.pointermove({ target: next, clientX: 320 });
+  assert.notEqual(tip.children, rows);
+  chart.listeners.pointermove({ target: bar, clientX: 300 });
   assert.match(tip.children[0].textContent, /^Revisions \d+–\d+$/);
   assert.match(tip.children[1].textContent, /^\d{4}-\d{2}-\d{2} · the last of these \d+$/);
   const total = tip.children.at(-1);
@@ -170,6 +178,46 @@ test("the comparison selects list changed revisions by month and default to the 
     /^Previous change: revision 1 · .*, compared with the empty history before it\.$/,
   );
 
+  // A provider tab lists the revisions that changed its view and keeps the selected target. Codex reads only
+  // AGENTS.md, which the second revision added, so the Claude edits and the padded repeats are not listed.
+  get("target").value = "2";
+  get("target").listeners.change();
+  get("provider-tabs")
+    .children.find((tab) => tab.textContent === "Codex + shared")
+    .listeners.click();
+  assert.deepEqual(
+    selectOptions(get("baseline")).map((option) => option.value),
+    ["change", "previous", "0", "1", "160"],
+  );
+  assert.deepEqual(
+    selectOptions(get("target")).map((option) => option.value),
+    ["2", "0", "1", "160"],
+  );
+  assert.equal(get("target").value, "2");
+  assert.match(get("target").children[0].textContent, /^3 · .* · no change$/);
+  assert.equal(
+    get("compare-span").textContent,
+    `Previous change: revision 2 · ${revisions[1].date.slice(0, 10)}, compared with revision 1 before it.`,
+  );
+  // A fixed baseline the view did not change stays listed, and the All files tab lists every change again.
+  get("baseline").value = "3";
+  get("baseline").listeners.change();
+  get("provider-tabs")
+    .children.find((tab) => tab.textContent === "Codex + shared")
+    .listeners.click();
+  assert.deepEqual(
+    selectOptions(get("baseline")).map((option) => option.value),
+    ["change", "previous", "0", "1", "3", "160"],
+  );
+  assert.match(selectOptions(get("baseline"))[4].textContent, / · no change$/);
+  assert.equal(get("baseline").value, "3");
+  get("provider-tabs")
+    .children.find((tab) => tab.textContent === "All files")
+    .listeners.click();
+  assert.equal(selectOptions(get("target")).length, listed.length);
+  get("baseline").value = "change";
+  get("baseline").listeners.change();
+
   // "Previous revision" is the literal one before, which here changed nothing.
   get("target").value = "4";
   get("target").listeners.change();
@@ -220,6 +268,15 @@ test("timeline scales and calendar labels stay round and apart", () => {
   const kept = timelineDateTicks(crowded);
   assert.ok(kept.every((tick, index) => !index || (tick.at - kept[index - 1].at) / crowded.length >= 0.12));
   assert.ok(kept.every((tick) => tick.at / crowded.length >= 0.12));
+  // One early bar with a late date, from clock skew or a rebase, does not hide the boundaries after it.
+  const skewed = [
+    "2024-06-05",
+    ...Array.from({ length: 9 }, (_, index) => `2024-${String(index + 1).padStart(2, "0")}-01`),
+  ];
+  assert.deepEqual(
+    timelineDateTicks(skewed).map((tick) => tick.label),
+    ["2024-02", "2024-04", "2024-06", "2024-08"],
+  );
   // Nothing to label inside one month.
   assert.deepEqual(timelineDateTicks(["2025-03-01", "2025-03-09", "2025-03-20"]), []);
 });
