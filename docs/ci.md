@@ -30,11 +30,11 @@ jobs:
   strata:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Analyze history
@@ -43,7 +43,7 @@ jobs:
         run: |
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/strata/report.html"
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --format json --output "$RUNNER_TEMP/strata/report.json" --quiet
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: strata-report
           path: ${{ runner.temp }}/strata/
@@ -54,7 +54,7 @@ Download `strata-report` from the workflow run and open `report.html` in a brows
 Notes on the example:
 
 - Strata creates the output directory itself.
-- Each action is pinned to a commit SHA, as this repository's own workflows do. Review and update those pins like any other dependency.
+- Each action is referenced by its release tag, as this repository's own workflows do. If your organization requires actions pinned to a commit SHA, pin each one to the commit its tag points at and update those pins like any other dependency.
 - `persist-credentials: false` keeps the job token out of the checkout's Git configuration, since nothing in the job pushes.
 
 ### Checkout depth
@@ -127,11 +127,11 @@ jobs:
   render:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Render image and badge
@@ -140,7 +140,7 @@ jobs:
         run: |
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --format svg --output "$RUNNER_TEMP/strata-image/strata.svg" --quiet
           npx --yes "context-strata@$STRATA_VERSION" analyze "$GITHUB_WORKSPACE" --format badge --output "$RUNNER_TEMP/strata-image/strata-badge.json" --quiet
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: strata-image
           path: ${{ runner.temp }}/strata-image/
@@ -150,7 +150,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1
+      - uses: actions/download-artifact@v8.0.1
         with:
           name: strata-image
           path: strata-image
