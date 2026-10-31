@@ -299,10 +299,10 @@ The skill-bundle and tracked-components tables are collapsed under their heading
 - **Revisions.** Every revision carries its totals and its `changes`. Each change points at the component now at that path.
 - **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. This keeps reports small on long histories.
 
-The bundled interpretation skill explains schema version 20 and that replay rule, and also:
+The bundled interpretation skill explains schema version 21 and that replay rule, and also:
 
 - up-front context, Claude imports, MCP servers, and instruction age;
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;
 - the limits of what JSON can establish.
 
-It also covers the `strata diff` JSON (schema version 13) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+It also covers the `strata diff` JSON (schema version 14) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.

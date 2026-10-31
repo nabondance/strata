@@ -99,19 +99,42 @@ function blankInline(paragraph: string): string {
   }
 }
 
+const openers: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+/** Whether `text` opens as many `opener` brackets as it closes with `closer`. */
+const balanced = (text: string, opener: string, closer: string) =>
+  text.split(opener).length >= text.split(closer).length;
+
+/**
+ * A path without the punctuation that ends its sentence or clause: trailing `.`, `,`, `:`, `;`, `!`,
+ * `?`, and quotes, and a closing `)`, `]`, or `}` that the path itself does not open, as in
+ * `(@a.md, @b.md)`. Claude Code's tokenizing is not published, so this is Strata's reading: a path
+ * that really ends in one of these characters is read without it.
+ */
+function trimPunctuation(path: string): string {
+  let end = path.length;
+  for (; end > 0; end -= 1) {
+    const last = path[end - 1]!;
+    const opener = openers[last];
+    if (opener === undefined ? !".,:;!?\"'".includes(last) : balanced(path.slice(0, end), opener, last)) break;
+  }
+  return path.slice(0, end);
+}
+
 /**
  * The `@path` imports in a Markdown file, in source order, as Claude Code reads them: outside fenced
- * code blocks, code spans, and HTML comments, with `#` fragments removed and `\ ` read as a space.
- * A path must start with `./`, `~/`, `/`, or a letter, digit, `.`, `_`, or `-`, so a quoted path or
- * a second `@` is not an import. Strata reads Markdown structure only this far: indented code
- * blocks are read as text, and an `@` directly after emphasis or a link bracket is not an import.
+ * code blocks, code spans, and HTML comments, with `#` fragments and trailing punctuation removed
+ * (see `trimPunctuation`) and `\ ` read as a space. A path must start with `./`, `~/`, `/`, or a
+ * letter, digit, `.`, `_`, or `-`, so a quoted path or a second `@` is not an import. Strata reads
+ * Markdown structure only this far: indented code blocks are read as text, and an `@` directly after
+ * emphasis or a link bracket is not an import.
  */
 export function importPaths(text: string): Array<{ path: string; line: number }> {
   const found: Array<{ path: string; line: number }> = [];
   for (const [index, line] of visibleText(text).entries()) {
     for (const match of line.matchAll(importPattern)) {
       const hash = match[1]!.indexOf("#");
-      const path = (hash < 0 ? match[1]! : match[1]!.slice(0, hash)).replace(/\\ /g, " ");
+      const path = trimPunctuation(hash < 0 ? match[1]! : match[1]!.slice(0, hash)).replace(/\\ /g, " ");
       // Claude Code also accepts `./`, and rejects paths starting with `@` or one of `#%^&*()`; the
       // first-character rule already decides those.
       const valid = path.startsWith("~/") || (path.startsWith("/") && path !== "/") || /^[a-zA-Z0-9._-]/.test(path);
@@ -170,6 +193,52 @@ const fileLike = (path: string) => path !== "." && !path.endsWith("/");
 /** Called with each blob import parsing reads, so other work on the same content need not read it again. */
 export type OnRead = (blob: string, body: Buffer) => void;
 
+/** Claude Code reads an imported symlink's file; Strata follows at most this many links in a row. */
+export const maxSymlinks = 4;
+
+/**
+ * The repository path a Git symlink at `path` points to, resolved against the link's directory, or
+ * null when it points outside the repository (an absolute path, or one that climbs above the root)
+ * or cannot name a file.
+ */
+export function symlinkDestination(text: string, path: string): string | null {
+  if (!text || text.startsWith("/") || text.includes("\0")) return null;
+  const resolved = posix.normalize(posix.join(posix.dirname(path), text));
+  return resolved === ".." || resolved.startsWith("../") || !fileLike(resolved) ? null : resolved;
+}
+
+/** The text of symlink blobs, or null for one that is not valid UTF-8. Nothing else reads these blobs. */
+function readLinks(repo: string, blobs: Iterable<string>, texts: Map<string, string | null>): void {
+  const pending = [...new Set(blobs)].filter((blob) => !texts.has(blob));
+  if (!pending.length) return;
+  const sizes = blobSizes(repo, pending);
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  for (const [blob, body] of readBlobs(repo, pending, (id) => sizes.get(id) ?? 0)) {
+    try {
+      texts.set(blob, decoder.decode(body));
+    } catch {
+      texts.set(blob, null);
+    }
+  }
+}
+
+/** Give each parsed import whose target is a followed symlink the file it leads to, as `symlinkTarget`. */
+function addSymlinkTargets(parsed: Map<string, ClaudeImport[]>, followed: Map<string, string>): void {
+  if (!followed.size) return;
+  const file = (target: string | null) => (target === null ? undefined : followed.get(target));
+  for (const [version, imports] of parsed) {
+    if (!imports.some(({ target, symlinkTarget }) => symlinkTarget === undefined && file(target) !== undefined))
+      continue;
+    parsed.set(
+      version,
+      imports.map((entry) => {
+        const symlinkTarget = file(entry.target);
+        return symlinkTarget === undefined ? entry : { ...entry, symlinkTarget };
+      }),
+    );
+  }
+}
+
 /**
  * Parse the imports of file versions, keyed by path and blob. Each blob is read once and also
  * handed to `onRead`; a file that is not valid UTF-8 has no imports.
@@ -200,19 +269,23 @@ function parseVersions(
   }
 }
 
-/** What a commit did to a path outside the recognized inventory: the regular file now there, or null. */
+/**
+ * What a commit did to a path outside the recognized inventory: the regular file now there, or null,
+ * and the symlink blob when the path became or stayed a symlink.
+ */
 interface PathEvent {
   path: string;
   blob: string | null;
+  link?: string;
 }
 
 const pathspecBytes = 64 * 1024;
 
 /**
  * The first-parent history of specific paths, by commit: each commit that changed one of them and
- * the regular file each then held, or null when it was removed or became a symlink or submodule.
- * A pathspec also matches the files under a directory of that name, so only the requested paths are
- * kept: an import of a directory names no file.
+ * the regular file each then held, or null when it was removed or became a symlink or submodule; a
+ * symlink's blob is kept as `link`. A pathspec also matches the files under a directory of that
+ * name, so only the requested paths are kept: an import of a directory names no file.
  */
 async function pathHistory(repo: string, paths: string[]): Promise<Map<string, PathEvent[]>> {
   const events = new Map<string, PathEvent[]>();
@@ -251,9 +324,14 @@ async function pathHistory(repo: string, paths: string[]): Promise<Map<string, P
       for (let token of batch) {
         if (pending) {
           if (!current) throw new Error("Malformed git log output");
+          const present = pending.status !== "D";
           const regular = pending.mode === "100644" || pending.mode === "100755";
           if (requested.has(token))
-            current.push({ path: token, blob: pending.status !== "D" && regular ? pending.blob : null });
+            current.push({
+              path: token,
+              blob: present && regular ? pending.blob : null,
+              ...(present && pending.mode === "120000" ? { link: pending.blob } : {}),
+            });
           pending = null;
           continue;
         }
@@ -276,23 +354,6 @@ async function pathHistory(repo: string, paths: string[]): Promise<Map<string, P
   return events;
 }
 
-/**
- * Drop the target of every import that names a path no regular file ever had in the analyzed
- * history. Such a target is text from the file, such as the `alice` in "ask @alice", not a path the
- * repository holds, and reports carry paths but never file contents. The import keeps its line.
- */
-function forgetUntracked(parsed: Map<string, ClaudeImport[]>, tracked: (path: string) => boolean): void {
-  for (const [version, imports] of parsed) {
-    if (imports.some(({ target }) => target !== null && !tracked(target)))
-      parsed.set(
-        version,
-        imports.map((entry) =>
-          entry.target === null || tracked(entry.target) ? entry : { line: entry.line, target: null },
-        ),
-      );
-  }
-}
-
 /** One commit as analysis replays it: what it removed and wrote among the paths in the inventory. */
 export interface ImportDelta {
   id: string;
@@ -312,7 +373,8 @@ type Importing = Parameters<typeof importLinks>[0][number];
 /**
  * Add the files Claude imports to a replayed history. Starting from the import roots, each round
  * reads the imports of the Markdown versions found so far and the history of the paths they name,
- * for up to four rounds, since no chain can be longer. The history is then replayed: whenever a
+ * for up to four rounds, since no chain can be longer; a named path that was a symlink is followed
+ * to its file, which becomes the import's `symlinkTarget`. The history is then replayed: whenever a
  * commit changes what the roots reach, the reached files outside the recognized inventory are
  * written to or removed from that commit's delta, so the rest of analysis treats them as ordinary
  * components. Returns the imports of every parsed version, keyed by path and blob; each blob read
@@ -337,7 +399,68 @@ export async function addImportedFiles(
 
   const candidates = new Map<string, PathEvent[]>();
   const candidateVersions = new Map<string, Set<string>>();
+  // Every symlink blob each looked-up path had, and the text of each.
+  const linkVersions = new Map<string, Set<string>>();
+  const linkTexts = new Map<string, string | null>();
+  const looked = new Set<string>();
+  /** Read the history of paths not looked up yet. Only unrecognized paths can become candidates. */
+  const lookUp = async (paths: Iterable<string>) => {
+    const fresh = [...new Set(paths)].filter((path) => fileLike(path) && !looked.has(path)).sort();
+    for (const path of fresh) looked.add(path);
+    for (const [id, events] of await pathHistory(repo, fresh)) {
+      const kept: PathEvent[] = [];
+      for (const event of events) {
+        if (event.link !== undefined) {
+          const links = linkVersions.get(event.path) ?? new Set<string>();
+          links.add(event.link);
+          linkVersions.set(event.path, links);
+        }
+        if (classify(event.path)) continue;
+        kept.push(event);
+        if (event.blob === null) continue;
+        const versions = candidateVersions.get(event.path) ?? new Set<string>();
+        versions.add(event.blob);
+        candidateVersions.set(event.path, versions);
+      }
+      const known = candidates.get(id);
+      if (known) known.push(...kept);
+      else if (kept.length) candidates.set(id, kept);
+    }
+  };
+  const isFile = (path: string) => recognized.has(path) || candidateVersions.has(path);
+  /**
+   * The file each symlink path leads to, link by link, for up to `maxSymlinks` links. A link is
+   * followed only when every symlink version the path had in the history points to the same path,
+   * and the chain ends at a path some regular file had.
+   */
+  const followLinks = async (paths: string[]) => {
+    const followed = new Map<string, string>();
+    let chains = paths.map((path) => ({ path, at: path }));
+    for (let step = 0; step < maxSymlinks && chains.length; step += 1) {
+      readLinks(
+        repo,
+        chains.flatMap(({ at }) => [...linkVersions.get(at)!]),
+        linkTexts,
+      );
+      const next = chains.flatMap((chain) => {
+        const ends = new Set(
+          [...linkVersions.get(chain.at)!].map((blob) => symlinkDestination(linkTexts.get(blob) ?? "", chain.at)),
+        );
+        const [end] = ends;
+        return ends.size === 1 && end !== null && end !== undefined ? [{ path: chain.path, at: end }] : [];
+      });
+      await lookUp(next.map(({ at }) => at));
+      chains = [];
+      for (const chain of next) {
+        if (isFile(chain.at)) followed.set(chain.path, chain.at);
+        else if (linkVersions.has(chain.at)) chains.push(chain);
+      }
+    }
+    return followed;
+  };
+
   const targets = new Set<string>();
+  const symlinkTargets = new Map<string, string>();
   let frontier: Array<{ path: string; blob: string }> = roots;
   for (let hop = 1; hop <= maxImportHops && frontier.length; hop += 1) {
     const found = new Set<string>();
@@ -347,17 +470,14 @@ export async function addImportedFiles(
       }
     }
     for (const target of found) targets.add(target);
-    const unrecognized = [...found].filter((path) => fileLike(path) && !classify(path)).sort();
-    for (const [id, events] of await pathHistory(repo, unrecognized)) {
-      const known = candidates.get(id);
-      if (known) known.push(...events);
-      else candidates.set(id, events);
-      for (const { path, blob } of events) {
-        if (blob === null) continue;
-        const versions = candidateVersions.get(path) ?? new Set<string>();
-        versions.add(blob);
-        candidateVersions.set(path, versions);
-      }
+    // Recognized paths are looked up too, since one may be a symlink at some revision.
+    await lookUp(found);
+    // A symlink's file is reached at the same hop as the path the import names.
+    for (const [path, file] of await followLinks([...found].filter((path) => linkVersions.has(path)))) {
+      symlinkTargets.set(path, file);
+      if (targets.has(file)) continue;
+      targets.add(file);
+      found.add(file);
     }
     frontier = [...found].flatMap((path) =>
       !markdown(path)
@@ -366,19 +486,7 @@ export async function addImportedFiles(
     );
     parseVersions(repo, frontier, parsed, onRead);
   }
-  // Imports from the last hop are past the depth limit; their targets are looked up only to know
-  // whether they name a tracked path.
-  const beyond = new Set<string>();
-  for (const { path, blob } of frontier) {
-    for (const { target } of parsed.get(key(path, blob)) ?? []) {
-      if (target !== null && !targets.has(target) && fileLike(target) && !classify(target)) beyond.add(target);
-    }
-  }
-  const trackedBeyond = new Set<string>();
-  for (const events of (await pathHistory(repo, [...beyond].sort())).values()) {
-    for (const { path, blob } of events) if (blob !== null) trackedBeyond.add(path);
-  }
-  forgetUntracked(parsed, (path) => recognized.has(path) || candidateVersions.has(path) || trackedBeyond.has(path));
+  addSymlinkTargets(parsed, symlinkTargets);
   if (![...parsed.values()].some((imports) => imports.length)) return parsed;
 
   // Replay only the files expansion can involve: the roots and every path an import names.
@@ -424,7 +532,9 @@ export async function addImportedFiles(
  * The files Claude imports in one commit's tree that the path rules do not recognize. The imports
  * of each file version read on the way are added to `parsed`, keyed by path and blob, and each blob
  * read is handed to `onRead`. Each pass adds the tree's files that `importLinks` finds imported but
- * missing, until none are left.
+ * missing, until none are left. An import of a symlink in the tree is followed, for up to
+ * `maxSymlinks` links, to the regular file it leads to, which is set as its `symlinkTarget` in
+ * `parsed`; so `parsed` must hold this tree's imports only.
  */
 export function treeImports(
   repo: string,
@@ -436,6 +546,23 @@ export function treeImports(
   const regular = new Map(
     tree.flatMap(({ mode, blob, path }) => (mode === "100644" || mode === "100755" ? [[path, blob] as const] : [])),
   );
+  const symlinks = new Map(tree.flatMap(({ mode, blob, path }) => (mode === "120000" ? [[path, blob] as const] : [])));
+  const linkTexts = new Map<string, string | null>();
+  const followed = new Map<string, string>();
+  const tried = new Set<string>();
+  const follow = (path: string) => {
+    let at = path;
+    for (let step = 0; step < maxSymlinks; step += 1) {
+      const blob = symlinks.get(at);
+      if (blob === undefined) return null;
+      readLinks(repo, [blob], linkTexts);
+      const next = symlinkDestination(linkTexts.get(blob) ?? "", at);
+      if (next === null) return null;
+      if (regular.has(next)) return next;
+      at = next;
+    }
+    return null;
+  };
   const files = new Map(recognized.map((file) => [file.path, file]));
   const imported: TrackedFile[] = [];
   parseVersions(
@@ -445,6 +572,8 @@ export function treeImports(
     onRead,
   );
   for (;;) {
+    // Imports parsed since the last pass may name a symlink an earlier pass followed.
+    addSymlinkTargets(parsed, followed);
     const entries = [...files.values()].map((file) =>
       entry(file.path, file.classification, parsed.get(key(file.path, file.blob))),
     );
@@ -454,15 +583,27 @@ export function treeImports(
       return file && markdown(file.path) && !parsed.has(key(file.path, file.blob)) ? [file] : [];
     });
     let added = false;
+    let relinked = false;
     for (const link of links) {
-      const blob = link.status === "missing" && link.target !== null ? regular.get(link.target) : undefined;
-      if (blob === undefined || files.has(link.target!)) continue;
-      const file = { path: link.target!, blob, classification: importedClassification(link.target!) };
+      if (link.status !== "missing" || link.target === null) continue;
+      let path = link.target;
+      if (symlinks.has(path) && !tried.has(path)) {
+        tried.add(path);
+        const file = follow(path);
+        if (file !== null) {
+          followed.set(path, file);
+          relinked = true;
+          path = file;
+        }
+      }
+      const blob = regular.get(path);
+      if (blob === undefined || files.has(path)) continue;
+      const file = { path, blob, classification: importedClassification(path) };
       files.set(file.path, file);
       imported.push(file);
       added = true;
     }
-    if (!added && !unread.length) return imported;
+    if (!added && !relinked && !unread.length) return imported;
     parseVersions(repo, unread, parsed, onRead);
   }
 }

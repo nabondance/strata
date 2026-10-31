@@ -10,13 +10,17 @@ export interface ClaudeImport {
   /** 1-based line of the import. */
   line: number;
   /**
-   * The repository path it names, resolved against the importing file's directory. Null when it
-   * points outside the repository (`external`), or names a path no regular file has anywhere in the
-   * analyzed history, whose text is then not stored.
+   * The repository path it names, resolved against the importing file's directory, whether or not
+   * any file has that path. Null when it points outside the repository (`external`).
    */
   target: string | null;
   /** Set when the import names a home-directory or absolute path, or climbs above the repository root. */
   external?: true;
+  /**
+   * Set when `target` is a Git symlink in the analyzed history: the path of the file the link leads
+   * to, following up to four links. An import resolves to it at a revision where `target` has no file.
+   */
+  symlinkTarget?: string;
 }
 
 /** An MCP server a tracked file defines, by name. Its command, URL, arguments, and environment are never stored. */
@@ -162,7 +166,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 20;
+  schemaVersion: 21;
   repository: string;
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */

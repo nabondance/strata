@@ -93,7 +93,7 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 13;
+  schemaVersion: 14;
   base: string;
   head: string;
   measurement: Measurement;
@@ -112,7 +112,8 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
   const measurer = createMeasurer("estimate");
   git(repo, ["rev-parse", "--git-dir"]);
   const ids = [commitId(repo, base), commitId(repo, head)] as const;
-  const imports = new Map<string, ClaudeImport[]>();
+  // Each tree keeps its own imports, since a symlink an import names can lead elsewhere in the other.
+  const imports = ids.map(() => new Map<string, ClaudeImport[]>());
   // One shared pass reads each blob whose content any step needs, once.
   const tokens = new TokenCounts(measurer);
   const gemini = new GeminiSettings();
@@ -120,7 +121,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
   const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
-  const files = ids.map((id) => trackedFiles(repo, id, imports, pass));
+  const files = ids.map((id, index) => trackedFiles(repo, id, imports[index]!, pass));
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
   const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
@@ -132,7 +133,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
     const settings = snapshot.find((file) => file.path === geminiSettingsPath);
     return { snapshot, names: settings ? (configured.get(settings.blob) ?? null) : null };
   });
-  const [before, after] = files.map((snapshot): ComparedRevision => {
+  const [before, after] = files.map((snapshot, index): ComparedRevision => {
     const components = snapshot
       .map((file) => {
         const key = versionKey(file.path, file.blob);
@@ -141,7 +142,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
           measured.get(file.blob)!,
           undefined,
           listings.get(key),
-          imports.get(key),
+          imports[index]!.get(key),
           rules.get(key),
           mcp.get(key),
         );
@@ -165,7 +166,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 13,
+    schemaVersion: 14,
     base: ids[0],
     head: ids[1],
     measurement: measurer.measurement,

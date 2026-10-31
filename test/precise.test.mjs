@@ -88,7 +88,7 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
       onNotice: (line) => notices.push(line),
     });
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     assert.deepEqual(summary(report), {
       claude: ["api-counted", "signed-in Anthropic account (ant auth login)", "api.anthropic.com"],
       gemini: ["api-counted", "signed-in Google Cloud account (gcloud, Vertex AI)", "aiplatform.googleapis.com"],
@@ -575,7 +575,7 @@ test("strata diff --precise adds each provider's totals at both commits", async 
     const delta = await compareGitCommitsWithProviders(repo, base, head, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
     });
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     const codexTokens = getEncoding("o200k_base").encode("Shared instructions.\n").length;
     assert.deepEqual(
       delta.providerTotals.map(({ provider, beforeTokens, afterTokens, deltaTokens }) => [

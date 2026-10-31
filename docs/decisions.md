@@ -118,7 +118,7 @@ One shared pass reads each of these blobs once and gives its content to every st
 
 Each instructional version is reduced to counts of its lines as soon as it is read, and each distinct line's text is kept once. Memory therefore grows with the number of distinct lines, plus a few bytes for each line of each distinct version, not with the history's text.
 
-Some paths named by imports match no path rule. For those, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when no instruction file has an import.
+Some paths named by imports match no path rule, and any named path may be a symlink at some commit. For the paths each round names, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when no instruction file has an import. A round that finds symlinks reads their blobs and looks up the paths they point to the same way, one more `git log` per link in a chain, for at most four links.
 
 `strata diff` lists the two commit trees directly and shares the same classification and measurement code.
 
@@ -190,6 +190,7 @@ A shortened, illustrative JSON shape:
 ### Privacy
 
 - Default HTML and JSON reports contain commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no source text. Paths and blob IDs can still disclose the repository's structure.
+- The paths include the path each Claude `@path` import names, even one no file has, such as `packages/server/mastra/server` for `@mastra/server` in `packages/server/CLAUDE.md`. That path is the word after the `@`, resolved, so a handle such as `@alice` in an instruction file appears as a path. Nothing else of the file's text is stored, and `--shareable` aliases these paths too.
 - HTML and JSON reports are local artifacts. The CLI writes them with mode `0600`.
 - The HTML report carries a Content-Security-Policy that allows only its own inline style and script, so a browser will not load anything from the network on its behalf.
 - Without `--precise`, Strata makes no network request and uploads no content.
@@ -197,12 +198,12 @@ A shortened, illustrative JSON shape:
 
 ### Shareable reports
 
-`--shareable` produces schema version 20 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 21 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
 - component and change paths;
-- import targets, with the same aliases as paths, including targets no file has;
+- import targets and `symlinkTarget`s, with the same aliases as paths, including targets no file has, such as a package name;
 - skill roots, MCP server names, and submodule paths;
 - blob IDs.
 
@@ -233,6 +234,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 18 | `mcp` |
 | 19 | `lineAgeMethod` and `lineAge`; a narrower `shallow` |
 | 20 | Codex provider counts on every run; `measurement` always the byte estimate |
+| 21 | import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths |
 
 #### Version 8: provider counts
 
@@ -392,6 +394,16 @@ Version 20 removes `--tokenizer`, `--model`, `--codex-model`, and `--provider-ap
 
 Version 19 and earlier have Codex counts only with `--precise`, and their `measurement` may be an OpenAI encoding.
 
+#### Version 21: import targets and symlinks
+
+Version 21 changes how Claude imports are read and stored; see [Claude imports](#claude-imports):
+
+- An import's `target` is the path it names even when no regular file in the analyzed history has it, such as an npm scope like `@mastra/server`. Version 20 and earlier stored `null` without `external` for such an import.
+- Trailing punctuation is dropped from an import's path, so `@CONTRIBUTING.md:` names `CONTRIBUTING.md`.
+- An import whose target is a Git symlink somewhere in the history carries `symlinkTarget`, the file the link leads to, and resolves to that file where the target has none. Version 20 and earlier report such an import `missing`.
+
+The same history can therefore reach more files, with larger totals, and list fewer imports as missing. The `strata diff` JSON goes to version 14 for the same reason.
+
 ## MCP servers
 
 An MCP file's JSON is configuration, not prompt text. Its size says nothing about the tool definitions a server sends once it starts, and Strata never starts a server, so it does not measure those. What the file does state is which servers the project defines.
@@ -546,18 +558,22 @@ The HTML report's **At session start** panel shows, for the selected revision, e
 
 Claude Code loads the files a `CLAUDE.md` imports with `@path` at launch, alongside it. So an instruction file's own size understates what it brings into context, and a configuration split across imported files would otherwise be invisible to Strata.
 
-[The analysis scope](analysis-scope.md#claude-imports) lists the parsing and resolution rules. They follow [Claude Code's memory documentation](https://code.claude.com/docs/en/memory#import-additional-files) as read on 2026-10-18, which gives the four-hop limit, resolution against the importing file's directory, escaped spaces, quoted paths, and the code exclusions. The rest is Strata's reading of Claude Code's behavior, not documented: what counts as an import (an `@` at a line start or after whitespace), removing a `#` fragment, and which first characters make a path. The Markdown structure Strata recognizes is a documented subset.
+[The analysis scope](analysis-scope.md#claude-imports) lists the parsing and resolution rules. They follow [Claude Code's memory documentation](https://code.claude.com/docs/en/memory#import-additional-files) as read on 2026-10-18, which gives the four-hop limit, resolution against the importing file's directory, escaped spaces, quoted paths, and the code exclusions. The rest is Strata's reading of Claude Code's behavior, not documented: what counts as an import (an `@` at a line start or after whitespace), removing a `#` fragment, removing trailing punctuation, which first characters make a path, and following symlinks. The Markdown structure Strata recognizes is a documented subset.
 
 The decisions that shape the data:
 
 - **Resolved against Git, per revision.** A target resolves only to a tracked regular file at the same revision. Strata does not know where a repository is checked out, so absolute and home-directory imports are `external` rather than looked up on this machine, and none of their text is stored.
+- **Trailing punctuation ends the path.** Claude Code's tokenizing is not published, and instruction files write imports in prose and lists: `- @styleguides/DOC.md: All /docs page types`, `(@e1, @e2)`, `see @CONTRIBUTING.md.` Keeping the punctuation made those imports `missing`. Strata drops trailing `.`, `,`, `:`, `;`, `!`, `?`, and quotes, and a closing `)`, `]`, or `}` that the path does not open, so `@docs/file(1).md` keeps its bracket. A path that really ends in one of those characters is misread; that is rarer than a sentence ending after an import.
+- **Symlinks are followed to their file.** Inventory skips symlinks, but Claude Code reads an imported symlink's file, and projects link a shared guide into the folder that imports it. An import whose target is a Git symlink is followed through the link's blob, resolved against the link's directory, for up to four links, staying inside the repository; the file at the end is what the import reaches, labeled as that file's own path rule says or as imported. The link itself stays out of the inventory.
+  - Imports are stored once per file version, but a link can change between revisions. So history analysis follows a link only when every symlink version the path had in the analyzed history points to the same place, and the chain ends at a path some regular file had. The import stores that file as `symlinkTarget` and reaches it at each revision where its own target has no file. `importLinks` then reports the file as the link's target, with the path the import named as `symlink`.
+  - Two cases are approximate in history: a link whose destination changed is not followed at all, and an import of a link that was deleted while its file stayed still reaches the file. `strata diff` follows each tree's own links exactly, so it has neither.
 - **Measured where no path rule recognizes the file.** Imported text is loaded at launch like the importing file, so imported Markdown is measured as Claude instructions, in its own component rather than added to the importer. Other files Claude imports, such as `package.json`, are inventoried by bytes: they are loaded as text too, but structured files stay source-only until a text boundary is defined for them.
 - **Recognized files keep their labels.** A file a path rule recognizes is counted once, as that rule says, even when imported. So an imported skill resource or other source-only Markdown file stays source-only. Relabeling a file by revision would let one file version carry two measurements.
 - **Membership follows the imports.** An imported file is in the inventory exactly while an import reaches it. Adding or dropping an import therefore adds or removes the file at that revision, and the comparison shows the same, without the file having changed.
   - Imported files are found by a history read limited to their paths, without rename detection. `log.follow` is turned off, since it would turn rename following back on for a single path. So a moved imported file is a removal and an addition.
   - A Git pathspec (the path filter given to `git log`) also matches files under a directory of that name; only the requested paths are kept.
 - **Edges are derived, not stored per revision.** What a file imports depends only on its content, so it is stored once per file version as `imports`: a 1-based line number, as evidence, and the resolved target path, never the import text.
-  - A target is kept only when some regular file in the analyzed history has that path. An `@` followed by a word that is not a path, such as a person's handle in prose, is still an import to Claude Code, which finds no file. Storing it would put file text into a report that promises paths only, so such an import stays in the list as `missing` with a null target.
+  - A target is kept even when no regular file in the analyzed history has that path. An `@` followed by a word that is not a path, such as an npm scope (`@mastra/server`) or a person's handle in prose, is still an import to Claude Code, which finds no file. Strata does not guess which words are package names; it lists such an import as `missing` with the path it names, so a reader sees at once that `packages/server/mastra/server` is a package name and not a broken file reference. Until schema version 20 these targets were stored as null to keep that word out of the report, which left the table saying only "not a tracked path". The word is now part of the report's paths, as described under [Privacy](#privacy), and `--shareable` aliases it like any path.
   - Whether an import resolves depends on the revision. `importLinks` derives each revision's `links to` edges from the rebuilt inventory alone, with their hop count, status, and an `external` flag that survives the depth limit. So analysis, the HTML report, and a JSON consumer agree, and a shareable report gives the same edges.
   - Roots are chosen by labels, not paths: first the Claude instructions that are not themselves imported, then each `agents-md` context file those chains did not reach. So an `AGENTS.md` that a `CLAUDE.md` imports counts its own imports from the second hop, as Claude Code does.
 - **Unresolved imports are listed, not drawn.** `missing`, `external`, and `depth-limit` imports stay in the derived list with their status, and the report lists them first, so a broken import is visible instead of silently absent.
@@ -813,7 +829,7 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 `strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
-Its JSON has its own schema version, currently 13. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
+Its JSON has its own schema version, currently 14. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
 | Version | Adds |
 | --- | --- |
@@ -826,6 +842,7 @@ Its JSON has its own schema version, currently 13. Compared components carry the
 | 11 | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each. |
 | 12 | `limits` when a [limit](#limits) is set. |
 | 13 | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate. |
+| 14 | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13. |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 

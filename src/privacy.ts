@@ -9,11 +9,15 @@ function aliases(values: Iterable<string>, prefix: string): Map<string, string> 
 /** Return a redacted copy with identifiers replaced by aliases. The input report is left untouched. */
 export function redactReport(report: Report): Report {
   // Every path a change mentions belongs to some file version, so the component table has them all.
-  // An import can name a path no file version has, so import targets are aliased with the same map.
+  // An import can name a path no file version has, such as a package name or a symlink, so import
+  // targets and the files symlinks lead to are aliased with the same map.
   const paths = aliases(
     report.components.flatMap((component) => [
       component.path,
-      ...(component.imports ?? []).flatMap(({ target }) => (target === null ? [] : [target])),
+      ...(component.imports ?? []).flatMap(({ target, symlinkTarget }) => [
+        ...(target === null ? [] : [target]),
+        ...(symlinkTarget === undefined ? [] : [symlinkTarget]),
+      ]),
     ]),
     "file",
   );
@@ -70,6 +74,7 @@ export function redactReport(report: Report): Report {
             imports: component.imports.map((entry) => ({
               ...entry,
               target: entry.target === null ? null : paths.get(entry.target)!,
+              ...(entry.symlinkTarget === undefined ? {} : { symlinkTarget: paths.get(entry.symlinkTarget)! }),
             })),
           }
         : {}),
