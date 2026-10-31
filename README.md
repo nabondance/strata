@@ -54,7 +54,7 @@ The images on this page are Strata's report on its own repository.
 3. **It measures the files that match a known agent-configuration path:**
    - Instruction files get an estimate of their tokens, called *stored-text tokens*.
    - Structured settings and bundled resources (scripts, templates, and other files that come with a skill) are measured in bytes. Strata does not invent a token count for them.
-4. **The default estimate is the file's size in UTF-8 bytes divided by four.** It is fast, works offline, and stays consistent across the whole history. Files Codex reads are also counted exactly with OpenAI's encoding, offline, and `--precise` adds exact Claude and Gemini counts.
+4. **The default estimate is the file's size in UTF-8 bytes divided by four.** It is fast, works offline, and stays consistent across the whole history. Files Codex reads are also counted exactly with OpenAI's encoding, offline, and `--precise` adds Claude's and Gemini's own API counts.
 
 Every measurement describes what the repository **stores**. It does not say what an agent loaded in a session or what you were billed.
 
@@ -159,7 +159,7 @@ Run the same command again to update. The canary passes the same checks as a rel
 
 ### Token counts
 
-Strata estimates tokens as UTF-8 bytes divided by four. Files Codex reads are also counted exactly, offline, with the encoding of current OpenAI models (`o200k_base`), and shown as Codex's own totals. For exact Claude and Gemini counts, `--precise` asks their token-count APIs. Every report names the method it used. [The tokenizer study](docs/tokenizers.md) gives the evidence and the limits of each method.
+Strata estimates tokens as UTF-8 bytes divided by four. Files Codex reads are also counted exactly, offline, with the encoding of current OpenAI models (`o200k_base`), and shown as Codex's own totals. For Claude's and Gemini's own counts, `--precise` asks their token-count APIs. Every report names the method it used. [The tokenizer study](docs/tokenizers.md) gives the evidence and the limits of each method.
 
 ### In pull requests
 

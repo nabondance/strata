@@ -2,7 +2,7 @@
 name: strata-interpret
 description: Interpret Strata output about Git-tracked AI-agent configuration — an `analyze` JSON or HTML report, a `strata diff` comparison in JSON or Markdown, the SVG image, or the badge. Use when a user asks what changed, what a figure or report panel means, or what Strata can and cannot establish.
 metadata:
-  version: 15
+  version: 16
 ---
 
 # Interpret a Strata report

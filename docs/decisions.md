@@ -250,7 +250,7 @@ Gemini CLI reads `AGENTS.md` and `GEMINI.md` according to the `context.fileName`
 - A revision whose repository-root `.gemini/settings.json` sets `context.fileName` carries `geminiContextFiles`, the labels the setting names. Other revisions omit it, which means `GEMINI.md` only.
 - The labels are deliberately not file names, so they cannot match an aliased path in a shareable report. Configured names Strata does not recognize are not stored.
 
-`providerReads` in `src/provider-view.ts` is the one rule for whether a provider reads a component at a revision. Analysis totals, provider views, and the report's provider columns all use it. In provider API mode, a context-file version is sent to Gemini only if it is present at some revision where Gemini reads it.
+`providerReads` in `src/provider-view.ts` is the one rule for whether a provider reads a component at a revision. Analysis totals, provider views, and the report's provider columns all use it. With `--precise`, a context-file version is sent to Gemini only if it is present at some revision where Gemini reads it.
 
 #### Version 11: `--precise` metadata
 
@@ -756,7 +756,7 @@ The HTML report's masthead names the analyzed repository and holds the figures f
 
 ### Tables and the measurement disclosure
 
-- The tracked-components table is collapsed under its heading, which gives the file count. Selecting a treemap rectangle opens it. With `--precise` it starts open, because the per-provider counts appear only there.
+- The tracked-components table is collapsed under its heading, which gives the file count. Selecting a treemap rectangle opens it. It starts open when Claude or Gemini was counted with `--precise`, because those per-provider counts appear only there. A Codex-only count, present on every run with Codex files, leaves it closed, so the default report looks as it did before Codex was counted by default.
 - That table and the changed-components list show their first 25 rows, each with a control to show the rest. This limits what is drawn, not what is counted: totals, filters, and comparisons always cover every file.
 - The measurement method and its limits sit behind a disclosure. Its visible label states that the figures describe what Git stores, not loaded session context.
 - With provider counts, that label also names each provider's method in one word: `API count` for `api-counted` (Anthropic documents its count endpoint as an estimate, so the report does not call it exact), `exact (local)` for `encoding-exact`, or `estimate`.

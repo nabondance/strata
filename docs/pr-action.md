@@ -163,7 +163,7 @@ For precise totals per provider, set `precise: 'true'` and give the step the API
 
 A job that signs in `gcloud` first, for example with `google-github-actions/auth`, can count through Vertex AI instead of a Gemini key. Claude also counts through Vertex AI when the step has no `ANTHROPIC_API_KEY`. Pull requests from forks do not receive secrets, so their counts fall back to the estimate.
 
-With `precise: 'true'`, the summary gains a table of each provider's totals at both commits and the host that counted them.
+When Codex reads a file at either commit, the summary gains a table of each provider's totals at both commits, counted on the runner. With `precise: 'true'`, Claude and Gemini join it, with the host that counted them.
 
 ## Limits
 

@@ -86,7 +86,7 @@ const limitsHelp = {
                                            report is written; warn only reports
       --limit-annotations                  Also print each limit passed or not applied as a
                                            GitHub Actions annotation`,
-  diff: `Limits (in tokens; off unless set; checked at the head, never with --precise counts):
+  diff: `Limits (in tokens; off unless set; checked at the head, on the estimate, never provider counts):
       --limit-tokens <n>                   Stored instructional text
       --limit-increase <n>                 Growth of stored instructional text from base to head
       --limit-up-front-tokens [agent=]<n>  What each agent keeps at session start; repeat
