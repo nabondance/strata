@@ -26,7 +26,9 @@ The repository argument defaults to the current directory. By default, Strata wr
 | `--open` | Open the HTML report or SVG image with the default application. |
 | `--quiet` (`-q`) | Print only the report path, with no progress or summary. |
 
-With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both.
+With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both. Progress appears only once a run has taken more than two seconds: one line updated in place on a terminal, or a line per tenth of the history in a log such as CI's.
+
+The summary's `At session start:` line gives each agent's up-front and on-demand tokens. When an agent skips a root `AGENTS.md` by default (Claude Code beside a root Claude file, Codex beside a non-empty `AGENTS.override.md`), the line adds the tokens it skips. When no revision has a recognized file, the summary names the main paths Strata looks for and links to [the analysis scope](analysis-scope.md).
 
 ```sh
 strata analyze /path/to/repository --open
@@ -83,7 +85,7 @@ Shields' `label`, `color`, and `style` query parameters change its look. [Runnin
 
 ## Compare two commits
 
-`diff` compares two commits, given as full commit IDs. It reads both revisions directly from Git and prints a Markdown summary by default.
+`diff` compares two commits. Each can be any Git revision that names a commit, such as a commit ID, a short ID, a branch, a tag, or `HEAD~10`; the output names both by full commit ID. A revision that names no commit, or one a shallow clone lacks, is an error. It reads both revisions directly from Git and prints a Markdown summary by default. When no tracked file changed, the summary says so instead of printing empty tables.
 
 - `--format json` gives structured data instead.
 - `--output` saves the result to a file.

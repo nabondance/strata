@@ -1,4 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { resolve } from "node:path";
 
 const maxBuffer = 1024 * 1024 * 1024;
 const blobChunkBytes = 32 * 1024 * 1024;
@@ -38,6 +40,42 @@ export function git(repo: string, args: string[], input?: string, env?: NodeJS.P
 
 export function gitText(repo: string, args: string[]): string {
   return git(repo, args).toString("utf8").trim();
+}
+
+/**
+ * The top level of the work tree that holds `path`, with errors that name the path instead of
+ * repeating Git's message: a missing path, a file, or a directory outside any repository.
+ */
+export function repositoryRoot(path: string): string {
+  const absolute = resolve(path);
+  let directory: boolean;
+  try {
+    directory = statSync(absolute).isDirectory();
+  } catch {
+    throw new Error(`The directory ${absolute} does not exist.`);
+  }
+  if (!directory) throw new Error(`${absolute} is not a directory.`);
+  try {
+    return gitText(absolute, ["rev-parse", "--show-toplevel"]);
+  } catch (error) {
+    if (error instanceof Error && /not a git repository/i.test(error.message)) {
+      throw new Error(`${absolute} is not inside a Git repository.`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * The full ID of the commit a revision expression names, such as `HEAD~3`, a branch, or a short ID,
+ * or null when it names none. `--end-of-options` keeps an expression that starts with `-` from
+ * being read as an option.
+ */
+export function resolveCommit(repo: string, revision: string): string | null {
+  try {
+    return gitText(repo, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${revision}^{commit}`]) || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Stream a Git command's NUL-delimited output as batches of tokens, without buffering it all. */

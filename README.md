@@ -39,7 +39,7 @@ Run this one command inside any Git repository. It writes a single HTML report t
 
 ```text
 Analyzed 46 revisions of strata.
-Latest: 4 tracked components, 1151 stored-text tokens (utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file).
+Latest: 4 tracked components, 1151 stored-text tokens (UTF-8 bytes / 4 per file, an estimate).
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
