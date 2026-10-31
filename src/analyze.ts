@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
-import { addImportedFiles } from "./claude-imports.js";
+import { addImportedFiles, type SymlinkEvent } from "./claude-imports.js";
 import { ContentPass } from "./content-pass.js";
 import { compactRevisions } from "./expand.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
@@ -53,7 +53,12 @@ interface CommitDelta {
   removed: string[];
   written: TrackedFile[];
   renames: Map<string, string>;
+  /** Recognized paths that became, stayed, or stopped being a symlink, for following Claude imports. */
+  links?: SymlinkEvent[];
 }
+
+/** Git's mode for a symlink, whose blob holds the path it points to. */
+const symlinkMode = "120000";
 
 /** Git's mode for a submodule entry: a commit in another repository, with no files in this one. */
 const gitlinkMode = "160000";
@@ -75,6 +80,12 @@ async function readHistory(
   let blob = "";
   let expected = 0;
   let paths: string[] = [];
+  // Recognized paths that are symlinks after the commit read so far.
+  const links = new Set<string>();
+  const linkEvent = (delta: CommitDelta, path: string, link: string | null) => {
+    if (delta.links) delta.links.push({ path, link });
+    else delta.links = [{ path, link }];
+  };
   const tokens = gitTokens(root, [
     "log",
     "--first-parent",
@@ -105,6 +116,7 @@ async function readHistory(
         if (status === "D" || status[0] === "R") {
           if (classify(source)) current.removed.push(source);
           submodules.delete(source);
+          if (links.delete(source)) linkEvent(current, source, null);
         }
         if (status !== "D") {
           if (mode === gitlinkMode) submodules.set(path, blob);
@@ -113,6 +125,11 @@ async function readHistory(
           if (file) current.written.push(file);
           else if (classify(path)) current.removed.push(path);
           if (file && status[0] === "R" && classify(source)) current.renames.set(source, path);
+          // An import may name a recognized path that is a symlink; only links are kept.
+          if (mode === symlinkMode && classify(path)) {
+            links.add(path);
+            linkEvent(current, path, blob);
+          } else if (links.delete(path)) linkEvent(current, path, null);
         }
         continue;
       }

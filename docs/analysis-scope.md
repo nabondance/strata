@@ -237,7 +237,7 @@ Claude Code expands `@path` imports in the instruction files it loads. The file 
 - A home-directory (`~/`) path, an absolute path, or a relative path that climbs above the repository root points outside the repository and is `external`.
 - Paths are matched exactly, so a case-insensitive file system that loads `@agents.md` as `AGENTS.md` is not modeled.
 - An import of a Git symlink reaches the file the link leads to, as Claude Code reads it. The link's text resolves against the link's directory, and a chain of links is followed for up to four links. A link that points outside the repository, or a chain that is longer or ends at no file, leaves the import `missing`.
-  - In history analysis, a link is followed only when every version of it in the analyzed history points to the same place. The import then reaches that file at each revision where the path it names has no regular file. So an import of a file later replaced by a link to its new place resolves before and after the change, and an import reaches the file even at revisions where the link was not there yet or had been deleted; `strata diff` follows each tree's own links exactly.
+  - In history analysis, a link is followed only when every version of it in the analyzed history points to the same place. The import then reaches that file at each revision where the path it names is a symlink. So an import of a file later replaced by a link to its new place resolves before and after the change. Before the link exists, or after it is deleted, the import is `missing` and the linked file is not added. The one approximation: if the linked file is in that revision's inventory anyway, because a path rule recognizes it or another import reaches it, the import is shown as resolved through the link; the totals do not change.
   - `strata diff` follows the links in each of its two trees as they are there.
 
 ### What counts as an import
@@ -256,7 +256,7 @@ Strata reads an import where Claude Code reads one:
 - Expansion follows the shortest chain to each file.
 - A file four hops from a starting file is loaded, but its own imports, external ones included, are `depth-limit`. An external one keeps its `external` flag, so the HTML report and the command line still say it points outside the repository.
 - An import of a path where the revision has no tracked regular file is `missing`, unless it is a symlink Strata follows to a file. An import of a submodule or a directory is `missing` too.
-- A `missing` import keeps the path it names, even when no file ever had it. An npm scope such as `@mastra/server` reads as an import, so the report lists it as `missing` with a path such as `packages/server/mastra/server`, which shows it is a package name rather than a broken file reference.
+- A `missing` import written as a path, with a `/` or ending with `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.toml`, `.mdc`, or `.rules`, keeps the path it names, even when no file ever had it. An npm scope such as `@mastra/server` reads as an import, so the report lists it as `missing` with a path such as `packages/server/mastra/server`, which shows it is a package name rather than a broken file reference. A bare word that no file has, such as `@alice`, is listed as `missing` without its text.
 - An import of a directory does not bring in the files under it. For the repository root, or a path ending in `/`, no history is read at all.
 - Imports Claude Code would skip for other reasons, such as an unapproved external import or a non-text file, are not modeled.
 
@@ -279,7 +279,8 @@ Each version of an instruction file, or of Markdown an import reaches, stores it
 
 - Each import has a 1-based `line` and the repository path it names, as `target`. A repository target named more than once is stored once, at its first line; each external import is kept.
 - `target` is null, with `external: true`, for an import outside the repository.
-- `target` is kept for an import that names a path no regular file has anywhere in the analyzed history. Such an import is often a package name or prose, such as `ask @alice`, so the resolved path, `alice`, is the one piece of the file's text a report holds. `--shareable` aliases it like any path.
+- `target` is kept for an import that names a path no regular file or symlink has anywhere in the analyzed history only when the import is written as a path (a `/` or one of the extensions above), such as a package name like `@mastra/server`. That resolved path is the one piece of the file's text a report holds, and `--shareable` aliases it like any path.
+- `target` is null, without `external`, for a bare word that no file or symlink has, such as `ask @alice` or `@john.doe`. Such an import is most likely prose, so its text is not stored.
 - `symlinkTarget` is set when `target` is a symlink Strata follows: the path of the file it leads to.
 - A report never holds the rest of the import's line.
 
