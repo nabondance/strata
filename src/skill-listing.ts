@@ -1,6 +1,6 @@
 import type { Provider } from "./adapters.js";
-import { readBlobs } from "./git.js";
-import { type BlobMeasurement, type TrackedFile, versionKey } from "./inventory.js";
+import { type ContentUse, utf8Text } from "./content-pass.js";
+import { type TrackedFile, versionKey } from "./inventory.js";
 import type { Measurer } from "./measurement.js";
 
 /**
@@ -228,43 +228,32 @@ function safeListingText(text: string, provider: Provider, directoryName: string
 }
 
 /**
- * Measure the listing of every distinct skill manifest version, keyed by path and blob. Manifest
- * content is read for this even when the measurement itself needs only sizes. A manifest that is
- * not valid UTF-8 is unresolved.
+ * Measures the listing of every distinct skill manifest version, keyed by path and blob, as the
+ * shared content pass reads it. Manifest content is read for this even when the measurement itself
+ * needs only sizes. A manifest that is not valid UTF-8 is unresolved.
  */
-export function skillListings(
-  root: string,
-  files: Iterable<TrackedFile>,
-  measured: Map<string, BlobMeasurement>,
-  measurer: Measurer,
-): Map<string, SkillListing> {
-  const manifests = new Map<string, TrackedFile>();
-  for (const file of files) {
-    if (file.classification.skillRole === "manifest") manifests.set(versionKey(file.path, file.blob), file);
+export class SkillListings implements ContentUse {
+  readonly listings = new Map<string, SkillListing>();
+
+  constructor(private readonly measurer: Measurer) {}
+
+  wants(file: TrackedFile): boolean {
+    return file.classification.skillRole === "manifest";
   }
-  const blobs = [...new Set([...manifests.values()].map((file) => file.blob))];
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  const texts = new Map<string, string | null>();
-  for (const [blob, body] of readBlobs(root, blobs, (id) => measured.get(id)?.bytes ?? 0)) {
-    try {
-      texts.set(blob, decoder.decode(body));
-    } catch {
-      texts.set(blob, null);
+
+  read(_blob: string, body: Buffer, files: TrackedFile[]): void {
+    const text = utf8Text(body);
+    for (const file of files) {
+      const { provider, skillRoot = "" } = file.classification;
+      const listed = text === null ? null : safeListingText(text, provider, skillRoot.split("/").at(-1) ?? "");
+      this.listings.set(
+        versionKey(file.path, file.blob),
+        listed === null
+          ? { status: "unresolved", tokens: null }
+          : listed === ""
+            ? { status: "hidden", tokens: 0 }
+            : { status: "listed", tokens: this.measurer.count(Buffer.from(listed, "utf8")) },
+      );
     }
   }
-  const listings = new Map<string, SkillListing>();
-  for (const [key, file] of manifests) {
-    const text = texts.get(file.blob);
-    const { provider, skillRoot = "" } = file.classification;
-    const listed = text == null ? null : safeListingText(text, provider, skillRoot.split("/").at(-1) ?? "");
-    listings.set(
-      key,
-      listed === null
-        ? { status: "unresolved", tokens: null }
-        : listed === ""
-          ? { status: "hidden", tokens: 0 }
-          : { status: "listed", tokens: measurer.count(Buffer.from(listed, "utf8")) },
-    );
-  }
-  return listings;
 }

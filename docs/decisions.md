@@ -135,7 +135,9 @@ Blob sizes come from `git cat-file --batch-check`. Blob content is read in bound
 
 Settings, MCP, and other source-only files are otherwise read only where a section below says so.
 
-Each instructional version is reduced to counts of its lines as soon as it is read, and each distinct line's text is kept once. A tokenizer that reads instruction text to count it shares that read with the line counts, so each version is read once in every mode. Memory therefore grows with the number of distinct lines, plus a few bytes for each line of each distinct version, not with the history's text.
+One shared pass reads each of these blobs once and gives its content to every step that needs it: token counting with `--tokenizer` or `--model`, line counts, Gemini settings, skill listings, rule loading, MCP server names, and, with `--precise`, the check for blank or non-UTF-8 text. Claude import parsing runs first, because it decides which files join the analysis; the blobs it reads are handed to the shared pass, which does not read them again. The one exception is `--precise` counting with a local tokenizer or a provider API: each of those methods reads the text again when it counts it, so instruction text is never kept in memory waiting for a request.
+
+Each instructional version is reduced to counts of its lines as soon as it is read, and each distinct line's text is kept once. Memory therefore grows with the number of distinct lines, plus a few bytes for each line of each distinct version, not with the history's text.
 
 Some paths named by imports match no path rule. For those, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when no instruction file has an import.
 

@@ -167,14 +167,18 @@ const key = versionKey;
  */
 const fileLike = (path: string) => path !== "." && !path.endsWith("/");
 
+/** Called with each blob import parsing reads, so other work on the same content need not read it again. */
+export type OnRead = (blob: string, body: Buffer) => void;
+
 /**
- * Parse the imports of file versions, keyed by path and blob. Each blob is read once; a file that
- * is not valid UTF-8 has no imports.
+ * Parse the imports of file versions, keyed by path and blob. Each blob is read once and also
+ * handed to `onRead`; a file that is not valid UTF-8 has no imports.
  */
 function parseVersions(
   repo: string,
   versions: Iterable<{ path: string; blob: string }>,
   parsed: Map<string, ClaudeImport[]>,
+  onRead?: OnRead,
 ): void {
   const pending = [...versions].filter(({ path, blob }) => !parsed.has(key(path, blob)));
   if (!pending.length) return;
@@ -183,6 +187,7 @@ function parseVersions(
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const texts = new Map<string, string | null>();
   for (const [blob, body] of readBlobs(repo, blobs, (id) => sizes.get(id) ?? 0)) {
+    onRead?.(blob, body);
     try {
       texts.set(blob, decoder.decode(body));
     } catch {
@@ -310,9 +315,14 @@ type Importing = Parameters<typeof importLinks>[0][number];
  * for up to four rounds, since no chain can be longer. The history is then replayed: whenever a
  * commit changes what the roots reach, the reached files outside the recognized inventory are
  * written to or removed from that commit's delta, so the rest of analysis treats them as ordinary
- * components. Returns the imports of every parsed version, keyed by path and blob.
+ * components. Returns the imports of every parsed version, keyed by path and blob; each blob read
+ * is also handed to `onRead`.
  */
-export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Promise<Map<string, ClaudeImport[]>> {
+export async function addImportedFiles(
+  repo: string,
+  deltas: ImportDelta[],
+  onRead?: OnRead,
+): Promise<Map<string, ClaudeImport[]>> {
   const parsed = new Map<string, ClaudeImport[]>();
   const recognized = new Map<string, TrackedFile[]>();
   for (const delta of deltas) {
@@ -323,7 +333,7 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
     }
   }
   const roots = [...recognized.values()].flat().filter((file) => file.classification.importRoot);
-  parseVersions(repo, roots, parsed);
+  parseVersions(repo, roots, parsed, onRead);
 
   const candidates = new Map<string, PathEvent[]>();
   const candidateVersions = new Map<string, Set<string>>();
@@ -354,7 +364,7 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
         ? []
         : (recognized.get(path) ?? [...(candidateVersions.get(path) ?? [])].map((blob) => ({ path, blob }))),
     );
-    parseVersions(repo, frontier, parsed);
+    parseVersions(repo, frontier, parsed, onRead);
   }
   // Imports from the last hop are past the depth limit; their targets are looked up only to know
   // whether they name a tracked path.
@@ -412,14 +422,16 @@ export async function addImportedFiles(repo: string, deltas: ImportDelta[]): Pro
 
 /**
  * The files Claude imports in one commit's tree that the path rules do not recognize. The imports
- * of each file version read on the way are added to `parsed`, keyed by path and blob. Each pass
- * adds the tree's files that `importLinks` finds imported but missing, until none are left.
+ * of each file version read on the way are added to `parsed`, keyed by path and blob, and each blob
+ * read is handed to `onRead`. Each pass adds the tree's files that `importLinks` finds imported but
+ * missing, until none are left.
  */
 export function treeImports(
   repo: string,
   tree: TreeEntry[],
   recognized: TrackedFile[],
   parsed: Map<string, ClaudeImport[]>,
+  onRead?: OnRead,
 ): TrackedFile[] {
   const regular = new Map(
     tree.flatMap(({ mode, blob, path }) => (mode === "100644" || mode === "100755" ? [[path, blob] as const] : [])),
@@ -430,6 +442,7 @@ export function treeImports(
     repo,
     recognized.filter((file) => file.classification.importRoot),
     parsed,
+    onRead,
   );
   for (;;) {
     const entries = [...files.values()].map((file) =>
@@ -450,6 +463,6 @@ export function treeImports(
       added = true;
     }
     if (!added && !unread.length) return imported;
-    parseVersions(repo, unread, parsed);
+    parseVersions(repo, unread, parsed, onRead);
   }
 }

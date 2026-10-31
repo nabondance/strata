@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,12 +11,50 @@ import {
   sharePercent,
   summarizeInstructionAge,
 } from "../dist/instruction-age.js";
-import { measureBlobs, trackedFile } from "../dist/inventory.js";
-import { createMeasurer } from "../dist/measurement.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
-import { LineCounter, readLineCounts } from "../dist/survival.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
+
+/**
+ * Run Strata with a `git` on the PATH that logs every object ID asked of `cat-file --batch`, and
+ * check that no command reads a blob's content twice. The fixture holds a Claude import root, a
+ * skill manifest, root rules, and a settings file, so every step that reads content takes part.
+ */
+function assertReadsEachBlobOnce(repo, base, head) {
+  const bin = mkdtempSync(join(tmpdir(), "strata-git-shim-"));
+  try {
+    const log = join(bin, "reads.log");
+    const shim = join(bin, "git");
+    writeFileSync(
+      shim,
+      '#!/bin/sh\ncase " $* " in\n  *" cat-file --batch "*) tee -a "$STRATA_READ_LOG" | "$STRATA_REAL_GIT" "$@" ;;\n  *) exec "$STRATA_REAL_GIT" "$@" ;;\nesac\n',
+    );
+    chmodSync(shim, 0o755);
+    const env = {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      STRATA_READ_LOG: log,
+      STRATA_REAL_GIT: execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(),
+    };
+    const output = join(bin, "out.json");
+    for (const args of [
+      ["analyze", repo, "--output", output, "--format", "json"],
+      ["analyze", repo, "--output", output, "--format", "json", "--tokenizer", "openai-o200k_base"],
+      ["analyze", repo, "--output", output, "--format", "json", "--precise", "--dry-run", "--no-cache"],
+      ["diff", repo, "--base", base, "--head", head, "--format", "json", "--tokenizer", "openai-o200k_base"],
+      ["diff", repo, "--base", base, "--head", head, "--format", "json", "--precise", "--dry-run", "--no-cache"],
+    ]) {
+      writeFileSync(log, "");
+      const run = spawnSync(process.execPath, ["dist/cli.js", ...args], { encoding: "utf8", env });
+      assert.equal(run.status, 0, run.stderr);
+      const reads = readFileSync(log, "utf8").split("\n").filter(Boolean);
+      assert.ok(reads.length, args.join(" "));
+      assert.equal(new Set(reads).size, reads.length, `${args.join(" ")} read a blob twice`);
+    }
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
 
 const bytes = (...lines) => lines.reduce((sum, line) => sum + Buffer.byteLength(line), 0);
 
@@ -182,22 +220,7 @@ test("dates instruction lines by the revision they appeared at and follows them 
       tokenized.revisions.map((revision) => revision.lineAge),
       changes,
     );
-    const files = git("ls-tree", "-r", "HEAD")
-      .trim()
-      .split("\n")
-      .map((entry) => {
-        const [meta, path] = entry.split("\t");
-        const [mode, , blob] = meta.split(" ");
-        return trackedFile(mode, blob, path);
-      })
-      .filter(Boolean);
-    const counter = new LineCounter();
-    const measured = measureBlobs(repo, files, createMeasurer("openai-o200k_base"), (blob, body) =>
-      counter.add(blob, body),
-    );
-    // Every blob is already counted, so a repository that cannot be read is never asked for one.
-    assert.equal(readLineCounts(join(repo, "missing"), files, measured, counter), counter);
-    assert.deepEqual(counter.lines, readLineCounts(repo, files, measured).lines);
+    assertReadsEachBlobOnce(repo, git("rev-parse", "HEAD~11"), git("rev-parse", "HEAD"));
   } finally {
     cleanup();
   }
