@@ -199,7 +199,7 @@ runs:
         while IFS= read -r pattern; do
           pattern="${pattern#"${pattern%%[![:space:]]*}"}"
           pattern="${pattern%"${pattern##*[![:space:]]}"}"
-          if [ -n "$pattern" ]; then args+=(--ignore "$pattern"); fi
+          if [ -n "$pattern" ]; then args+=("--ignore=$pattern"); fi
         done < <(printf '%s\n' "$STRATA_IGNORE" | tr ',' '\n')
         # Each input holds one value or several separated by spaces or commas; set -f keeps them literal.
         limits=()

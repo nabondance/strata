@@ -942,9 +942,12 @@ test("--ignore leaves paths out of analyze and diff, and the report header and s
     );
     // The import of an ignored file is missing.
     assert.match(json.stderr, /1 Claude @path import is unresolved at the last revision \(1 missing\)/);
-    // --shareable keeps the patterns, which the user typed.
+    // --shareable aliases the literal segments of the patterns like any path, and keeps the wildcards.
     const shared = JSON.parse(strata(["analyze", repo, "-f", "json", "-o", "-", "--shareable", ...ignore]).stdout);
-    assert.deepEqual(shared.ignore, report.ignore);
+    assert.equal(shared.ignore.length, report.ignore.length);
+    assert.match(shared.ignore[0], /^d\d+\/\*\*$/);
+    assert.match(shared.ignore[1], /^d\d+\/$/);
+    assert.ok(!JSON.stringify(shared).includes("examples") && !JSON.stringify(shared).includes("templates"));
 
     // The header line names how many patterns were ignored, with the patterns in its title.
     const { get } = loadReportUi(strata(["analyze", repo, "-o", "-", ...ignore]).stdout);

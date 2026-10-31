@@ -58,7 +58,7 @@ A tracked file whose repository-relative path matches any pattern is treated as 
 
 A pattern that matches a folder leaves out everything inside it. Other characters, including `[` and `\`, match themselves, and `!` patterns, which re-include a path in `.gitignore`, are refused. Quote patterns so the shell does not expand them.
 
-The report records the patterns in a top-level `ignore` field, the HTML header says `ignoring 2 patterns` (hover it for the list), the summary prints them on one line, and the `diff` Markdown names them, so a reader knows the totals are partial. `--shareable` keeps them as given, since you typed them.
+The report records the patterns in a top-level `ignore` field, the HTML header says `ignoring 2 patterns` (hover it for the list), the summary prints them on one line, and the `diff` Markdown names them, so a reader knows the totals are partial. `--shareable` aliases the folder and file names in them like any other path and keeps the wildcards, so `examples/**` reads `d12/**`.
 
 ### An image for a README
 

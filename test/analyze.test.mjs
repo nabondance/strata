@@ -1043,8 +1043,15 @@ test("--ignore leaves matching paths out of every revision, of imports and symli
       ],
     );
     assert.ok(!revisions[0].components.some(({ imports }) => imports?.some((entry) => entry.symlinkTarget)));
-    // A shareable report keeps the patterns as given; they were typed by the user, not read from the repository.
-    assert.deepEqual(redactReport(report).ignore, ignore);
+    // A shareable report aliases the literal segments of the patterns like any path and keeps the wildcards.
+    const sharedIgnore = redactReport(report).ignore;
+    assert.equal(sharedIgnore.length, ignore.length);
+    for (const [index, pattern] of ignore.entries()) {
+      const aliased = sharedIgnore[index];
+      assert.equal(aliased.endsWith("/"), pattern.endsWith("/"));
+      assert.equal(aliased.includes("**"), pattern.includes("**"));
+      assert.ok(!/examples|templates/.test(aliased), aliased);
+    }
 
     const delta = compareGitCommits(repo, first, second, { ignore });
     assert.deepEqual(delta.ignore, ignore);

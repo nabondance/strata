@@ -121,6 +121,37 @@ class PathAliases {
     }
   }
 
+  /**
+   * An `--ignore` pattern names folders and files too, so its literal segments take the same aliases;
+   * a segment with a wildcard, or an empty one from a leading or trailing `/`, stays as written.
+   */
+  private patternSegments(pattern: string): Array<[segment: string, literal: boolean]> {
+    const parts = pattern.split("/");
+    return parts.map((segment) => [segment, segment !== "" && !/[*?]/.test(segment)]);
+  }
+
+  addPattern(pattern: string): void {
+    const parts = this.patternSegments(pattern);
+    parts.forEach(([segment, literal], index) => {
+      if (!literal || this.kept.has(segment)) return;
+      const [stem, suffix] = splitName(segment);
+      if (index === parts.length - 1 && suffix !== "") this.stems.add(stem);
+      else this.folders.add(segment);
+    });
+  }
+
+  getPattern(pattern: string): string {
+    const parts = this.patternSegments(pattern);
+    return parts
+      .map(([segment, literal], index) => {
+        if (!literal || this.kept.has(segment)) return segment;
+        const [stem, suffix] = splitName(segment);
+        if (index === parts.length - 1 && suffix !== "") return `${this.stems.get(stem)}${suffix}`;
+        return this.folders.get(segment);
+      })
+      .join("/");
+  }
+
   get(path: string, lastIsFile = true): string {
     return this.segments(path, lastIsFile)
       .map(([segment, file]) => {
@@ -171,6 +202,7 @@ export function redactReport(report: Report): Report {
     }
   }
   for (const submodule of report.submodules ?? []) paths.add(submodule.path, false);
+  for (const pattern of report.ignore ?? []) paths.addPattern(pattern);
 
   const servers = sortedAliases(
     report.components.flatMap((component) =>
@@ -228,6 +260,7 @@ export function redactReport(report: Report): Report {
     repository: "redacted repository",
     branch: "redacted branch",
     privacy: { mode: "shareable" },
+    ...(report.ignore ? { ignore: report.ignore.map((pattern) => paths.getPattern(pattern)) } : {}),
     ...(report.submodules
       ? {
           submodules: report.submodules.map((submodule) => ({ ...submodule, path: paths.get(submodule.path, false) })),

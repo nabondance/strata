@@ -226,7 +226,7 @@ The lists are `shareableConventions` in `src/privacy.ts`. A test analyzes one hi
 
 These stay visible: dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
 
-Also visible: the `--ignore` patterns in `ignore`, verbatim, because the user typed them rather than Strata reading them from the repository (a pattern that names a private path discloses it, so choose patterns with that in mind); dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
+The `--ignore` patterns in `ignore` are aliased with the same rule: a literal segment takes the folder or file alias of the name it matches, and a wildcard segment or an empty one from a leading or trailing `/` stays as written, so `examples/**` becomes `d12/**` and the shareable report still says how many patterns were applied without naming a private folder.
 
 Some labels narrow an alias down to a well-known path:
 
@@ -451,7 +451,7 @@ Version 21 also adds `--ignore` and the optional top-level `ignore` field. A mon
 - A Claude `@path` import of it is `missing`, and a symlink at an ignored path, or one leading to one, is not followed: import resolution never reads an ignored path's history, and `strata diff` drops ignored entries from each tree before resolving imports.
 - Submodule file counts leave out files whose path in the parent repository matches.
 
-`ignore` holds the patterns exactly as given, in order, and is present only when at least one was given, so a reader knows the totals cover part of the repository; the HTML header shows `ignoring N patterns` with the list in its title, and the CLI summary prints them on one line. The `strata diff` JSON has the same field from version 14, and its Markdown adds a line naming the patterns. Nothing else in the shape changes: a report without `--ignore` is the same as before.
+`ignore` holds the patterns as given, in order (with literal segments aliased in a shareable report), and is present only when at least one was given, so a reader knows the totals cover part of the repository; the HTML header shows `ignoring N patterns` with the list in its title, and the CLI summary prints them on one line. The `strata diff` JSON has the same field from version 14, and its Markdown adds a line naming the patterns. Nothing else in the shape changes: a report without `--ignore` is the same as before.
 
 ## MCP servers
 
