@@ -36,7 +36,8 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
       // A name another rectangle shares takes the folders that tell the two apart; a skill is named by its directory.
       const labelled = layout.groups.flatMap((group) => group.leaves.map((leaf) => viewRevisions[selected].components[leaf.componentIndex]));
       const names = treemapNames(labelled.map((component) => component.skill?.role === 'manifest' ? component.skill.root : component.path));
-      const leafNames = new Map(labelled.map((component, index) => [component, names[index]]));
+      const shorter = shorterTreemapNames(names);
+      const leafNames = new Map(labelled.map((component, index) => [component, { label: names[index], shorter: shorter[index] }]));
       for (const group of layout.groups) {
         // The category's block shows through as the band holding its name and the seams between its files.
         const block = text('div', '', 'treemap-group');
@@ -71,11 +72,11 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
           }
           // Rectangles too small for even one short line stay unlabeled; fitTreemapLabels decides the rest.
           if (share.width >= 3.5 && share.height >= 5.5) {
-            const label = leafNames.get(component);
+            const { label, shorter } = leafNames.get(component);
             const name = text('span', label, 'leaf-name');
             const size = text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size');
             button.append(name, size);
-            treemapLabels.push({ button, name, size, label });
+            treemapLabels.push({ button, name, size, label, shorter });
             if (share.width >= 28 && share.height >= 22 && share.width * share.height >= 700) button.classList.add('large');
           }
           const showDetail = () => { $('treemap-hover').textContent = detail; $('treemap-hover').classList.add('detail'); };
@@ -126,7 +127,7 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
 
     function fitTreemapLabels() {
       if (typeof getComputedStyle !== 'function') return;
-      for (const { button, name, size, label } of treemapLabels) {
+      for (const { button, name, size, label, shorter } of treemapLabels) {
         button.classList.remove('compact');
         name.textContent = label;
         // A tall, narrow rectangle reads its name top to bottom instead of breaking it mid-word.
@@ -151,23 +152,10 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
         }
         if (!nameFits()) {
           name.style.fontSize = '11px';
-          // A name with folders gives up folder text from the left, keeping the file or skill name whole and the last
-          // few letters of the folder that tells it apart from another rectangle of the same name.
-          const most = label.indexOf('/') - Math.min(3, label.indexOf('/'));
-          if (!nameFits() && most > 0) {
-            const cut = (drop) => { name.textContent = '…' + label.slice(drop); return nameFits(); };
-            if (cut(most)) {
-              let fits = most;
-              let short = 1;
-              while (short < fits) {
-                const middle = Math.floor((short + fits) / 2);
-                if (cut(middle)) fits = middle;
-                else short = middle + 1;
-              }
-              cut(fits);
-            } else {
-              name.textContent = label;
-            }
+          // A name with folders gives up whole folders first, then letters from the left of its first folder, and
+          // only in forms no other rectangle can show; shorterTreemapNames lists them in that order.
+          if (!nameFits() && shorter.length) {
+            if (!shorter.some((option) => { name.textContent = option; return nameFits(); })) name.textContent = label;
           }
           if (!nameFits()) {
             // Last resort: one small line, cut short with an ellipsis. A name with folders keeps them at its start,

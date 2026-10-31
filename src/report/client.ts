@@ -9,7 +9,7 @@ import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "..
 import { providerName } from "../provider-counting.js";
 import { providerReads, viewRevision } from "../provider-view.js";
 import { timelineBuckets, timelineDateTicks, timelineScale } from "../timeline.js";
-import { layoutTreemap, treemapNames } from "../treemap.js";
+import { layoutTreemap, shorterTreemapNames, treemapNames } from "../treemap.js";
 import { sessionProviderNames, upFrontContext } from "../up-front.js";
 import { ageScript } from "./client/age.js";
 import { compareScript } from "./client/compare.js";
@@ -91,6 +91,7 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
     const treemapNames = ${treemapNames.toString()};
+    const shorterTreemapNames = ${shorterTreemapNames.toString()};
     const providerColumns = (data.providerMeasurements ?? []).map((measured) => measured.provider);
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};
