@@ -957,7 +957,10 @@ test("--shareable keeps precise counts and labels and aliases every path and ID"
         assert.ok(!output.includes(id), id);
       }
     }
-    assert.match(html, /Shareable export: names, paths, and IDs are replaced with aliases\./);
+    assert.match(
+      html,
+      /Shareable export: repository, folder, file, and server names and IDs are replaced with aliases\. Tool convention names/,
+    );
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

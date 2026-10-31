@@ -231,7 +231,8 @@ test("names submodules that hold agent configuration it did not analyze", async 
     const shareable = redactReport(report);
     assert.deepEqual(
       shareable.submodules.map(({ path }) => path),
-      ["submodule-00001", "submodule-00002", "submodule-00003", "submodule-00004", "submodule-00005"],
+      // Submodule paths are aliased like folders, so one under `.claude/skills` stays there.
+      ["d1", ".claude/skills/d2", "d3/d4", "d3/d5", "d3/d6"],
     );
     assert.doesNotMatch(JSON.stringify(shareable), /claude-template|vendor/);
 

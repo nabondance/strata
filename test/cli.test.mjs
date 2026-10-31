@@ -20,7 +20,7 @@ import {
 } from "../dist/limits.js";
 import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
-import { redactReport } from "../dist/privacy.js";
+import { redactReport, shareableConventions } from "../dist/privacy.js";
 import { progressReporter } from "../dist/progress.js";
 import { renderHtml } from "../dist/report.js";
 import { syntheticRepo } from "./synthetic-repo.mjs";
@@ -179,10 +179,19 @@ test("incremental history matches a full tree listing at every revision", async 
     assert.equal(revisions[2].components[0].path, ".claude/rules/style.md");
     assert.equal(report.components[0].path, ".claude/agents/a\nb.md");
     assert.equal(shareable.components.length, report.components.length);
-    for (const component of shareable.components) assert.match(component.path, /^file-\d{5}$/);
+    // Each folder name and file stem is a convention name or an alias, and the extension stays.
+    const aliased = (path) =>
+      path
+        .split("/")
+        .every((segment) => shareableConventions.names.has(segment) || /^[df]\d+(\.(md|sh))?$/.test(segment));
+    for (const component of shareable.components) assert.ok(aliased(component.path), component.path);
     for (const revision of shareable.revisions) {
-      for (const change of revision.changes) assert.match(change.path, /^file-\d{5}$/);
+      for (const change of revision.changes) {
+        assert.ok(aliased(change.path), change.path);
+        if (change.previousPath !== undefined) assert.ok(aliased(change.previousPath), change.previousPath);
+      }
     }
+    assert.doesNotMatch(JSON.stringify(shareable), /style|review|check|audit|side|a\\nb/);
     assert.doesNotMatch(renderHtml(report), /Claude API/);
     assert.match(renderHtml(report), /Content-Security-Policy/);
   } finally {
@@ -1099,7 +1108,7 @@ test("analyze notes submodules that hold agent configuration", () => {
     // A shareable run keeps the submodule's name out of its output too.
     const shareable = strata(["analyze", repo, "--shareable", "--format", "json", "--output", "-"]);
     assert.doesNotMatch(shareable.stdout + shareable.stderr, /claude-template/);
-    assert.match(shareable.stderr, /submodule submodule-00001 holds 1 recognized/);
+    assert.match(shareable.stderr, /submodule d1 holds 1 recognized/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

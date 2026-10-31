@@ -225,7 +225,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
 
     // A shareable report aliases import targets with the same aliases as paths, including targets no file has.
     const shareable = redactReport(report);
-    assert.doesNotMatch(JSON.stringify(shareable), /docs\/|package\.json|README|\.claude\/|alice/);
+    assert.doesNotMatch(JSON.stringify(shareable), /docs|guide|nested|deep|missing|unused|package|alice/);
     const redacted = expandRevisions(shareable);
     for (const [index, revision] of revisions.entries()) {
       assert.deepEqual(
@@ -502,7 +502,7 @@ test("follows imports through symlinks and lists the path a missing import names
 
     // A shareable report aliases missing targets and symlink files like any path, and keeps the same links.
     const shareable = redactReport(report);
-    assert.doesNotMatch(JSON.stringify(shareable), /mastra|server|docs|shared|style|img|\.claude/);
+    assert.doesNotMatch(JSON.stringify(shareable), /mastra|server|docs|shared\/|style|four\.md|five\.md|linked|img/);
     const redacted = expandRevisions(shareable);
     for (const [index, revision] of revisions.entries()) {
       assert.deepEqual(
@@ -512,7 +512,12 @@ test("follows imports through symlinks and lists the path a missing import names
     }
     const shared = loadReportUi(renderHtml(shareable));
     const sharedRows = shared.get("imports").children.map((row) => row.children[2].textContent);
-    assert.ok(sharedRows.every((target) => /^file-\d{5}( → file-\d{5})?$/.test(target)));
+    // Targets keep their folders and convention names, such as `.claude/rules`, and alias the rest.
+    const aliasedPath = String.raw`(?:(?:\.claude|rules|d\d+)/)*f\d+(?:\.md)?`;
+    assert.ok(
+      sharedRows.every((target) => new RegExp(`^${aliasedPath}( → ${aliasedPath})?$`).test(target)),
+      sharedRows.join(),
+    );
   } finally {
     cleanup();
   }

@@ -297,7 +297,11 @@ test("recognizes GitHub Copilot configuration, and has Copilot read other tools'
 
     const shareable = redactReport(report);
     assert.equal(shareable.components.filter((component) => component.legacy).length, 1);
-    assert.ok(!JSON.stringify(shareable).includes("chatmode"));
+    // The `.chatmode.md` suffix is a Copilot convention, so it stays after the aliased stem.
+    assert.match(
+      shareable.components.find((component) => component.legacy).path,
+      /^\.github\/agents\/f\d+\.chatmode\.md$/,
+    );
 
     const { get } = loadReportUi(renderHtml(report));
     const copilotTab = get("provider-tabs").children.find((child) => child.textContent === "Copilot + shared");
