@@ -48,16 +48,13 @@ function sameCategoryTotals(a: CategoryTotals, b: CategoryTotals): boolean {
   if (a === b) return true;
   const categories = Object.keys(a) as Array<keyof CategoryTotals>;
   if (categories.length !== Object.keys(b).length) return false;
+  // Compare every figure a category carries, so a field added later is never dropped from a compacted report.
   return categories.every((category) => {
-    const x = a[category];
-    const y = b[category];
-    return (
-      y !== undefined &&
-      x.count === y.count &&
-      x.bytes === y.bytes &&
-      x.estimatedTokens === y.estimatedTokens &&
-      x.sourceOnlyCount === y.sourceOnlyCount
-    );
+    const x = a[category] as Record<string, unknown> | undefined;
+    const y = b[category] as Record<string, unknown> | undefined;
+    if (x === undefined || y === undefined) return x === y;
+    const fields = Object.keys(x);
+    return fields.length === Object.keys(y).length && fields.every((field) => x[field] === y[field]);
   });
 }
 
