@@ -980,3 +980,85 @@ test("leaves out category totals and first parents that repeat the previous revi
     cleanup();
   }
 });
+
+test("--ignore leaves matching paths out of every revision, of imports and symlinks, and of the diff", async () => {
+  const { importLinks } = await import("../dist/import-links.js");
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-ignore-");
+  try {
+    put("AGENTS.md", "Root instructions.\n");
+    put("CLAUDE.md", "@docs/guide.md\n@examples/notes.md\n@docs/linked.md\n@examples/guide-link.md\n");
+    put("docs/guide.md", "Guide.\n");
+    put("examples/notes.md", "Example notes.\n");
+    put("examples/agent/AGENTS.md", "Example app instructions.\n");
+    put("templates/basic/CLAUDE.md", "Template instructions.\n");
+    // A link into an ignored folder, and an ignored link out of one.
+    symlinkSync("../examples/notes.md", join(repo, "docs/linked.md"));
+    symlinkSync("../docs/guide.md", join(repo, "examples/guide-link.md"));
+    const first = commit("Configuration with example apps and templates");
+    // The example app's instructions move out of the ignored folder, and the notes change.
+    put("packages/agent/AGENTS.md", "Example app instructions.\n");
+    git("rm", "-q", "examples/agent/AGENTS.md");
+    put("examples/notes.md", "Example notes, edited.\n");
+    const second = commit("Move the example app's instructions");
+    put("templates/basic/CLAUDE.md", "Template instructions, edited.\n");
+    commit("Edit only a template");
+
+    const ignore = ["examples/**", "templates/"];
+    const paths = (revision) => revision.components.map(({ path }) => path);
+    const all = await analyzeRepository(repo);
+    assert.equal(all.ignore, undefined);
+    const full = expandRevisions(all);
+    assert.ok(paths(full[0]).includes("examples/agent/AGENTS.md"));
+    assert.ok(paths(full[0]).includes("templates/basic/CLAUDE.md"));
+    assert.ok(paths(full[0]).includes("examples/notes.md"));
+    assert.equal(full[2].changes.length, 1);
+    assert.deepEqual(
+      importLinks(full[0].components).map(({ target, status }) => `${target} ${status}`),
+      ["docs/guide.md resolved", "examples/notes.md resolved", "examples/notes.md resolved", "docs/guide.md resolved"],
+    );
+
+    const report = await analyzeRepository(repo, { ignore });
+    assert.deepEqual(report.ignore, ignore);
+    assert.ok(!report.components.some(({ path }) => /^(examples|templates)\//.test(path)));
+    const revisions = expandRevisions(report);
+    assert.deepEqual(paths(revisions[0]), ["AGENTS.md", "CLAUDE.md", "docs/guide.md"]);
+    assert.deepEqual(paths(revisions[1]), ["AGENTS.md", "CLAUDE.md", "docs/guide.md", "packages/agent/AGENTS.md"]);
+    // Leaving an ignored folder is an addition, not a rename; an edit there changes nothing.
+    assert.deepEqual(
+      revisions[1].changes.map(({ kind, path }) => `${kind} ${path}`),
+      ["added packages/agent/AGENTS.md"],
+    );
+    assert.deepEqual(revisions[2].changes, []);
+    for (const [index, revision] of revisions.entries()) {
+      assert.ok(revision.estimatedTokens < full[index].estimatedTokens);
+    }
+    // Imports of ignored files, through a link or of an ignored link, are missing; no link is followed.
+    assert.deepEqual(
+      importLinks(revisions[0].components).map(({ target, status }) => `${target} ${status}`),
+      [
+        "docs/guide.md resolved",
+        "examples/notes.md missing",
+        "docs/linked.md missing",
+        "examples/guide-link.md missing",
+      ],
+    );
+    assert.ok(!revisions[0].components.some(({ imports }) => imports?.some((entry) => entry.symlinkTarget)));
+    // A shareable report keeps the patterns as given; they were typed by the user, not read from the repository.
+    assert.deepEqual(redactReport(report).ignore, ignore);
+
+    const delta = compareGitCommits(repo, first, second, { ignore });
+    assert.deepEqual(delta.ignore, ignore);
+    assert.deepEqual(
+      delta.comparison.components.map(({ kind, path }) => `${kind} ${path}`),
+      ["added packages/agent/AGENTS.md"],
+    );
+    assert.equal(compareGitCommits(repo, first, second).ignore, undefined);
+    assert.match(
+      renderPullRequestDelta(delta),
+      /Left out at both commits: paths matching examples\/\\\*\\\*, templates\//,
+    );
+    assert.doesNotMatch(renderPullRequestDelta(compareGitCommits(repo, first, second)), /Left out/);
+  } finally {
+    cleanup();
+  }
+});

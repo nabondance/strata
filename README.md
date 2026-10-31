@@ -143,6 +143,9 @@ npx context-strata diff --base <base-commit> --head <head-commit>
 # The same, exiting with status 3 if instructions grew by more than 500 tokens
 # or Claude Code keeps more than 8,000 tokens at session start
 npx context-strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
+
+# Leave example apps and templates out of the totals (.gitignore-style patterns)
+npx context-strata analyze --ignore 'examples/**' --ignore 'templates/'
 ```
 
 Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` to see every option.

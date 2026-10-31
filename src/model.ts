@@ -181,6 +181,11 @@ export interface Report {
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */
   shallow: boolean;
+  /**
+   * The `--ignore` patterns, as given, when there were any: paths they match were left out at every
+   * revision, so the totals cover only the rest of the repository.
+   */
+  ignore?: string[];
   /** Submodules at the last revision, when there are any. Their files are never analyzed. */
   submodules?: Submodule[];
   privacy: { mode: "local" | "shareable" };

@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import { type Classification, classify } from "./adapters.js";
 import { blobSizes, gitTokens, readBlobs, type TreeEntry } from "./git.js";
+import { type Ignored, ignoreNothing } from "./ignore.js";
 import { importLinks } from "./import-links.js";
 import { type TrackedFile, versionKey } from "./inventory.js";
 import type { ClaudeImport } from "./model.js";
@@ -425,12 +426,14 @@ type Importing = Parameters<typeof importLinks>[0][number];
  * commit changes what the roots reach, the reached files outside the recognized inventory are
  * written to or removed from that commit's delta, so the rest of analysis treats them as ordinary
  * components. Returns the imports of every parsed version, keyed by path and blob; each blob read
- * is also handed to `onRead`.
+ * is also handed to `onRead`. A path `ignored` accepts is never looked up, so an import of it is
+ * missing and a symlink there is not followed; the deltas already leave out such recognized paths.
  */
 export async function addImportedFiles(
   repo: string,
   deltas: ImportDelta[],
   onRead?: OnRead,
+  ignored: Ignored = ignoreNothing,
 ): Promise<Map<string, ClaudeImport[]>> {
   const parsed = new Map<string, ClaudeImport[]>();
   const recognized = new Map<string, TrackedFile[]>();
@@ -464,7 +467,9 @@ export async function addImportedFiles(
    * recognized ones, so a repository whose imports name only recognized paths reads no other log.
    */
   const lookUp = async (paths: Iterable<string>) => {
-    const fresh = [...new Set(paths)].filter((path) => fileLike(path) && !classify(path) && !looked.has(path)).sort();
+    const fresh = [...new Set(paths)]
+      .filter((path) => fileLike(path) && !classify(path) && !ignored(path) && !looked.has(path))
+      .sort();
     for (const path of fresh) looked.add(path);
     for (const [id, events] of await pathHistory(repo, fresh)) {
       for (const event of events) {
@@ -543,7 +548,14 @@ export async function addImportedFiles(
   const beyond = new Set<string>();
   for (const imports of parsed.values()) {
     for (const { target } of imports) {
-      if (target !== null && !shaped.has(target) && !targets.has(target) && fileLike(target) && !classify(target))
+      if (
+        target !== null &&
+        !shaped.has(target) &&
+        !targets.has(target) &&
+        fileLike(target) &&
+        !classify(target) &&
+        !ignored(target)
+      )
         beyond.add(target);
     }
   }

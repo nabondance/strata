@@ -19,12 +19,13 @@ strata analyze /path/to/git/repository
 
 The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path.
 
-| Option                     | What it does                                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `--output <file>` (`-o`)   | Write the report to this file. `--output -` writes it to standard output, for another program to read. |
-| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`.                  |
-| `--open`                   | Open the HTML report or SVG image with the default application.                                        |
-| `--quiet` (`-q`)           | Print only the report path, with no progress or summary.                                               |
+| Option                     | What it does                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--output <file>` (`-o`)   | Write the report to this file. `--output -` writes it to standard output, for another program to read.                 |
+| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`.                                  |
+| `--open`                   | Open the HTML report or SVG image with the default application.                                                        |
+| `--quiet` (`-q`)           | Print only the report path, with no progress or summary.                                                               |
+| `--ignore <glob>`          | Leave out paths matching a pattern at every revision; repeat it for more. See [Leaving paths out](#leaving-paths-out). |
 
 With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both. Progress appears only once a run has taken more than two seconds: one line updated in place on a terminal, or a line per tenth of the history in a log such as CI's.
 
@@ -35,6 +36,29 @@ strata analyze /path/to/repository --open
 strata analyze /path/to/repository --format json --output report.json
 strata analyze --format json --output - | jq '.revisions[] | [.date, .estimatedTokens]'
 ```
+
+### Leaving paths out
+
+A monorepo's example apps, templates, and test fixtures can ship their own `AGENTS.md`, `CLAUDE.md`, or skills. Those count toward the repository's totals unless you leave them out with `--ignore`, which `analyze` and `diff` both take:
+
+```sh
+strata analyze --ignore 'examples/**' --ignore 'templates/'
+strata diff --base main --head HEAD --ignore 'examples/**'
+```
+
+A tracked file whose repository-relative path matches any pattern is treated as if it were not in the tree, at every revision (or at both commits for `diff`): it is not counted, a Claude `@path` import of it is reported missing, and a symlink there is not followed. Submodule file counts leave out matching paths too. Patterns follow `.gitignore`:
+
+| Pattern       | Matches                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `*.md`        | `*` is any run of characters within one folder or file name, and `?` one such character.                                                      |
+| `examples/**` | `**` crosses folders: `examples/**` is everything under `examples`, `**/fixtures` any `fixtures` folder, `a/**/b` `b` at any depth under `a`. |
+| `templates/`  | A trailing `/` matches a folder and everything in it, never a file of that name.                                                              |
+| `/CLAUDE.md`  | A leading `/`, or a `/` in the middle, anchors the pattern at the repository root.                                                            |
+| `CLAUDE.md`   | A pattern without a `/` (other than a trailing one) matches at any depth, so `templates/` also matches `packages/templates/`.                 |
+
+A pattern that matches a folder leaves out everything inside it. Other characters, including `[` and `\`, match themselves, and `!` patterns, which re-include a path in `.gitignore`, are refused. Quote patterns so the shell does not expand them.
+
+The report records the patterns in a top-level `ignore` field, the HTML header says `ignoring 2 patterns` (hover it for the list), the summary prints them on one line, and the `diff` Markdown names them, so a reader knows the totals are partial. `--shareable` keeps them as given, since you typed them.
 
 ### An image for a README
 
@@ -90,6 +114,7 @@ Shields' `label`, `color`, and `style` query parameters change its look. [Runnin
 - `--format json` gives structured data instead.
 - `--output` saves the result to a file.
 - `--json-output <file>` also writes the JSON from the same comparison to a second file. One run then gives both formats, without counting twice under `--precise`.
+- `--ignore <glob>` leaves matching paths out of both trees, as for `analyze` (see [Leaving paths out](#leaving-paths-out)).
 
 ```sh
 strata diff /path/to/repository --base <base-commit> --head <head-commit>
