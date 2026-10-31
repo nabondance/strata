@@ -1,6 +1,6 @@
 # Working in Strata
 
-Strata shows how Git-tracked AI-agent configuration changes through time. It analyzes a local repository and writes an offline report. Read [brief.md](brief.md) for product intent, [docs/analysis-scope.md](docs/analysis-scope.md) for recognized inputs, and [docs/decisions.md](docs/decisions.md) for measurement and report contracts when those topics matter to a change.
+Strata shows how Git-tracked AI-agent configuration changes through time. It analyzes a local repository and writes an offline report. Read [README.md](README.md) for what it does for users, [docs/analysis-scope.md](docs/analysis-scope.md) for recognized inputs, and [docs/decisions.md](docs/decisions.md) for measurement and report contracts when those topics matter to a change.
 
 ## Where to work
 
