@@ -267,7 +267,7 @@ The treemap shows the selected revision's instruction files as rectangles. Each 
 
 - Rectangles of files that the selected revision added, edited, or renamed are outlined.
 - Hover or focus a rectangle for its full path and token count. Select it to find its file in the inventory.
-- A name that two rectangles share gets the folders that tell them apart, such as `core/AGENTS.md` and `server/AGENTS.md`, or `.claude/…/review` and `.agents/…/review`.
+- A name that two rectangles share gets the folders that tell them apart, such as `core/AGENTS.md` and `server/AGENTS.md`, or `.claude/skills/review` and `.agents/skills/review`.
 - Source-only and zero-token files stay in the inventory and get no area: source-only files have no token count, and zero-token files have nothing to size.
 
 ### Configuration map

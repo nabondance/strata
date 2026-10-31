@@ -132,8 +132,9 @@ export function layoutTreemap(components: Component[], frame?: TreemapFrame): Tr
 /**
  * The names the treemap draws, one per path: a file's path, or a skill's directory for its main file. A name is the
  * path's last segment. When another path ends in the same name, the name takes as many of its parent folders as it
- * needs to differ from all of them, with `…` for the folders between the one that tells it apart and the name:
- * `core/AGENTS.md`, `.claude/…/review`. A root-level file has no folder and keeps its name.
+ * needs to differ from all of them: `core/AGENTS.md`, `.claude/skills/review`. When that leaves two or more folders
+ * between the one that tells it apart and the name, `…` stands for them: `templates/…/AGENTS.md`. A root-level file
+ * has no folder and keeps its name.
  *
  * The HTML report embeds this function's source; it may use only its argument.
  */
@@ -152,10 +153,41 @@ export function treemapNames(paths: readonly string[]): string[] {
     let count = 1;
     while (count < parts.length && others.some((other) => tail(other, count) === tail(parts, count))) count += 1;
     full.push(tail(parts, count));
-    return count <= 2 ? tail(parts, count) : `${parts.at(-count)}/…/${name}`;
+    // An ellipsis for a single folder would save almost nothing, so it only replaces two or more.
+    return count < 4 ? tail(parts, count) : `${parts.at(-count)}/…/${name}`;
   });
   // Leaving folders out can make two names alike again; those keep every folder they needed.
   const uses = new Map<string, number>();
   for (const label of labels) uses.set(label, (uses.get(label) ?? 0) + 1);
   return labels.map((label, index) => ((uses.get(label) ?? 0) > 1 ? (full[index] ?? label) : label));
+}
+
+/**
+ * Shorter forms of each treemap name, for a rectangle too narrow for the whole name, in the order to try them. Whole
+ * folders go first: those between the first folder and the name, then leading ones, down to `…/<name>`. Only then are
+ * letters cut from the left of the first folder. A form is offered only when no other name, or shorter form of
+ * another name, reads the same, so two rectangles never show the same text; a root-level name has none.
+ *
+ * The HTML report embeds this function's source; it may use only its argument.
+ */
+export function shorterTreemapNames(labels: readonly string[]): string[][] {
+  const options = labels.map((label) => {
+    const parts = label.split("/");
+    if (parts.length < 2) return [];
+    const name = parts.at(-1) ?? "";
+    const first = parts[0] ?? "";
+    const rest = parts.length > 2 ? `/…/${name}` : `/${name}`;
+    const shorter = [`${first}${rest}`];
+    for (let drop = 1; drop < parts.length - 1; drop += 1) {
+      if (parts[drop] !== "…") shorter.push(`…/${parts.slice(drop).join("/")}`);
+    }
+    shorter.push(`…/${name}`);
+    for (let cut = 1; cut < first.length; cut += 1) shorter.push(`…${first.slice(cut)}${rest}`);
+    return [...new Set(shorter)].filter((option) => option.length < label.length);
+  });
+  const uses = new Map<string, number>();
+  for (const [index, label] of labels.entries()) {
+    for (const option of new Set([label, ...(options[index] ?? [])])) uses.set(option, (uses.get(option) ?? 0) + 1);
+  }
+  return options.map((list) => list.filter((option) => uses.get(option) === 1));
 }

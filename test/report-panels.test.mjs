@@ -5,7 +5,7 @@ import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
-import { layoutTreemap, treemapNames } from "../dist/treemap.js";
+import { layoutTreemap, shorterTreemapNames, treemapNames } from "../dist/treemap.js";
 import { loadReportUi } from "./report-ui.mjs";
 import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
@@ -379,16 +379,45 @@ test("names repeated treemap labels by the folders that tell them apart", async 
       "server/AGENTS.md",
       "x/AGENTS.md",
       "CLAUDE.md",
-      ".claude/…/pr-screenshots",
-      ".agents/…/pr-screenshots",
+      ".claude/skills/pr-screenshots",
+      ".agents/skills/pr-screenshots",
       "docs/CLAUDE.md",
     ],
   );
   // A folder that ends another path's folders still tells the two apart.
-  assert.deepEqual(treemapNames(["a/AGENTS.md", "x/a/AGENTS.md"]), ["a/AGENTS.md", "x/…/AGENTS.md"]);
+  assert.deepEqual(treemapNames(["a/AGENTS.md", "x/a/AGENTS.md"]), ["a/AGENTS.md", "x/a/AGENTS.md"]);
+  // An ellipsis stands for two or more folders, never for one.
+  assert.deepEqual(treemapNames(["b/c/x.md", "a/b/c/x.md", "d/b/c/x.md"]), ["b/c/x.md", "a/…/x.md", "d/…/x.md"]);
   // When leaving folders out would make two names alike again, they keep every folder they needed.
-  assert.deepEqual(treemapNames(["a/x/M", "b/x/M", "a/y/z/M", "c/y/z/M"]), ["a/x/M", "b/…/M", "a/y/z/M", "c/…/M"]);
+  assert.deepEqual(treemapNames(["a/p/q/M", "b/p/q/M", "a/s/t/u/M", "c/s/t/u/M"]), [
+    "a/p/q/M",
+    "b/…/M",
+    "a/s/t/u/M",
+    "c/…/M",
+  ]);
   assert.deepEqual(treemapNames([]), []);
+
+  // Shorter forms drop whole folders before cutting letters, and none reads like another name or its shorter forms.
+  assert.deepEqual(shorterTreemapNames(["playground/CLAUDE.md", "background/CLAUDE.md", "CLAUDE.md"]), [
+    ["…ayground/CLAUDE.md", "…yground/CLAUDE.md"],
+    ["…ckground/CLAUDE.md", "…kground/CLAUDE.md"],
+    [],
+  ]);
+  assert.deepEqual(shorterTreemapNames(["a/p/q/M", "b/…/M"]), [["a/…/M", "…/q/M"], []]);
+  // `…/<name>` is offered when no other name can read the same, such as beside the root-level file.
+  assert.deepEqual(shorterTreemapNames(["AGENTS.md", "templates/…/AGENTS.md"]), [
+    [],
+    [
+      "…/AGENTS.md",
+      "…mplates/…/AGENTS.md",
+      "…plates/…/AGENTS.md",
+      "…lates/…/AGENTS.md",
+      "…ates/…/AGENTS.md",
+      "…tes/…/AGENTS.md",
+      "…es/…/AGENTS.md",
+      "…s/…/AGENTS.md",
+    ],
+  ]);
 
   const { repo, put, commit, cleanup } = syntheticRepo("strata-treemap-names-");
   try {
@@ -399,16 +428,24 @@ test("names repeated treemap labels by the folders that tell them apart", async 
     put(".agents/skills/review/SKILL.md", `---\nname: review\ndescription: Review.\n---\n${"Check. ".repeat(40)}\n`);
     commit("Repeated names");
     const report = await analyzeRepository(repo);
-    const leaves = loadReportUi(renderHtml(report))
-      .get("treemap")
-      .children.filter((child) => child.className === "treemap-leaf");
-    assert.deepEqual(leaves.map((leaf) => leaf.children[0].textContent).sort(), [
-      ".agents/…/review",
-      ".claude/…/review",
+    const { get, layout } = loadReportUi(renderHtml(report));
+    const drawnNames = () =>
+      get("treemap")
+        .children.filter((child) => child.className === "treemap-leaf")
+        .map((leaf) => leaf.children[0].textContent)
+        .sort();
+    assert.deepEqual(drawnNames(), [
+      ".agents/skills/review",
+      ".claude/skills/review",
       "AGENTS.md",
       "core/AGENTS.md",
       "server/AGENTS.md",
     ]);
+    // In narrow rectangles, names lose folders and then letters from the left, and still all differ.
+    layout.labelFits = (text) => text.length <= 12;
+    get("target").value = "0";
+    get("target").listeners.change();
+    assert.deepEqual(drawnNames(), ["AGENTS.md", "…de/…/review", "…e/AGENTS.md", "…r/AGENTS.md", "…ts/…/review"]);
   } finally {
     cleanup();
   }

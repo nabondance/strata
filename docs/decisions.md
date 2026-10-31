@@ -680,13 +680,13 @@ The HTML report draws a treemap of the selected revision from the component meas
 
 ### Labels
 
-Interior labels use the skill directory name or the file name. When two rectangles at the revision would carry the same name, such as `AGENTS.md` in several packages or a skill kept under both `.claude/skills` and `.agents/skills`, each name takes as many parent folders as it needs to differ, with `…` for the folders between: `core/AGENTS.md`, `.claude/…/review`. A root-level file has no folder and keeps its name. `treemapNames` in `src/treemap.ts` makes these names; the report embeds it.
+Interior labels use the skill directory name or the file name. When two rectangles at the revision would carry the same name, such as `AGENTS.md` in several packages or a skill kept under both `.claude/skills` and `.agents/skills`, each name takes as many parent folders as it needs to differ: `core/AGENTS.md`, `.claude/skills/review`. When two or more folders sit between the one that tells it apart and the name, `…` stands for them: `templates/…/AGENTS.md`. A root-level file has no folder and keeps its name. `treemapNames` in `src/treemap.ts` makes these names; the report embeds it.
 
 Labels are checked against their rendered space, and again on resize. Names break only at hyphens, never mid-word. When a label does not fit:
 
 1. When both lines do not fit, the token count is removed.
 2. Then the name is reduced.
-3. Then a name with folders loses folder text from the left, behind an ellipsis, keeping the file or skill name whole and the last three letters of the folder that tells it apart.
+3. Then a name with folders drops whole folders behind an ellipsis, first those after its first folder and then from the left, down to `…/<name>`, and only then cuts letters from the left of its first folder. `shorterTreemapNames` offers only forms that no other name at the revision, or any shorter form of one, could show, so two rectangles never read the same.
 4. Then it is cut to one small line ending in an ellipsis. A name with folders keeps them at its start, so two rectangles of the same name still differ.
 5. It is removed only when even that cannot fit.
 
