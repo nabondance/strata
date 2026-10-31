@@ -9,7 +9,7 @@ import {
 import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { blobSizes, git, listTree } from "./git.js";
+import { blobSizes, git, listTree, resolveCommit } from "./git.js";
 import {
   byPath,
   distinctBlobs,
@@ -47,15 +47,15 @@ import {
 
 type ComparedListing = NonNullable<ComponentDelta["listing"]>;
 
-function commitId(repo: string, id: string): string {
-  if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new Error("Base and head must be full Git commit IDs");
-  try {
-    return git(repo, ["rev-parse", "--verify", "--quiet", `${id}^{commit}`])
-      .toString("utf8")
-      .trim();
-  } catch {
-    throw new Error(`Commit ${id} is unavailable; fetch full base and head history first`);
+/** Resolve a revision expression, such as `HEAD~3` or a short ID, to its full commit ID; `side` names it in the error. */
+function commitId(repo: string, revision: string, side: "Base" | "Head"): string {
+  const id = resolveCommit(repo, revision);
+  if (id === null) {
+    throw new Error(
+      `${side} ${JSON.stringify(revision)} does not name a commit in this repository; check it, or fetch it if this clone lacks it`,
+    );
   }
+  return id;
 }
 
 /**
@@ -111,7 +111,7 @@ export interface PullRequestDelta {
 function readCommits(repo: string, base: string, head: string, text?: TextCheck) {
   const measurer = createMeasurer("estimate");
   git(repo, ["rev-parse", "--git-dir"]);
-  const ids = [commitId(repo, base), commitId(repo, head)] as const;
+  const ids = [commitId(repo, base, "Base"), commitId(repo, head, "Head")] as const;
   const imports = new Map<string, ClaudeImport[]>();
   // One shared pass reads each blob whose content any step needs, once.
   const tokens = new TokenCounts(measurer);
@@ -388,20 +388,25 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     ...mcpLines(delta),
     ...upFrontLines(delta),
     ...providerLines(delta),
-    "| Category | Δ files | Δ tokens |",
-    "| --- | ---: | ---: |",
-    ...comparison.byCategory
-      .filter((group) => group.deltaFiles || group.deltaTokens)
-      .map((group) => `| ${cell(group.key)} | ${signed(group.deltaFiles)} | ${signed(group.deltaTokens)} |`),
-    "",
-    listingColumn ? "| File | Change | Δ tokens | Δ listed |" : "| File | Change | Δ tokens |",
-    listingColumn ? "| --- | --- | ---: | ---: |" : "| --- | --- | ---: |",
-    ...comparison.components
-      .slice(0, 25)
-      .map(
-        (component) =>
-          `| ${cell(component.path)} | ${component.kind}${component.imported ? " (imported)" : ""} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
-      ),
+    // With no changed file, both tables would have headers only.
+    ...(!comparison.components.length
+      ? ["No instruction files changed."]
+      : [
+          "| Category | Δ files | Δ tokens |",
+          "| --- | ---: | ---: |",
+          ...comparison.byCategory
+            .filter((group) => group.deltaFiles || group.deltaTokens)
+            .map((group) => `| ${cell(group.key)} | ${signed(group.deltaFiles)} | ${signed(group.deltaTokens)} |`),
+          "",
+          listingColumn ? "| File | Change | Δ tokens | Δ listed |" : "| File | Change | Δ tokens |",
+          listingColumn ? "| --- | --- | ---: | ---: |" : "| --- | --- | ---: |",
+          ...comparison.components
+            .slice(0, 25)
+            .map(
+              (component) =>
+                `| ${cell(component.path)} | ${component.kind}${component.imported ? " (imported)" : ""} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
+            ),
+        ]),
   ];
   if (comparison.components.length > 25)
     lines.push("", `${comparison.components.length - 25} more changed components omitted from this summary.`);

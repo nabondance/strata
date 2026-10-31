@@ -218,7 +218,12 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!safeMarkdown.includes("<img"));
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
-    assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
+    // A branch name resolves to its full commit ID; a name that resolves to nothing is an error.
+    assert.equal(compareGitCommits(repo, "main", merge).base, merge);
+    assert.throws(
+      () => compareGitCommits(repo, "no-such-branch", merge),
+      /Base "no-such-branch" does not name a commit/,
+    );
     assert.equal(report.schemaVersion, 20);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
@@ -583,8 +588,8 @@ test("tracks configuration across first-parent history without reading untracked
       encoding: "utf8",
     });
     assert.equal(cli.status, 0, cli.stderr);
-    assert.match(cli.stderr, /Analyzing 9 revisions/);
-    assert.match(cli.stderr, /Processed 9\/9 revisions/);
+    // A run this short prints no progress.
+    assert.doesNotMatch(cli.stderr, /Analyzing|Processed/);
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);

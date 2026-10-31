@@ -811,7 +811,7 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 ## Pull-request comparison
 
-`strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
+`strata diff` compares two supplied commits, each any revision Git resolves to a commit (`git rev-parse --verify --end-of-options <rev>^{commit}`, which is read-only), by reading their tracked Git trees directly. Its output names both by full commit ID. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
 Its JSON has its own schema version, currently 13. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
