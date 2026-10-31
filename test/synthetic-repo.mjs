@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 /**
  * Starts a Git repository in `dir`, with helpers to run Git, write files, and commit them.
- * `env`, when given, is called before each Git command for extra environment variables, such as dates.
+ * `env`, when given, is called with each Git command's arguments for extra environment variables, such as dates.
  */
 export function gitRepository(dir, { env } = {}) {
   const run = (args, extra) =>
@@ -13,7 +13,7 @@ export function gitRepository(dir, { env } = {}) {
       encoding: "utf8",
       // Git's messages stay out of the test output; a failed command still includes them in its error.
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...env?.(), ...extra },
+      env: { ...process.env, ...env?.(args), ...extra },
     }).trim();
   const git = (...args) => run(args);
   const put = (path, content) => {

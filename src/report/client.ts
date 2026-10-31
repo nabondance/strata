@@ -25,6 +25,7 @@ import { stateScript } from "./client/state.js";
 import { treemapScript } from "./client/treemap.js";
 import { upFrontScript } from "./client/up-front.js";
 import { viewsScript } from "./client/views.js";
+import { tokenAdjective } from "./token-adjective.js";
 
 /** The panel parts, in the order the report joins them; a test joins them in reverse to show order does not matter. */
 export const panelScripts = [
@@ -46,7 +47,7 @@ export const panelScripts = [
  * The report's script. Its parts share one scope. The data block and the shared state come first; the panel parts
  * after them only declare state and functions, so their order does not matter; the start part runs last.
  */
-export function clientScript(report: Report, tokenAdjective: string, panels: readonly string[] = panelScripts): string {
+export function clientScript(report: Report, panels: readonly string[] = panelScripts): string {
   const serialized = JSON.stringify(report)
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
@@ -86,7 +87,7 @@ export function clientScript(report: Report, tokenAdjective: string, panels: rea
     const inks = ${JSON.stringify(categoryInk)};
     const shades = ${JSON.stringify(categoryShade)};
     const shadeInks = ${JSON.stringify(categoryShadeInk)};
-    const tokenAdjective = ${JSON.stringify(tokenAdjective)};
+    const tokenAdjective = ${JSON.stringify(tokenAdjective(report))};
     const providerNames = ${JSON.stringify(providerName)};`;
   return [data, stateScript, ...panels, startScript].join("\n\n");
 }

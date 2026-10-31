@@ -26,9 +26,15 @@ function fixture(
     "AGENTS.md": "Shared instructions.\n",
   },
 ) {
-  const { repo, put, commit } = syntheticRepo("strata-precise-");
-  for (const [path, content] of Object.entries(files)) put(path, content);
-  commit("Add instructions");
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-precise-");
+  try {
+    for (const [path, content] of Object.entries(files)) put(path, content);
+    commit("Add instructions");
+  } catch (error) {
+    // The caller removes the repository only once it has it.
+    cleanup();
+    throw error;
+  }
   return repo;
 }
 

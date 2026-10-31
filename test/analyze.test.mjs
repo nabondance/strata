@@ -394,10 +394,9 @@ test("tracks configuration across first-parent history without reading untracked
     const html = renderHtml(report);
     exerciseReportUi(html, report);
     // Panel parts only declare state and functions, so the report works the same with them in reverse order.
-    const adjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
-    const script = clientScript(report, adjective);
+    const script = clientScript(report);
     assert.ok(html.includes(script));
-    const reversed = clientScript(report, adjective, [...panelScripts].reverse());
+    const reversed = clientScript(report, [...panelScripts].reverse());
     assert.notEqual(reversed, script);
     exerciseReportUi(
       html.replace(script, () => reversed),

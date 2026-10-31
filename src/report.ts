@@ -23,7 +23,6 @@ function d3Bundle(): string {
 
 /** The self-contained HTML report: styles, markup, and the script that draws each panel from the embedded data. */
 export function renderHtml(report: Report): string {
-  const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -37,10 +36,10 @@ ${reportStyles}
   </style>
 </head>
 <body>
-${reportBody(report, tokenAdjective)}
+${reportBody(report)}
   <script>${d3Bundle()}</script>
   <script>
-${clientScript(report, tokenAdjective)}
+${clientScript(report)}
   </script>
 </body>
 </html>`;

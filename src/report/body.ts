@@ -3,9 +3,11 @@ import type { Report } from "../model.js";
 import { textRecipients } from "../provider-count.js";
 import { providerName } from "../provider-counting.js";
 import { escapeHtml } from "./escape-html.js";
+import { tokenAdjective } from "./token-adjective.js";
 
 /** The page markup: the masthead and every panel, empty until the script fills them. */
-export function reportBody(report: Report, tokenAdjective: string): string {
+export function reportBody(report: Report): string {
+  const adjective = tokenAdjective(report);
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
     .map(
@@ -29,7 +31,7 @@ export function reportBody(report: Report, tokenAdjective: string): string {
       <p class="repo-meta" id="repo-meta"></p>
       <div class="stats">
         <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
-        <div class="stat"><span id="tokens-label">${tokenAdjective} tokens</span><strong id="tokens"></strong></div>
+        <div class="stat"><span id="tokens-label">${adjective} tokens</span><strong id="tokens"></strong></div>
         <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
         <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
       </div>
@@ -106,7 +108,7 @@ export function reportBody(report: Report, tokenAdjective: string): string {
         <label>Target revision<select id="target"></select></label>
       </div>
       <div class="compare-summary">
-        <span><span id="compare-tokens-label">${tokenAdjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
+        <span><span id="compare-tokens-label">${adjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
         <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span id="compare-kept-label">Instruction text kept</span><strong id="compare-kept"></strong></span>
         <span id="compare-mcp-wrap" hidden>MCP servers<strong id="compare-mcp"></strong></span>

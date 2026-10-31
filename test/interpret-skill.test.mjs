@@ -11,9 +11,14 @@ const code = (path) =>
     .split("\n")
     .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
     .join("\n");
-// The text the report shows: its page markup and the script parts that fill it, not its styles or helpers.
+// The text the report shows: the page, its markup, and the script that fills it, not its styles or helpers.
 const reportCode = () =>
-  ["src/report/body.ts", ...readdirSync(new URL("src/report/client", root)).map((file) => `src/report/client/${file}`)]
+  [
+    "src/report.ts",
+    "src/report/body.ts",
+    "src/report/client.ts",
+    ...readdirSync(new URL("src/report/client", root)).map((file) => `src/report/client/${file}`),
+  ]
     .map(code)
     .join("\n");
 

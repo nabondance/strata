@@ -59,15 +59,15 @@ function assertReadsEachBlobOnce(repo, base, head) {
 
 const bytes = (...lines) => lines.reduce((sum, line) => sum + Buffer.byteLength(line), 0);
 
-/** A repository whose commits get one dated day each, so periods and order are deterministic. */
+/** A repository whose commits, merges included, get one dated day each, so periods and order are deterministic. */
 function fixture(prefix) {
   let day = 0;
-  const nextDay = () => {
-    const date = new Date(Date.UTC(2026, 0, 1 + day)).toISOString().replace(".000Z", "Z");
-    day += 1;
+  const dated = (args) => {
+    if (args[0] === "commit" || args[0] === "merge") day += 1;
+    const date = new Date(Date.UTC(2026, 0, day)).toISOString().replace(".000Z", "Z");
     return { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
   };
-  const repository = syntheticRepo(prefix, { env: nextDay });
+  const repository = syntheticRepo(prefix, { env: dated });
   repository.git("config", "core.autocrlf", "false");
   return repository;
 }
