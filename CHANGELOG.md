@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0](https://github.com/nabondance/strata/compare/v0.6.0...v0.7.0) (2026-10-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* launch polish: compact schema 21, diff refs, import parsing, report readability ([#64](https://github.com/nabondance/strata/issues/64))
+* --tokenizer (and the cl100k_base encoding), --model, --codex-model, and --provider-api are removed, and the Action no longer takes tokenizer or model inputs.
+
+### Features
+
+* count Codex exactly by default and remove --tokenizer, --model, --codex-model, and --provider-api ([#63](https://github.com/nabondance/strata/issues/63)) ([d97514f](https://github.com/nabondance/strata/commit/d97514fada4d2ec494e4364aaa3edfcd047fb692))
+* launch polish: compact schema 21, diff refs, import parsing, report readability ([#64](https://github.com/nabondance/strata/issues/64)) ([3f4d122](https://github.com/nabondance/strata/commit/3f4d122e38f9f2938ff905e16951078f8d01405b))
+
+
+### Performance Improvements
+
+* read each blob once through one shared content pass ([#61](https://github.com/nabondance/strata/issues/61)) ([e40be21](https://github.com/nabondance/strata/commit/e40be21c85184bcad6927e6d9ab7845d31ba597f))
+
 ## [0.6.0](https://github.com/nabondance/strata/compare/v0.5.0...v0.6.0) (2026-10-29)
 
 
