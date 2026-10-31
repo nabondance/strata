@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -92,7 +92,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     commit("Replace the shared doc with a symlink");
     put(
       "CLAUDE.md",
-      "@AGENTS.md\n@docs/missing.md\n@docs/feature.md\n@.claude/rules/style.md\nAsk @alice, or see @docs and @.claude/ or @.\n",
+      "@AGENTS.md\n@docs/missing.md\n@docs/feature.md\n@.claude/rules/style.md\nAsk @alice or email @john.doe, or see @docs and @.claude/ or @.\n",
     );
     put(".claude/rules/style.md", "Style.\n@../../docs/from-rule.md\n");
     put("docs/from-rule.md", "Imported by a rule.\n@deep/one.md\n");
@@ -184,15 +184,17 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(at(revisions[7])["docs/deep/two.md"], "imported");
     assert.equal(at(revisions[7])["docs/deep/three.md"], undefined);
     assert.ok(links(revisions[7]).includes("docs/deep/two.md -> docs/deep/three.md depth-limit"));
-    // A mention of a path no file has keeps the path it names, without the comma after it; a
-    // directory names no file, and a lone `@.` that ends a sentence is no import.
+    // A bare word no file has keeps its line but not its text; a path-shaped mention keeps the path
+    // it names. A directory names no file, and a lone `@.` that ends a sentence is no import.
     const last = revisions[7].components.find((component) => component.path === "CLAUDE.md");
     assert.deepEqual(last.imports.slice(4), [
-      { line: 5, target: "alice" },
-      { line: 5, target: "docs" },
+      { line: 5, target: null },
+      { line: 5, target: null },
+      { line: 5, target: null },
       { line: 5, target: ".claude/" },
     ]);
-    assert.ok(links(revisions[7]).includes("CLAUDE.md -> alice missing"));
+    assert.ok(links(revisions[7]).includes("CLAUDE.md -> null missing"));
+    assert.doesNotMatch(JSON.stringify(report), /alice|john/);
     assert.equal(at(revisions[7])["docs/guide.md"], undefined);
     assert.equal(at(revisions[7])["REVIEW.md"], "");
     assert.equal(at(revisions[7])["docs/review-only.md"], undefined);
@@ -238,9 +240,9 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(ui.get("imports").children.length, importLinks(revisions[7].components).length);
     const rows = ui.get("imports").children.map((row) => row.children.map((cell) => cell.textContent));
     // A missing import shows the path it names; one through a symlink shows the link and its file.
-    assert.deepEqual(rows[0], ["CLAUDE.md", "5", "alice", "1", "missing"]);
+    assert.deepEqual(rows[0], ["CLAUDE.md", "5", "not a tracked path", "1", "missing"]);
     assert.ok(rows.some((cells) => cells.join(" ") === "AGENTS.md 2 docs/common.md → README.md 2 resolved"));
-    assert.equal(ui.get("imports-count").textContent, "13 · 4 unresolved");
+    assert.equal(ui.get("imports-count").textContent, "14 · 5 unresolved");
     // The configuration map draws the files in folders, with a line for each resolved import between two of them.
     const lastLinks = importLinks(revisions[7].components);
     const expectedMap = configMap(revisions[7].components, lastLinks);
@@ -256,12 +258,12 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(mapRows().length, expectedMap.rows.length);
     assert.equal(mapLines().length, expectedMap.edges.length);
     assert.ok(expectedMap.edges.length >= 5);
-    assert.match(ui.get("map-hover").textContent, / import lines · 4 unresolved, listed under Claude imports\./);
+    assert.match(ui.get("map-hover").textContent, / import lines · 5 unresolved, listed under Claude imports\./);
     // A row's detail line names what the file imports and what imports it.
     onMap("focusin", mapRow("CLAUDE.md"));
     assert.match(
       ui.get("map-hover").textContent,
-      /^CLAUDE\.md · claude \/ instructions · \d+ stored-text tokens · imports AGENTS\.md, docs\/missing\.md, docs\/feature\.md and 1 more · edited at this revision · 3 unresolved imports$/,
+      /^CLAUDE\.md · claude \/ instructions · \d+ stored-text tokens · imports AGENTS\.md, docs\/missing\.md, docs\/feature\.md and 1 more · edited at this revision · 4 unresolved imports$/,
     );
     onMap("mouseover", mapRow("docs/from-rule.md").children[0]);
     assert.match(
@@ -373,7 +375,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(cli.status, 0, cli.stderr);
     assert.match(
       cli.stderr,
-      /Note: 4 Claude @path imports are unresolved at the last revision \(3 missing, 1 beyond four hops\); the report lists them\./,
+      /Note: 5 Claude @path imports are unresolved at the last revision \(4 missing, 1 beyond four hops\); the report lists them\./,
     );
   } finally {
     cleanup();
@@ -539,6 +541,91 @@ test("history follows a symlink only while it leads to one place; strata diff fo
       "added shared/b.md",
       "removed shared/a.md",
     ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an import reaches a symlink's file only at revisions where the link exists", async () => {
+  const { treeImports } = await import("../dist/claude-imports.js");
+  const { listTree } = await import("../dist/git.js");
+  const { trackedFile } = await import("../dist/inventory.js");
+  const { importLinks } = await import("../dist/import-links.js");
+  const { repo, put, git, commit, cleanup } = syntheticRepo("strata-import-link-life-");
+  try {
+    put("CLAUDE.md", "@docs/guide.md\n@.claude/rules/linked.md\n");
+    put("shared/guide.md", "Guide.\n");
+    put("shared/rule.md", "Rule.\n");
+    commit("Import paths that do not exist yet");
+    link(repo, "docs/guide.md", "../shared/guide.md");
+    // A recognized path's links come from analysis's own history log.
+    link(repo, ".claude/rules/linked.md", "../../shared/rule.md");
+    commit("Add the links");
+    git("rm", "-q", "docs/guide.md", ".claude/rules/linked.md");
+    commit("Remove the links, keeping their files");
+
+    const revisions = expandRevisions(await analyzeRepository(repo));
+    const imported = (revision) =>
+      revision.components.filter((component) => component.imported).map(({ path }) => path);
+    assert.deepEqual(revisions.map(imported), [[], ["shared/guide.md", "shared/rule.md"], []]);
+    assert.deepEqual(
+      revisions.map((revision) => linkLines(revision, importLinks)),
+      [
+        ["CLAUDE.md:1 -> docs/guide.md missing", "CLAUDE.md:2 -> .claude/rules/linked.md missing"],
+        [
+          "CLAUDE.md:1 -> docs/guide.md → shared/guide.md resolved",
+          "CLAUDE.md:2 -> .claude/rules/linked.md → shared/rule.md resolved",
+        ],
+        ["CLAUDE.md:1 -> docs/guide.md missing", "CLAUDE.md:2 -> .claude/rules/linked.md missing"],
+      ],
+    );
+    for (const revision of revisions) {
+      const tree = listTree(repo, revision.id);
+      const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
+      const expected = [...recognized, ...treeImports(repo, tree, recognized, new Map())]
+        .map(({ path, blob }) => `${path} ${blob}`)
+        .sort();
+      assert.deepEqual(revision.components.map(({ path, blob }) => `${path} ${blob}`).sort(), expected);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+/** The `git log` commands an analysis of `repo` runs, from Git's own trace. */
+function traceLogs(repo) {
+  const trace = join(tmpdir(), `strata-git-trace-${process.pid}-${Math.random().toString(36).slice(2)}.log`);
+  try {
+    const cli = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, "--format", "json", "--output", "-"], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TRACE: trace },
+    });
+    assert.equal(cli.status, 0, cli.stderr);
+    return readFileSync(trace, "utf8")
+      .split("\n")
+      .filter((line) => /built-in: git (-c \S+ )*log /.test(line));
+  } finally {
+    rmSync(trace, { force: true });
+  }
+}
+
+test("imports of recognized paths read no history beyond analysis's own log", () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-import-logs-");
+  try {
+    put("CLAUDE.md", "@AGENTS.md\n");
+    put("AGENTS.md", "Shared.\n");
+    commit("Import AGENTS.md");
+    put("AGENTS.md", "Shared, edited.\n");
+    commit("Edit AGENTS.md");
+    // Only the analysis log runs.
+    assert.equal(traceLogs(repo).length, 1);
+    // An unrecognized target needs one more, limited to its path.
+    put("CLAUDE.md", "@AGENTS.md\n@docs/guide.md\n");
+    put("docs/guide.md", "Guide.\n");
+    commit("Import a guide");
+    const logs = traceLogs(repo);
+    assert.equal(logs.length, 2);
+    assert.match(logs[1], /:\(literal\)docs\/guide\.md/);
   } finally {
     cleanup();
   }

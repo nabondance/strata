@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importPaths, maxImportHops, readImports, resolveImport, symlinkDestination } from "../dist/claude-imports.js";
+import {
+  importPaths,
+  maxImportHops,
+  pathShaped,
+  readImports,
+  resolveImport,
+  symlinkDestination,
+} from "../dist/claude-imports.js";
 import { importLinks } from "../dist/import-links.js";
+
+test("a path-shaped import holds a slash or ends with a known file extension", () => {
+  for (const path of ["mastra/server", "internal/test-utils/setup", "notes.md", "a.TXT", "x.mdc", ".claude/"]) {
+    assert.equal(pathShaped(path), true, path);
+  }
+  for (const path of ["alice", "here", "john.doe", "README", "e2"]) assert.equal(pathShaped(path), false, path);
+  // Only the targets of path-shaped imports are collected; the importing file's folder does not count.
+  const shaped = new Set();
+  readImports("Ask @alice or email @john.doe about @mastra/server and @notes.md.\n", "packages/CLAUDE.md", shaped);
+  assert.deepEqual([...shaped], ["packages/mastra/server", "packages/notes.md"]);
+});
 
 test("reads @path imports where Claude Code does, outside code and comments", () => {
   const text = [
