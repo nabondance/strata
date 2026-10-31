@@ -66,8 +66,9 @@ export function loadReportUi(html) {
     }
     getBoundingClientRect() {
       if (this.className === "treemap-leaf") return { bottom: 100, right: 180 };
-      // A test can say which names fit; one that does not runs past the rectangle's lower edge.
-      if (this.className === "leaf-name") return { bottom: layout.labelFits?.(this.textContent) === false ? 200 : 40 };
+      // A test can say which names fit, in a full or compact rectangle; one that does not runs past its lower edge.
+      if (this.className === "leaf-name")
+        return { bottom: layout.labelFits?.(this.textContent, this.parentElement) === false ? 200 : 40 };
       if (this.className === "leaf-size")
         return layout.crampedLabels ? { top: 42, bottom: 95, right: 165 } : { top: 60, bottom: 80, right: 150 };
       return { bottom: 0, right: 0 };
