@@ -1,7 +1,7 @@
 import { type Classification, categories, classify, type UpFront } from "./adapters.js";
 import type { ContentUse } from "./content-pass.js";
 import type { Measurer } from "./measurement.js";
-import type { CategoryTotals, ClaudeImport, Component, McpServers, Revision } from "./model.js";
+import type { CategoryTotals, ClaudeImport, Component, FilledRevision, McpServers } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
 
 export interface TrackedFile {
@@ -128,7 +128,7 @@ export function toComponent(
 export function summarize(
   components: Iterable<Component>,
 ): Pick<
-  Revision,
+  FilledRevision,
   "componentCount" | "categoryTotals" | "estimatedTokens" | "skillListingTokens" | "skillListingUnresolved"
 > {
   const categoryTotals = Object.fromEntries(

@@ -6,9 +6,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type ParseArgsConfig, parseArgs } from "node:util";
-import { type AnalysisProgress, analyzeRepository } from "./analyze.js";
+import { analyzeRepository } from "./analyze.js";
 import { renderBadge } from "./badge.js";
 import { defaultCachePath, type FileCountCache, fileCountCache } from "./count-cache.js";
+import { fillRevisions } from "./expand.js";
+import { repositoryRoot } from "./git.js";
+import { ignoreMatcher } from "./ignore.js";
 import { importLinks } from "./import-links.js";
 import { sharePercent, summarizeInstructionAge } from "./instruction-age.js";
 import {
@@ -31,6 +34,7 @@ import {
 } from "./pr-delta.js";
 import { defaultModels, localPlan, resolvePrecisePlan } from "./precise.js";
 import { redactReport } from "./privacy.js";
+import { progressReporter } from "./progress.js";
 import type { CountedProvider, ProviderCountPlan } from "./provider-count.js";
 import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
@@ -44,6 +48,9 @@ import {
 } from "./up-front.js";
 
 const providerLabel: Record<CountedProvider, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
+
+/** The list of recognized paths, linked rather than bundled, since the package ships no docs. */
+const scopeUrl = "https://github.com/nabondance/strata/blob/main/docs/analysis-scope.md";
 
 /** A mistake in how the command was invoked. Exits with status 2; other failures exit with 1. */
 class UsageError extends Error {}
@@ -70,6 +77,17 @@ const preciseHelp = `Precise counts (opt-in content transfer):
       --no-cache             With --precise, ignore and do not update the local count cache
       --claude-model <name>  Claude model to count with (default: ${defaultModels.claude})
       --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})`;
+
+const ignoreLine = `      --ignore <glob>        Leave out paths matching a .gitignore-style pattern, as if they
+                             were not tracked; repeat for more. * stays within a folder, **
+                             crosses folders, a trailing / means a folder and everything in
+                             it, a leading / anchors at the root, and a pattern without /
+                             matches at any depth`;
+
+const ignoreHelp = {
+  analyze: `Paths:\n${ignoreLine}, at every revision`,
+  diff: `Paths:\n${ignoreLine}, at both commits`,
+};
 
 /** Exit status when a limit set with --limit-* is passed and --on-limit is fail. */
 const overLimitStatus = 3;
@@ -141,6 +159,8 @@ Output:
       --shareable            Replace repository names, paths, commit IDs, blob IDs, and MCP server names with aliases
   -q, --quiet                Print only the report path
 
+${ignoreHelp.analyze}
+
 ${measurementHelp}
 
 ${limitsHelp.analyze}
@@ -157,20 +177,25 @@ Examples:
   strata analyze --format badge --output strata-badge.json
   strata analyze --format json --output - | jq '.revisions[-1].estimatedTokens'
   strata analyze --limit-up-front-tokens 8000 --format json --output report.json
+  strata analyze --ignore 'examples/**' --ignore 'templates/'
 `,
   diff: `Usage:
   strata diff [repository] --base <commit> --head <commit> [options]
 
 Compare two commits, such as a pull request's base and head, without checking them out.
-Both must be full commit IDs. The repository defaults to the current directory.
+Each can be any Git revision that names a commit: a commit ID, a short ID, a branch, a tag,
+or an expression such as HEAD~10. The output names both by full commit ID. The repository
+defaults to the current directory.
 
 Options:
-      --base <commit>        Full commit ID to compare from
-      --head <commit>        Full commit ID to compare to
+      --base <commit>        Commit to compare from
+      --head <commit>        Commit to compare to
   -o, --output <file>        Write to a file instead of standard output
   -f, --format <format>      markdown or json (default: markdown)
       --json-output <file>   Also write the JSON delta to a file, from the same comparison
   -h, --help                 Show this help
+
+${ignoreHelp.diff}
 
 ${measurementHelp}
 
@@ -179,9 +204,10 @@ ${limitsHelp.diff}
 ${preciseHelp}
 
 Examples:
-  strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)"
-  strata diff --base "$(git rev-parse main)" --head "$(git rev-parse HEAD)" \\
-    --limit-increase 500 --limit-up-front-tokens claude=8000
+  strata diff --base main --head HEAD
+  strata diff --base HEAD~50 --head HEAD --format json --output delta.json
+  strata diff --base main --head HEAD --limit-increase 500 --limit-up-front-tokens claude=8000
+  strata diff --base main --head HEAD --ignore 'examples/**'
 `,
   skill: `Usage:
   strata skill [--output <file>]
@@ -207,10 +233,27 @@ function isCommand(value: string | undefined): value is Command {
   return value !== undefined && value !== "main" && Object.hasOwn(help, value);
 }
 
+/** Options 0.5 had and 0.6 removed, which get a line on what replaced them. */
+const removedOptions = new Set(["--tokenizer", "--model", "--codex-model", "--provider-api"]);
+
+function unknownOption(option: string): UsageError {
+  return new UsageError(
+    `Unknown option '${option}'.` +
+      (removedOptions.has(option)
+        ? ` It was removed in 0.6: Codex is now counted exactly by default, and --precise covers Claude and Gemini.`
+        : ""),
+  );
+}
+
 function parse<T extends NonNullable<ParseArgsConfig["options"]>>(args: string[], options: T) {
   try {
     return parseArgs({ args, options, allowPositionals: true, strict: true });
   } catch (error) {
+    // Node's message for an unknown option goes on to explain positionals that start with '-'.
+    const unknown =
+      (error as NodeJS.ErrnoException).code === "ERR_PARSE_ARGS_UNKNOWN_OPTION" &&
+      /^Unknown option '([^']+)'/.exec((error as Error).message)?.[1];
+    if (unknown) throw unknownOption(unknown);
     throw new UsageError(error instanceof Error ? error.message : String(error));
   }
 }
@@ -254,27 +297,6 @@ function openReport(path: string): void {
   if (result.error || result.status !== 0) {
     throw new Error(`Could not open the report with the default application. Open this file manually: ${path}`);
   }
-}
-
-/** Progress goes to stderr: one updating line on a terminal, a line per tenth of history otherwise. */
-function progressReporter(): (progress: AnalysisProgress) => void {
-  const interactive = process.stderr.isTTY;
-  let lastStep = -1;
-  return ({ completed, total }) => {
-    if (completed === 0) {
-      if (!interactive) process.stderr.write(`Analyzing ${total} revisions...\n`);
-      return;
-    }
-    const done = completed >= total;
-    const step = Math.floor((completed * (interactive ? 100 : 10)) / total);
-    if (step === lastStep && !done) return;
-    lastStep = step;
-    if (interactive) {
-      process.stderr.write(`\r\x1b[KAnalyzing revisions ${completed}/${total}${done ? "\r\x1b[K" : ""}`);
-    } else if (step > 0) {
-      process.stderr.write(`Processed ${completed}/${total} revisions.\n`);
-    }
-  };
 }
 
 /** The cache only saves requests, so failing to write it never fails the run. */
@@ -338,6 +360,21 @@ const limitOptions = {
   "limit-annotations": { type: "boolean" },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
+const ignoreOptions = {
+  ignore: { type: "string", multiple: true },
+} as const satisfies NonNullable<ParseArgsConfig["options"]>;
+
+/** The --ignore patterns, as given, each checked before any history is read. */
+function ignoreArguments(values: { ignore?: string[] | undefined }): string[] {
+  const patterns = values.ignore ?? [];
+  try {
+    ignoreMatcher(patterns);
+  } catch (error) {
+    throw new UsageError(`--ignore: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return patterns;
+}
+
 const increaseLimitOptions = {
   "limit-increase": { type: "string", multiple: true },
   "limit-up-front-increase": { type: "string", multiple: true },
@@ -390,10 +427,12 @@ async function analyze(args: string[]): Promise<void> {
     open: { type: "boolean" },
     shareable: { type: "boolean" },
     quiet: { type: "boolean", short: "q" },
+    ...ignoreOptions,
     ...preciseOptions,
     ...limitOptions,
   });
   const repository = repositoryArgument(positionals);
+  const ignore = ignoreArguments(values);
   const limits = limitArguments(values);
   const format = choice("--format", values.format, ["html", "json", "svg", "badge"], "html");
   const toStdout = values.output === "-";
@@ -402,13 +441,16 @@ async function analyze(args: string[]): Promise<void> {
     throw new UsageError("--open requires HTML or SVG output");
   if (values.open && toStdout) throw new UsageError("--open requires a report file, not standard output");
   const precise = preciseArguments(values);
+  // Fails with the path named, before Git's own message can.
+  repositoryRoot(repository);
 
   let analyzed: Report;
   try {
     analyzed = await analyzeRepository(repository, {
-      ...(values.quiet ? {} : { onProgress: progressReporter() }),
+      ...(values.quiet ? {} : { onProgress: progressReporter(process.stderr) }),
       providerPlan: precise?.plan ?? localPlan(),
       onNotice: precise?.onNotice ?? noticeToStderr,
+      ignore,
     });
   } finally {
     saveCache(precise?.cache);
@@ -419,7 +461,8 @@ async function analyze(args: string[]): Promise<void> {
     process.stdout.write(dryRunLine);
     return;
   }
-  const latest = analyzed.revisions.at(-1);
+  // The last revision with its carried-forward totals restored.
+  const latest = fillRevisions(analyzed.revisions).at(-1);
   // The last revision's files and what each agent reads up front, built once for the notes and limits.
   const components = latestComponents(analyzed);
   const upFrontContexts = sessionProviders.flatMap((provider) => {
@@ -459,9 +502,24 @@ async function analyze(args: string[]): Promise<void> {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
   };
   say(`Analyzed ${report.revisions.length} revisions of ${report.repository}.`);
+  if (report.ignore?.length) {
+    const count = report.ignore.length;
+    say(
+      `Ignoring ${count} pattern${count === 1 ? "" : "s"} (${report.ignore.join(", ")}): the paths ${count === 1 ? "it matches are" : "they match are"} left out of every revision.`,
+    );
+  }
+  // The method ID stays in the JSON report; a person reads what it means.
   say(
-    `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.method}).`,
+    `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.accuracy === "estimate" ? "UTF-8 bytes / 4 per file, an estimate" : report.measurement.label}).`,
   );
+  // No revision ever had a recognized file, so say where Strata looks.
+  if (!report.components.length) {
+    say(
+      "Strata recognized no agent configuration in this history. It looks for files such as CLAUDE.md, AGENTS.md, GEMINI.md,\n" +
+        ".github/copilot-instructions.md, and the .claude/, .codex/, .agents/skills/, and .cursor/rules/ folders.\n" +
+        `Everything it recognizes: ${scopeUrl}`,
+    );
+  }
   const skills = latest?.categoryTotals.skills;
   if (skills && skills.count > skills.sourceOnlyCount) {
     const unresolved = latest.skillListingUnresolved;
@@ -543,11 +601,18 @@ function upFrontNote(entries: readonly UpFrontContext[]): string | null {
   if (!entries.length) return null;
   const unresolved = entries.reduce((sum, entry) => sum + entry.unresolved, 0);
   return (
-    `At session start: ${entries.map((entry) => `${sessionProviderNames[entry.provider]} ${entry.tokens} tokens (${entry.onDemandTokens} more when needed)`).join(", ")}.` +
+    `At session start: ${entries.map((entry) => `${sessionProviderNames[entry.provider]} ${entry.tokens} tokens (${entry.onDemandTokens} more when needed${skippedNote(entry)})`).join(", ")}.` +
     (unresolved
       ? ` ${unresolved} rule${unresolved === 1 ? "" : "s"} Strata could not read ${unresolved === 1 ? "is" : "are"} counted as when needed.`
       : "")
   );
+}
+
+/** The root AGENTS.md a provider skips by default, as the report's session-start panel words it, but short. */
+function skippedNote(entry: UpFrontContext): string {
+  if (!entry.skipped) return "";
+  const beside = entry.provider === "claude" ? "CLAUDE.md" : "AGENTS.override.md";
+  return `, ${entry.skippedTokens} skipped: AGENTS.md, as ${beside} exists`;
 }
 
 /** Count the Claude imports the last revision cannot resolve, by reason; paths stay in the report. */
@@ -612,16 +677,15 @@ async function diff(args: string[]): Promise<void> {
     output: { type: "string", short: "o" },
     format: { type: "string", short: "f" },
     "json-output": { type: "string" },
+    ...ignoreOptions,
     ...preciseOptions,
     ...limitOptions,
     ...increaseLimitOptions,
   });
   const repository = repositoryArgument(positionals);
+  const ignore = ignoreArguments(values);
   const limits = limitArguments(values);
   if (!values.base || !values.head) throw new UsageError("diff requires --base <commit> and --head <commit>");
-  for (const id of [values.base, values.head]) {
-    if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new UsageError(`Base and head must be full Git commit IDs, not ${id}`);
-  }
   const format = choice("--format", values.format, ["markdown", "json"], "markdown");
   const jsonOutput = values["json-output"];
   if (jsonOutput === "" || jsonOutput === "-") throw new UsageError("--json-output needs a file path");
@@ -633,11 +697,13 @@ async function diff(args: string[]): Promise<void> {
   )
     throw new UsageError("--json-output and --output must be different files");
   const precise = preciseArguments(values);
+  repositoryRoot(repository);
   let delta: PullRequestDelta;
   try {
     delta = await compareGitCommitsWithProviders(repository, values.base, values.head, {
       providerPlan: precise?.plan ?? localPlan(),
       onNotice: precise?.onNotice ?? noticeToStderr,
+      ignore,
     });
   } finally {
     saveCache(precise?.cache);
@@ -705,7 +771,9 @@ async function main(args: string[]): Promise<void> {
     };
     process.stdout.write(`${version}\n`);
   } else if (!isCommand(command)) {
-    throw new UsageError(command.startsWith("-") ? `Unknown option: ${command}` : `Unknown command: ${command}`);
+    throw command.startsWith("-")
+      ? unknownOption(command.split("=")[0]!)
+      : new UsageError(`Unknown command: ${command}`);
   } else if (rest.includes("--help") || rest.includes("-h")) {
     process.stdout.write(help[command]);
   } else if (command === "analyze") {

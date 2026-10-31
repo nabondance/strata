@@ -1,24 +1,26 @@
 import { categories } from "../adapters.js";
 import { compareRevisions } from "../compare.js";
 import { configMap } from "../config-map.js";
-import { expandRevisions } from "../expand.js";
+import { expandRevisions, fillRevisions } from "../expand.js";
 import { importLinks } from "../import-links.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../instruction-age.js";
 import type { Report } from "../model.js";
 import { categoryColors, categoryInk, categoryShade, categoryShadeInk } from "../palette.js";
 import { providerName } from "../provider-counting.js";
 import { providerReads, viewRevision } from "../provider-view.js";
-import { timelineBuckets } from "../timeline.js";
-import { layoutTreemap } from "../treemap.js";
+import { timelineBuckets, timelineDateTicks, timelineScale } from "../timeline.js";
+import { layoutTreemap, shorterTreemapNames, treemapNames } from "../treemap.js";
 import { sessionProviderNames, upFrontContext } from "../up-front.js";
 import { ageScript } from "./client/age.js";
 import { compareScript } from "./client/compare.js";
+import { emptyScript } from "./client/empty.js";
 import { filesScript } from "./client/files.js";
 import { historyScript } from "./client/history.js";
 import { importsScript } from "./client/imports.js";
 import { labelsScript } from "./client/labels.js";
 import { mapScript } from "./client/map.js";
 import { renderScript } from "./client/render.js";
+import { silhouetteScript } from "./client/silhouette.js";
 import { skillsScript } from "./client/skills.js";
 import { startScript } from "./client/start.js";
 import { stateScript } from "./client/state.js";
@@ -41,6 +43,8 @@ export const panelScripts = [
   compareScript,
   ageScript,
   renderScript,
+  silhouetteScript,
+  emptyScript,
 ];
 
 /**
@@ -54,6 +58,7 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     .replace(/\u2029/g, "\\u2029");
   const categoryNames = JSON.stringify(categories);
   const compareSource = compareRevisions.toString();
+  const fillSource = fillRevisions.toString();
   const expandSource = expandRevisions.toString();
   const treemapSource = layoutTreemap.toString();
   const viewSource = viewRevision.toString();
@@ -67,11 +72,14 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
   const shareSource = sharePercent.toString();
   const data = `    const data = ${serialized};
     const categories = ${categoryNames};
+    const fillRevisions = ${fillSource};
     const expandRevisions = ${expandSource};
     const compareRevisions = ${compareSource};
     const providerReads = ${readsSource};
     const viewRevision = ${viewSource};
     const timelineBuckets = ${timelineSource};
+    const timelineScale = ${timelineScale.toString()};
+    const timelineDateTicks = ${timelineDateTicks.toString()};
     const importLinks = ${importsSource};
     const upFrontContext = ${upFrontSource};
     const configMap = ${mapSource};
@@ -82,6 +90,8 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     const hierarchy = d3.hierarchy;
     const treemap = d3.treemap;
     const layoutTreemap = ${treemapSource};
+    const treemapNames = ${treemapNames.toString()};
+    const shorterTreemapNames = ${shorterTreemapNames.toString()};
     const providerColumns = (data.providerMeasurements ?? []).map((measured) => measured.provider);
     const colors = ${JSON.stringify(categoryColors)};
     const inks = ${JSON.stringify(categoryInk)};

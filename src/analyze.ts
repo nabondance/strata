@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
 import { classify, conditionalReaders, withoutReader } from "./adapters.js";
-import { addImportedFiles } from "./claude-imports.js";
+import { addImportedFiles, type SymlinkEvent } from "./claude-imports.js";
 import { ContentPass } from "./content-pass.js";
+import { compactRevisions } from "./expand.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { blobSizes, git, gitText, gitTokens } from "./git.js";
+import { type Ignored, ignoreMatcher } from "./ignore.js";
 import {
   byPath,
   distinctBlobs,
@@ -19,7 +21,7 @@ import {
 } from "./inventory.js";
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
-import type { Change, Component, CountedProvider, Report, Revision } from "./model.js";
+import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -42,6 +44,8 @@ export interface AnalysisOptions {
   providerPlan?: ProviderCountPlan;
   /** Called with a line for a person, such as which host is about to receive instruction text. */
   onNotice?: (line: string) => void;
+  /** Patterns, read as `.gitignore` reads them, for paths left out as if they were not in the tree. */
+  ignore?: readonly string[];
 }
 
 /** What one commit changed, relative to its first parent, among recognized paths. */
@@ -52,7 +56,12 @@ interface CommitDelta {
   removed: string[];
   written: TrackedFile[];
   renames: Map<string, string>;
+  /** Recognized paths that became, stayed, or stopped being a symlink, for following Claude imports. */
+  links?: SymlinkEvent[];
 }
+
+/** Git's mode for a symlink, whose blob holds the path it points to. */
+const symlinkMode = "120000";
 
 /** Git's mode for a submodule entry: a commit in another repository, with no files in this one. */
 const gitlinkMode = "160000";
@@ -60,11 +69,13 @@ const gitlinkMode = "160000";
 /**
  * Read the whole first-parent history in one streamed Git process. Each commit's raw diff against
  * its first parent is reduced to the recognized paths it removed, wrote, or renamed. The submodules
- * present at the last commit are collected into `submodules`, each with the commit it records.
+ * present at the last commit are collected into `submodules`, each with the commit it records. A
+ * path `ignored` accepts is passed over at every commit, so it is never in the inventory.
  */
 async function readHistory(
   root: string,
   submodules: Map<string, string>,
+  ignored: Ignored,
   onCommit: (count: number) => void,
 ): Promise<CommitDelta[]> {
   const deltas: CommitDelta[] = [];
@@ -74,6 +85,12 @@ async function readHistory(
   let blob = "";
   let expected = 0;
   let paths: string[] = [];
+  // Recognized paths that are symlinks after the commit read so far.
+  const links = new Set<string>();
+  const linkEvent = (delta: CommitDelta, path: string, link: string | null) => {
+    if (delta.links) delta.links.push({ path, link });
+    else delta.links = [{ path, link }];
+  };
   const tokens = gitTokens(root, [
     "log",
     "--first-parent",
@@ -101,17 +118,23 @@ async function readHistory(
         if (!current) throw new Error("Malformed git log output");
         const path = paths.at(-1)!;
         const source = paths[0]!;
-        if (status === "D" || status[0] === "R") {
+        if ((status === "D" || status[0] === "R") && !ignored(source)) {
           if (classify(source)) current.removed.push(source);
           submodules.delete(source);
+          if (links.delete(source)) linkEvent(current, source, null);
         }
-        if (status !== "D") {
+        if (status !== "D" && !ignored(path)) {
           if (mode === gitlinkMode) submodules.set(path, blob);
           else submodules.delete(path);
           const file = trackedFile(mode, blob, path);
           if (file) current.written.push(file);
           else if (classify(path)) current.removed.push(path);
-          if (file && status[0] === "R" && classify(source)) current.renames.set(source, path);
+          if (file && status[0] === "R" && classify(source) && !ignored(source)) current.renames.set(source, path);
+          // An import may name a recognized path that is a symlink; only links are kept.
+          if (mode === symlinkMode && classify(path)) {
+            links.add(path);
+            linkEvent(current, path, blob);
+          } else if (links.delete(path)) linkEvent(current, path, null);
         }
         continue;
       }
@@ -239,7 +262,9 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const total = Number(gitText(root, ["rev-list", "--count", "--first-parent", "HEAD"]));
   onProgress?.({ completed: 0, total });
   const submodules = new Map<string, string>();
-  const deltas = await readHistory(root, submodules, (completed) =>
+  const ignore = options.ignore ?? [];
+  const ignored = ignoreMatcher(ignore);
+  const deltas = await readHistory(root, submodules, ignored, (completed) =>
     onProgress?.({ completed, total: Math.max(total, completed) }),
   );
   if (!deltas.length) throw new Error("The repository has no commits to analyze");
@@ -255,7 +280,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const pass = new ContentPass([tokens, lineCounter, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
-  const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body));
+  const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body), ignored);
 
   const written = deltas.flatMap((delta) => delta.written);
   for (const reader of conditionalReaders) {
@@ -309,7 +334,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   };
 
   const inventory = new Map<string, number>();
-  const revisions: Revision[] = [];
+  const revisions: FilledRevision[] = [];
   for (const delta of deltas) {
     const previous = revisions.at(-1);
     const { id, date, firstParent } = delta;
@@ -338,7 +363,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     // Unchanged settings keep the previous revision's array, so views can compare by identity.
     const geminiContext =
       names && previous?.geminiContextFiles?.join() === names.join() ? previous.geminiContextFiles : names;
-    const providerTokenTotals: NonNullable<Revision["providerTokenTotals"]> = {};
+    const providerTokenTotals: NonNullable<FilledRevision["providerTokenTotals"]> = {};
     for (const component of components) {
       for (const [provider, count] of Object.entries(component.providerTokenCounts ?? {}) as Array<
         [CountedProvider, ProviderTextCount]
@@ -371,17 +396,18 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 20,
+    schemaVersion: 21,
     repository: basename(root),
     branch,
     shallow,
-    ...(submodules.size ? { submodules: inspectSubmodules(root, submodules) } : {}),
+    ...(ignore.length ? { ignore: [...ignore] } : {}),
+    ...(submodules.size ? { submodules: inspectSubmodules(root, submodules, ignored) } : {}),
     privacy: { mode: "local" },
     measurement: measurer.measurement,
     ...(hasProviderCounts ? { providerMeasurements: provided!.metadata } : {}),
     lineAgeMethod,
     components: order.map((index) => table[index]!),
-    revisions,
+    revisions: compactRevisions(revisions),
   };
 }
 

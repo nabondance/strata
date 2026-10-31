@@ -118,7 +118,7 @@ One shared pass reads each of these blobs once and gives its content to every st
 
 Each instructional version is reduced to counts of its lines as soon as it is read, and each distinct line's text is kept once. Memory therefore grows with the number of distinct lines, plus a few bytes for each line of each distinct version, not with the history's text.
 
-Some paths named by imports match no path rule. For those, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when no instruction file has an import.
+Some paths named by imports match no path rule. For those, one more `git log --first-parent` limited to those paths gives their history, and the history is replayed to decide, commit by commit, which of them the imports reach; see [Claude imports](#claude-imports). Imports nest at most four hops, so there are at most four such rounds, and none when every import names a recognized path. A named path may also be a symlink at some commit: the main log already records which recognized paths are symlinks, and the history read for the other paths shows theirs. A round that finds symlinks reads their blobs and looks up the unrecognized paths they point to the same way, one more `git log` per link in a chain, for at most four links. One last read covers bare words past the depth limit, such as `@README`, to know whether a file has that path.
 
 `strata diff` lists the two commit trees directly and shares the same classification and measurement code.
 
@@ -132,6 +132,7 @@ Since schema version 9, a report stores each distinct file version once and each
 
 - A top-level `components` table holds one entry per distinct path-and-blob pair across the whole history, ordered by path.
 - A revision carries its `componentCount`, `categoryTotals`, `estimatedTokens`, and `changes`. It does not repeat its inventory, and `skillGroups` is no longer stored.
+- Since schema version 21, a revision leaves out `categoryTotals` and `firstParent` when they repeat the previous revision ([version 21](#version-21-carried-forward-totals-import-targets-and-symlinks)).
 - Every change has a `component` field: the index in `components` of the file version now at `path`, or `null` for a removal.
 
 On one local repository with 181 revisions, this cut the HTML report from 57.5 MB to 1.5 MB.
@@ -143,13 +144,13 @@ To rebuild the inventory at a revision, start empty and apply every revision's c
 1. Drop `previousPath` when it is present.
 2. If `component` is `null`, drop `path`; otherwise set `path` to that component.
 
-`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything.
+`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything, carrying `categoryTotals` forward where a revision leaves them out.
 
 A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 20,
+  "schemaVersion": 21,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -183,13 +184,22 @@ A shortened, illustrative JSON shape:
       "estimatedTokens": 2, "deltaTokens": 2, "component": 0
     }],
     "lineAge": { "added": 7 }
+  }, {
+    "id": "<next full Git commit ID>",
+    "date": "<author ISO timestamp>",
+    "componentCount": 1,
+    "estimatedTokens": 2,
+    "changes": []
   }]
 }
 ```
 
+The second revision touched no recognized file, so it leaves out `firstParent` (the first revision's `id`) and `categoryTotals` (the first revision's).
+
 ### Privacy
 
 - Default HTML and JSON reports contain commit IDs, dates, paths, provider and category labels, blob IDs, byte sizes, and estimates. They contain no source text. Paths and blob IDs can still disclose the repository's structure.
+- The paths include the path a Claude `@path` import names when no file has it but the import is written as a path: it holds a `/` or ends with `.md`, `.txt`, `.json`, `.yaml`, `.yml`, `.toml`, `.mdc`, or `.rules` (`pathExtensions` in `src/claude-imports.ts`). So `@mastra/server` in `packages/server/CLAUDE.md` is stored as `packages/server/mastra/server`. A bare word that no file has, such as `@alice`, `@here`, or `@john.doe`, is not stored: the import is kept as `missing` with a null `target`. Nothing else of the file's text is stored, and `--shareable` aliases these paths too.
 - HTML and JSON reports are local artifacts. The CLI writes them with mode `0600`.
 - The HTML report carries a Content-Security-Policy that allows only its own inline style and script, so a browser will not load anything from the network on its behalf.
 - Without `--precise`, Strata makes no network request and uploads no content.
@@ -197,16 +207,26 @@ A shortened, illustrative JSON shape:
 
 ### Shareable reports
 
-`--shareable` produces schema version 20 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 21 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
-- component and change paths;
-- import targets, with the same aliases as paths, including targets no file has;
-- skill roots, MCP server names, and submodule paths;
+- folder names and file stems in component and change paths, `previousPath`s, import targets and `symlinkTarget`s (including targets no file has, such as a package name), skill roots, and submodule paths;
+- MCP server names;
 - blob IDs.
 
+Paths are aliased one segment at a time, so a shareable report keeps the folder tree: which folder holds the weight, how deep a skill sits, which files are nested `AGENTS.md`. `redactReport` in `src/privacy.ts` applies one rule to every path the report holds:
+
+- A segment that is a tool convention stays as it is, wherever it appears: the recognized file and folder names from [the analysis scope](analysis-scope.md#recognized-paths), such as `CLAUDE.md`, `AGENTS.md`, `SKILL.md`, `.mcp.json`, `settings.json`, `.claude`, `.github`, `skills`, `rules`, and `agents`, and the `scripts`, `references`, and `assets` folders the Agent Skills format names. They are public, so they reveal nothing the repository chose. A folder that happens to share such a name, such as a package called `skills`, keeps it too.
+- Every other folder name gets an alias `d1`, `d2`, …, and every other file name keeps its suffix and gets an alias for its stem, `f1`, `f2`, …: `packages/core/AGENTS.md` and `packages/server/AGENTS.md` become `d1/d2/AGENTS.md` and `d1/d3/AGENTS.md`, and `.claude/skills/deploy/scripts/check.py` becomes `.claude/skills/d4/scripts/f1.py`. The kept suffix is the longest of the Copilot suffixes (`.instructions.md`, `.prompt.md`, `.agent.md`, `.chatmode.md`) and a list of common extensions that the name ends with; a name that ends with none of them is aliased whole.
+- One name gets one alias everywhere in the report, so `packages/server` and an import of `packages/server/CLAUDE.md` stay the same folder. Aliases hold no dot and no convention name looks like one, so two different paths never share an alias, even when the repository has a folder named `d1`.
+- Aliases are numbered in the order the history first mentions each name, which the report already shows, rather than in the names' alphabetical order, and padded so that they sort in that order. The component table is reordered by aliased path, so it stays ordered by path.
+
+The lists are `shareableConventions` in `src/privacy.ts`. A test analyzes one history and checks that the shareable and local reports draw the same configuration map tree, with the same folder depths, file counts, categories, and totals at every revision, and that no name the repository chose appears in the shareable JSON or HTML.
+
 These stay visible: dates; category and provider labels; `readers`, `contextFile`, `legacy`, `imported`, `importRoot`, and `upFront` labels; an MCP server's `transport` and `disabled`; `lineAge`; counts, byte sizes, and estimates; change kinds; and the timeline's shape.
+
+The `--ignore` patterns in `ignore` are aliased with the same rule: a literal segment takes the folder or file alias of the name it matches, and a wildcard segment or an empty one from a leading or trailing `/` stays as written, so `examples/**` becomes `d12/**` and the shareable report still says how many patterns were applied without naming a private folder.
 
 Some labels narrow an alias down to a well-known path:
 
@@ -214,25 +234,28 @@ Some labels narrow an alias down to a well-known path:
 - Claude `tools` is only the root `.mcp.json`.
 - `upFront` is set only on a few root file names and on rules in the root `.claude/rules` and `.cursor/rules`.
 
+The kept convention names already show most of these paths, and the folder tree shows how many folders and files a project has and how deep they sit.
+
 The default local report is unchanged. Shareable means reduced identifier exposure, not guaranteed anonymity; inspect a report before publishing it.
 
 ### Schema versions
 
-| Version | Adds                                                                                  |
-| ------- | ------------------------------------------------------------------------------------- |
-| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`             |
-| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))   |
-| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared` |
-| 11      | `estimate` provider counts and the `--precise` metadata fields                        |
-| 12      | `submodules`                                                                          |
-| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                   |
-| 14      | the `cursor` provider and `legacy`                                                    |
-| 15      | the `copilot` provider and `REVIEW.md`                                                |
-| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                       |
-| 17      | `upFront`                                                                             |
-| 18      | `mcp`                                                                                 |
-| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                   |
-| 20      | Codex provider counts on every run; `measurement` always the byte estimate            |
+| Version | Adds                                                                                                                                                                                                                                           |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8       | Gemini CLI as a provider; `providerTokenCounts` and `providerTokenTotals`                                                                                                                                                                      |
+| 9       | the `components` table and per-revision `changes` ([Report layout](#report-layout))                                                                                                                                                            |
+| 10      | `readers`, `contextFile`, and `geminiContextFiles`; `.agents/skills` becomes `shared`                                                                                                                                                          |
+| 11      | `estimate` provider counts and the `--precise` metadata fields                                                                                                                                                                                 |
+| 12      | `submodules`                                                                                                                                                                                                                                   |
+| 13      | skill `listing`, `skillListingTokens`, and `skillListingUnresolved`                                                                                                                                                                            |
+| 14      | the `cursor` provider and `legacy`                                                                                                                                                                                                             |
+| 15      | the `copilot` provider and `REVIEW.md`                                                                                                                                                                                                         |
+| 16      | Claude `@path` imports: `imports`, `importRoot`, and `imported`                                                                                                                                                                                |
+| 17      | `upFront`                                                                                                                                                                                                                                      |
+| 18      | `mcp`                                                                                                                                                                                                                                          |
+| 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                                                                                                                                                                            |
+| 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                                                                     |
+| 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths; shareable paths aliased per segment; `ignore` |
 
 #### Version 8: provider counts
 
@@ -278,7 +301,7 @@ Safeguards:
 
 The count says only that the submodule holds files matching the path rules. Strata does not analyze them; the user can run Strata on the submodule instead. The result depends on which submodules are checked out, so the same commit can give different counts on different machines.
 
-The HTML report shows a warning above the timeline, and the command line prints a note. Both name at most five submodules with recognized files, and give only a count for those that could not be checked. Submodules without recognized files are left out, so vendored libraries add no noise. The command line escapes control characters in submodule paths. The static SVG image carries no submodule note.
+The HTML report shows a warning at the top of the page for submodules with recognized files, and the command line prints a note. Both name at most five of them. Submodules that could not be checked are only counted. A fresh clone leaves submodules uninitialized, so in the HTML report that count is a plain note after the measurement disclosure, not a warning. Submodules without recognized files are left out, so vendored libraries add no noise. The command line escapes control characters in submodule paths. The static SVG image carries no submodule note.
 
 #### Version 13: skill listings
 
@@ -391,6 +414,44 @@ Version 20 removes `--tokenizer`, `--model`, `--codex-model`, and `--provider-ap
 - Codex's `model` is `o200k_base`, the encoding, instead of a model name such as `gpt-5`.
 
 Version 19 and earlier have Codex counts only with `--precise`, and their `measurement` may be an OpenAI encoding.
+
+#### Version 21: carried-forward totals, import targets, and symlinks
+
+A long history is mostly revisions that touch no recognized file, yet each one stored a full `categoryTotals` object, one entry for every category. Report size grew with the number of commits rather than with the number of configuration changes. Version 21 leaves out two fields when they repeat the previous revision:
+
+- `categoryTotals` is absent when every figure in it equals the previous revision's. Absent means the same totals as the previous revision, so a reader takes a revision's totals from the nearest revision at or before it that has them. A revision can change files and keep the same totals, for example after an edit that keeps a file's size, so `changes` does not decide this.
+- `firstParent` is absent when it is the previous revision's `id`. In first-parent order that is every revision but the first, so the field appears again only if a revision's first parent is something else.
+
+The first revision always has both. `id`, `date`, `componentCount`, `estimatedTokens`, `skillListingTokens`, `skillListingUnresolved`, `changes`, `providerTokenTotals`, `geminiContextFiles`, and `lineAge` are unchanged, so per-revision token totals such as `.revisions[-1].estimatedTokens` still need no carrying forward.
+
+The analysis result is the stored report: `compactRevisions` in `src/expand.ts` leaves the fields out once, when analysis assembles the report, so the JSON, the HTML report's embedded data, and `--shareable` all hold the same shape. Shareable aliases map each commit ID to one alias, so a first parent left out before aliasing is still the previous revision's alias. Readers restore the fields with `fillRevisions` in `src/expand.ts`: `expandRevisions` calls it, so the HTML report fills every revision before any panel draws, and the SVG image and the CLI summary call it directly. `fillRevisions` is self-contained and embedded in the HTML report beside `expandRevisions`, and a test checks that filling a version 21 report gives back the version 20 revisions for the same history.
+
+On two public repositories, analyzed with the estimate and Codex's local count:
+
+| Repository                 | Revisions | With `categoryTotals` | JSON before → after     | HTML before → after     |
+| -------------------------- | --------: | --------------------: | ----------------------- | ----------------------- |
+| sst/opencode               |    15,942 |                   131 | 26.8 MB → 5.4 MB (−80%) | 15.5 MB → 4.0 MB (−74%) |
+| mastra-ai/mastra (shallow) |    13,362 |                   192 | 23.1 MB → 4.9 MB (−79%) | 13.6 MB → 3.7 MB (−73%) |
+
+What remains grows with the number of revisions too, but each revision without changes now holds only its ID, date, and scalar totals.
+
+Version 21 also changes how Claude imports are read and stored; see [Claude imports](#claude-imports):
+
+- An import's `target` is the path it names even when no regular file in the analyzed history has it, if the import is written as a path (a `/` or a known file extension), such as an npm scope like `@mastra/server`. Version 20 and earlier stored `null` without `external` for such an import; a bare word such as `@alice` is still stored that way.
+- Trailing punctuation is dropped from an import's path, so `@CONTRIBUTING.md:` names `CONTRIBUTING.md`.
+- An import whose target is a Git symlink somewhere in the history carries `symlinkTarget`, the file the link leads to, and resolves to that file where the target has none. Version 20 and earlier report such an import `missing`.
+
+The same history can therefore reach more files, with larger totals, and list fewer imports as missing. The `strata diff` JSON goes to version 14 for the same reason.
+
+Version 21 also changes shareable paths; see [Shareable reports](#shareable-reports). Version 20 and earlier replaced each whole path with one alias such as `file-00001`, skill roots with `skill-00001`, and submodule paths with `submodule-00001`, so a shareable report had no folders. Version 21 aliases each folder name and file stem and keeps tool convention names and file extensions, so the folder tree survives.
+
+Version 21 also adds `--ignore` and the optional top-level `ignore` field. A monorepo's example apps, templates, and fixtures can track their own `AGENTS.md`, `CLAUDE.md`, or skills, which are not the repository's own agent configuration but count toward its totals. `--ignore <glob>`, repeatable on `analyze` and `diff`, leaves out every tracked path that matches one of its patterns, read as `.gitignore` reads them (`src/ignore.ts`, with no dependency): `*` and `?` within a segment, `**` across segments, a trailing `/` for a folder and everything in it, a leading or middle `/` anchoring at the root, and a pattern with no other `/` matching at any depth. `!` patterns are refused. A matching path is treated as absent from the tree, at every revision and at both compared commits:
+
+- History replay passes over it, so it is never in the inventory; a file moved out of an ignored folder is an addition, not a rename, and a commit that changes only ignored paths has no changes.
+- A Claude `@path` import of it is `missing`, and a symlink at an ignored path, or one leading to one, is not followed: import resolution never reads an ignored path's history, and `strata diff` drops ignored entries from each tree before resolving imports.
+- Submodule file counts leave out files whose path in the parent repository matches.
+
+`ignore` holds the patterns as given, in order (with literal segments aliased in a shareable report), and is present only when at least one was given, so a reader knows the totals cover part of the repository; the HTML header shows `ignoring N patterns` with the list in its title, and the CLI summary prints them on one line. The `strata diff` JSON has the same field from version 14, and its Markdown adds a line naming the patterns. Nothing else in the shape changes: a report without `--ignore` is the same as before.
 
 ## MCP servers
 
@@ -546,18 +607,24 @@ The HTML report's **At session start** panel shows, for the selected revision, e
 
 Claude Code loads the files a `CLAUDE.md` imports with `@path` at launch, alongside it. So an instruction file's own size understates what it brings into context, and a configuration split across imported files would otherwise be invisible to Strata.
 
-[The analysis scope](analysis-scope.md#claude-imports) lists the parsing and resolution rules. They follow [Claude Code's memory documentation](https://code.claude.com/docs/en/memory#import-additional-files) as read on 2026-10-18, which gives the four-hop limit, resolution against the importing file's directory, escaped spaces, quoted paths, and the code exclusions. The rest is Strata's reading of Claude Code's behavior, not documented: what counts as an import (an `@` at a line start or after whitespace), removing a `#` fragment, and which first characters make a path. The Markdown structure Strata recognizes is a documented subset.
+[The analysis scope](analysis-scope.md#claude-imports) lists the parsing and resolution rules. They follow [Claude Code's memory documentation](https://code.claude.com/docs/en/memory#import-additional-files) as read on 2026-10-18, which gives the four-hop limit, resolution against the importing file's directory, escaped spaces, quoted paths, and the code exclusions. The rest is Strata's reading of Claude Code's behavior, not documented: what counts as an import (an `@` at a line start or after whitespace), removing a `#` fragment, removing trailing punctuation, which first characters make a path, and following symlinks. The Markdown structure Strata recognizes is a documented subset.
 
 The decisions that shape the data:
 
 - **Resolved against Git, per revision.** A target resolves only to a tracked regular file at the same revision. Strata does not know where a repository is checked out, so absolute and home-directory imports are `external` rather than looked up on this machine, and none of their text is stored.
+- **Trailing punctuation ends the path.** Claude Code's tokenizing is not published, and instruction files write imports in prose and lists: `- @styleguides/DOC.md: All /docs page types`, `(@e1, @e2)`, `see @CONTRIBUTING.md.` Keeping the punctuation made those imports `missing`. Strata drops trailing `.`, `,`, `:`, `;`, `!`, `?`, and quotes, and a closing `)`, `]`, or `}` that the path does not open, so `@docs/file(1).md` keeps its bracket. A path that really ends in one of those characters is misread; that is rarer than a sentence ending after an import.
+- **Symlinks are followed to their file.** Inventory skips symlinks, but Claude Code reads an imported symlink's file, and projects link a shared guide into the folder that imports it. An import whose target is a Git symlink is followed through the link's blob, resolved against the link's directory, for up to four links, staying inside the repository; the file at the end is what the import reaches, labeled as that file's own path rule says or as imported. The link itself stays out of the inventory.
+  - Imports are stored once per file version, but a link can change between revisions. So history analysis follows a link only when every symlink version the path had in the analyzed history points to the same place, and the chain ends at a path some regular file had. The import stores that file as `symlinkTarget` and reaches it at each revision where its own target has no file. `importLinks` then reports the file as the link's target, with the path the import named as `symlink`.
+  - The links of recognized paths come from analysis's own history log, which already lists every path's mode, and those of other paths from the history read for them. So a repository whose imports name only recognized paths reads no history beyond that log.
+  - Analysis adds the linked file to a revision only while the path the import names is a symlink there. Before the link exists, or after it is deleted, the file is not in the inventory or the totals, and the imports table lists the import as `missing` with the path it names. One case is still approximate: if the file is in that revision's inventory anyway, because a path rule recognizes it or another import reaches it, `importLinks` reports the import as resolved through the link, though the totals are the same either way. Only the named path's own link is checked, not the later links of a chain. A link whose destination changed is not followed at all. `strata diff` follows each tree's own links exactly, so it has none of these cases.
 - **Measured where no path rule recognizes the file.** Imported text is loaded at launch like the importing file, so imported Markdown is measured as Claude instructions, in its own component rather than added to the importer. Other files Claude imports, such as `package.json`, are inventoried by bytes: they are loaded as text too, but structured files stay source-only until a text boundary is defined for them.
 - **Recognized files keep their labels.** A file a path rule recognizes is counted once, as that rule says, even when imported. So an imported skill resource or other source-only Markdown file stays source-only. Relabeling a file by revision would let one file version carry two measurements.
 - **Membership follows the imports.** An imported file is in the inventory exactly while an import reaches it. Adding or dropping an import therefore adds or removes the file at that revision, and the comparison shows the same, without the file having changed.
   - Imported files are found by a history read limited to their paths, without rename detection. `log.follow` is turned off, since it would turn rename following back on for a single path. So a moved imported file is a removal and an addition.
   - A Git pathspec (the path filter given to `git log`) also matches files under a directory of that name; only the requested paths are kept.
 - **Edges are derived, not stored per revision.** What a file imports depends only on its content, so it is stored once per file version as `imports`: a 1-based line number, as evidence, and the resolved target path, never the import text.
-  - A target is kept only when some regular file in the analyzed history has that path. An `@` followed by a word that is not a path, such as a person's handle in prose, is still an import to Claude Code, which finds no file. Storing it would put file text into a report that promises paths only, so such an import stays in the list as `missing` with a null target.
+  - An `@` followed by a word that is not a file, such as an npm scope (`@mastra/server`) or a person's handle in prose (`@alice`), is still an import to Claude Code, which finds no file. Strata does not guess which words are package names. It keeps the target when the import is written as a path, holding a `/` or ending with one of a short list of file extensions (`pathExtensions`), so a reader sees at once that `packages/server/mastra/server` is a package name and not a broken file reference. Until schema version 20 every such target was stored as null, which left the table saying only "not a tracked path".
+  - A bare word that no regular file or symlink in the analyzed history has, such as `@alice`, `@here`, or `@john.doe`, is more likely prose than a path, and storing it would put file text into a report that promises paths. Such an import stays in the list as `missing` with a null target, and the table says "not a tracked path". A bare word that does name a file, such as `@README`, keeps its target. See [Privacy](#privacy); `--shareable` aliases every kept target like any path.
   - Whether an import resolves depends on the revision. `importLinks` derives each revision's `links to` edges from the rebuilt inventory alone, with their hop count, status, and an `external` flag that survives the depth limit. So analysis, the HTML report, and a JSON consumer agree, and a shareable report gives the same edges.
   - Roots are chosen by labels, not paths: first the Claude instructions that are not themselves imported, then each `agents-md` context file those chains did not reach. So an `AGENTS.md` that a `CLAUDE.md` imports counts its own imports from the second hop, as Claude Code does.
 - **Unresolved imports are listed, not drawn.** `missing`, `external`, and `depth-limit` imports stay in the derived list with their status, and the report lists them first, so a broken import is visible instead of silently absent.
@@ -626,15 +693,18 @@ The offline HTML report compares any two revisions present in the report. Schema
 ### Choosing the revisions
 
 - The timeline and the target selector refer to the same revision.
-- The baseline selector starts on "Previous revision", which follows the target, so the comparison lists what the selected revision changed. Once a specific revision is chosen, the baseline stays fixed.
+- The baseline selector starts on "Previous change", which follows the target: it is the revision before the latest revision, at or before the target, whose `changes` are not empty in the current view. So the comparison lists the latest change, also when the selected revision changed nothing, which on a long history is most of them. A line under the selectors names that revision. "Previous revision" is the revision just before the target. Once a specific revision is chosen, the baseline stays fixed, and it is marked on both charts; "Previous change" is marked too.
 - Before the first revision, the baseline is empty.
+- The selectors list the first revision, the latest, and every revision with a non-empty `changes`, grouped by month when there are more than 50. A revision chosen on the chart or slider that is not listed is shown first in the target selector while it is selected.
 - There is no separate list of changes at the selected revision. Like any comparison, this one shows a rename as a removal plus an addition and says so; the treemap's detail line still names a rename.
 
 ### History chart and slider
 
-- The chart is capped at 100 bars. When needed it groups adjacent revisions and displays the last revision in each group. Each bar's tooltip and accessible name give the revision numbers it covers.
+- The chart is capped at 100 bars. When needed it groups adjacent revisions and displays the last revision in each group, and a line under the chart says so with the SVG image's wording. A hover card, also shown for the focused bar, and each bar's accessible name give the revision numbers it covers, its date, and its tokens; the card splits them by category.
+- The value axis has three to five round gridlines (steps of 1, 2, 2.5, or 5 times a power of ten, as in the SVG image) labeled in compact form (20K). It covers every charted revision in the current view and measure, so it is redrawn with a provider tab. Between the end dates, up to four labels mark month, quarter, half-year, or year boundaries, the finest that fits, at least 12% of the width from each other and from the ends; on a narrow screen only one near the middle stays. Bars are revisions, not equal spans of time, so these labels are not evenly spaced.
+- The selected bar keeps its stack in full color: a faint column behind it, a cap above it, and a mark under the axis.
 - The chart starts at the first revision that has a tracked file in the current view, and the date under its left edge is that revision's. Otherwise a repository that adopted agent configuration late would spend most of its bars on nothing.
-- The slider covers the charted revisions, so it stays aligned with the bars. The baseline and target selectors still address every revision.
+- The slider covers the charted revisions, so it stays aligned with the bars. The baseline and target selectors list every revision that changed something, including those before the chart starts.
 - While the slider is dragged, the summary, chart selection, legend, and treemap follow it immediately. The file inventory, comparison tables, imports table, and configuration map, which can hold thousands of rows, are redrawn once the slider settles or is released.
 - Panels are not redrawn when moving between revisions that share the same inventory.
 - The timeline legend gives each category's stored-text tokens at the selected revision, or its file count when the category is source-only. A source-only category's swatch is hollow, since nothing is drawn in its color. Selecting the entry opens the file list filtered to that category. There is no separate composition table.
@@ -643,7 +713,7 @@ The offline HTML report compares any two revisions present in the report. Schema
 
 - Signed differences in estimated stored-text tokens and tracked file counts, grouped by provider and category. Groups with no difference are left out.
 - No token percentage: it can be derived from the two totals and is meaningless against a zero-token baseline.
-- Since version 19, one share, "Instruction text kept": the share of the baseline's instruction bytes still present at the target, always over all files (see [Instruction age](#instruction-age)). It is hidden when the baseline has no instruction text or is not before the target. A fixed baseline is marked on the instruction age chart as on the history chart.
+- Since version 19, one share, "Instruction text kept": the share of the baseline's instruction bytes still present at the target, always over all files (see [Instruction age](#instruction-age)). The share is the headline and the baseline's byte count is named under it, since the method counts bytes, not tokens. It is hidden when the baseline has no instruction text or is not before the target. A fixed baseline is marked on the instruction age chart as on the history chart.
 - The per-component change table omits file-count deltas, because a single matched path can only be added (+1), removed (-1), or edited (0). Aggregate file deltas remain in the provider/category and summary comparisons.
 
 ### Provider views
@@ -680,12 +750,15 @@ The HTML report draws a treemap of the selected revision from the component meas
 
 ### Labels
 
-Interior labels use the skill directory name or the file name. They are checked against their rendered space, and again on resize. Names break only at hyphens, never mid-word. When a label does not fit:
+Interior labels use the skill directory name or the file name. When two rectangles at the revision would carry the same name, such as `AGENTS.md` in several packages or a skill kept under both `.claude/skills` and `.agents/skills`, each name takes as many parent folders as it needs to differ: `core/AGENTS.md`, `.claude/skills/review`. When two or more folders sit between the one that tells it apart and the name, `…` stands for them: `templates/…/AGENTS.md`. A root-level file has no folder and keeps its name. `treemapNames` in `src/treemap.ts` makes these names; the report embeds it.
+
+Labels are checked against their rendered space, and again on resize. Names break only at hyphens, never mid-word. When a label does not fit:
 
 1. When both lines do not fit, the token count is removed.
 2. Then the name is reduced.
-3. Then it is cut to one small line ending in an ellipsis.
-4. It is removed only when even that cannot fit.
+3. Then a name with folders drops whole folders behind an ellipsis, first those after its first folder and then from the left, and finally all of them for `…/<name>`. It never cuts letters from a folder or name. `shorterTreemapNames` offers a form that keeps a folder only when no other name at the revision, or any shorter form of one, could show it, so two rectangles showing a folder never read the same. `…/<name>` is offered even when another rectangle shows it too: a whole name reads better than a cut word, and the full path stays in the rectangle's hover line and accessible name.
+4. Then it is set on one small line, whole or in the first of those shorter forms that fits whole, and only when none does is it cut short with an ellipsis. A cut name with folders keeps them at its start, so two rectangles of the same name still differ.
+5. It is removed only when even that cannot fit.
 
 A tall, narrow rectangle sets its name top to bottom rather than breaking it mid-word.
 
@@ -735,11 +808,13 @@ The map has two relationships and labels them as such:
 - Rows are a fixed height, so lines are placed without measuring the page.
 - On a narrow screen the line gutter narrows and row tags are hidden; the detail line and accessible name still give them.
 
-A shareable report replaces paths with aliases that have no folders, so its map is a flat list with the same lines. The map is not an execution architecture: it does not show which files a session loaded, and it does not show configuration outside the repository.
+A shareable report aliases folder and file names one segment at a time, so its map has the same folders, rows, and lines, under aliased names. The map is not an execution architecture: it does not show which files a session loaded, and it does not show configuration outside the repository.
 
 ## Report masthead
 
-The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, grouping, and scale as the chart beneath it. The layers use the chart's category colors and are decoration, hidden from assistive technology.
+The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, grouping, and scale as the chart beneath it, and a thin line marks the step holding the selected revision. The layers use the chart's category colors and are decoration, hidden from assistive technology.
+
+When no revision tracks a recognized file, the report keeps the masthead and replaces the panels, the provider tabs, and the measurement disclosure with one card. It says how many revisions were read, lists the main recognized paths, and explains that files elsewhere, such as a top-level `skills/` folder, are not read by the supported tools. A history whose configuration was removed later still draws every panel, each with its own empty message at the revisions that have none.
 
 - The headline face, Archivo under the SIL Open Font License, and the page icon are inlined as `data:` URLs. The Content-Security-Policy therefore allows fonts and images from `data:` only; the report still loads nothing from the network.
 - The Strata name in the masthead and footer links to the package's npm page. It is the report's only outbound link, is followed only on click, opens without a referrer, and is the same in every report, so it carries nothing about the analyzed repository.
@@ -761,7 +836,7 @@ The HTML report's masthead names the analyzed repository and holds the figures f
 - The measurement method and its limits sit behind a disclosure. Its visible label states that the figures describe what Git stores, not loaded session context.
 - With provider counts, that label also names each provider's method in one word: `API count` for `api-counted` (Anthropic documents its count endpoint as an estimate, so the report does not call it exact), `exact (local)` for `encoding-exact`, or `estimate`.
 - Opened, the disclosure shows one row per provider with the model, where the text was counted, and the credential source, or why the estimate was used. The full method is in the row's tooltip, and the selected view's provider is bold.
-- A shallow-clone warning, a warning naming submodules that were not analyzed, and the notice that a shareable report replaced names and paths stay visible outside the disclosure.
+- A shallow-clone warning, a warning naming submodules with recognized files that were not analyzed, and the notice that a shareable report replaced names and paths stay visible above the disclosure. The count of submodules that could not be checked is a plain note just after it.
 
 ## SVG image
 
@@ -811,9 +886,9 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 ## Pull-request comparison
 
-`strata diff` compares two supplied full commit IDs by reading their tracked Git trees directly. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
+`strata diff` compares two supplied commits, each any revision Git resolves to a commit (`git rev-parse --verify --end-of-options <rev>^{commit}`, which is read-only), by reading their tracked Git trees directly. Its output names both by full commit ID. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
-Its JSON has its own schema version, currently 13. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
+Its JSON has its own schema version, currently 14. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
 | Version | Adds                                                                                                                                                                                                                                                                                                                                                    |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -826,6 +901,7 @@ Its JSON has its own schema version, currently 13. Compared components carry the
 | 11      | `mcp` when either commit has a component with an [MCP server list](#mcp-servers): the servers at both, the files whose servers could not be read, and the servers `added` and `removed`, each with its name, path, and provider. The Markdown adds a line naming up to ten of each.                                                                     |
 | 12      | `limits` when a [limit](#limits) is set.                                                                                                                                                                                                                                                                                                                |
 | 13      | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate.                                                                     |
+| 14      | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13. `ignore` when `--ignore` is given, with both trees leaving out the paths it matches; the Markdown adds a line naming the patterns.        |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 

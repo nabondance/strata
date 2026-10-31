@@ -39,7 +39,7 @@ Run this one command inside any Git repository. It writes a single HTML report t
 
 ```text
 Analyzed 46 revisions of strata.
-Latest: 4 tracked components, 1151 stored-text tokens (utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file).
+Latest: 4 tracked components, 1151 stored-text tokens (UTF-8 bytes / 4 per file, an estimate).
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
@@ -106,8 +106,8 @@ Strata is clear about what it cannot tell you. It measures the text **stored in 
 
 - **Read-only.** Strata reads tracked Git blobs. It never touches your working tree, index, or history.
 - **Offline.** Strata uses no network unless you ask for precise token counts from the providers with `--precise`. That option uses your signed-in [`ant`](https://github.com/anthropics/anthropic-cli) or `gcloud` account, or an API key, and tells you what it sent where ([setup](docs/usage.md#precise-counts)).
-- **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions.
-- **Shareable mode.** `--shareable` replaces repository and branch names, paths, and commit IDs with stable aliases before you send a report to someone else.
+- **No file contents in reports.** HTML and JSON hold paths, commit IDs, dates, and measurements, never the text of your instructions. The one token they keep from the text is the target of a Claude `@path` import written as a path (with a `/` or a file extension such as `.md`), so a broken import can be named; a bare `@word` that names no file is not kept.
+- **Shareable mode.** `--shareable` replaces repository and branch names, folder and file names, and commit IDs with stable aliases before you send a report to someone else, and keeps the folder tree and tool names such as `.claude` and `AGENTS.md`.
 
 ## Usage
 
@@ -143,6 +143,9 @@ npx context-strata diff --base <base-commit> --head <head-commit>
 # The same, exiting with status 3 if instructions grew by more than 500 tokens
 # or Claude Code keeps more than 8,000 tokens at session start
 npx context-strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
+
+# Leave example apps and templates out of the totals (.gitignore-style patterns)
+npx context-strata analyze --ignore 'examples/**' --ignore 'templates/'
 ```
 
 Install it globally with `npm install --global context-strata` to get the `strata` command. Run `strata --help` or `strata <command> --help` to see every option.
@@ -244,7 +247,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 - **For skills:** the part an agent keeps in context before a skill is used, which is the name and description at the top of the skill file (its _frontmatter_).
 - **For each agent:** what it keeps from the start of a session opened at the repository root (root instructions, rules that load at launch, Claude imports, and skill names and descriptions), shown separately from what it reads later on demand.
 
-**Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, paths, and commit IDs with aliases. Check the report before you send it.
+**Can I share a report from a private repository?** Reports never contain file contents. Add `--shareable` to also replace repository and branch names, folder and file names, and commit IDs with aliases; the folder tree and tool names such as `AGENTS.md` stay. Check the report before you send it.
 
 ## Learn more
 

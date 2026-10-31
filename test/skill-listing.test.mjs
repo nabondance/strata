@@ -79,7 +79,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     const renamed = commit("Rename a skill");
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     const listing = (path) => report.components.find((component) => component.path === path)?.skill?.listing;
     const reviewListing = { status: "listed", tokens: estimate("review\nReview this project carefully.") };
     assert.deepEqual(listing(".claude/skills/review/SKILL.md"), reviewListing);
@@ -125,11 +125,12 @@ test("measures each manifest's listing separately from its stored tokens", async
     assert.equal(codexView.skillListingTokens, listing(".agents/skills/release/SKILL.md").tokens);
     assert.equal(codexView.skillListingUnresolved, 1);
 
-    const shareable = redactReport(report);
-    assert.deepEqual(
-      shareable.components.flatMap((component) => (component.skill?.listing ? [component.skill.listing] : [])),
-      report.components.flatMap((component) => (component.skill?.listing ? [component.skill.listing] : [])),
-    );
+    // Aliased paths sort differently, so the listings are compared in any order.
+    const listings = (subject) =>
+      subject.components
+        .flatMap((component) => (component.skill?.listing ? [JSON.stringify(component.skill.listing)] : []))
+        .sort();
+    assert.deepEqual(listings(redactReport(report)), listings(report));
     assert.doesNotMatch(JSON.stringify(report), /Review this project|Prepare a release/);
 
     const html = renderHtml(report);
@@ -167,7 +168,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     put(".claude/skills/broken/SKILL.md", `---\ndescription: Fixed\n---\n${body}`);
     const edited = commit("Edit two descriptions");
     const delta = compareGitCommits(repo, renamed, edited);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     assert.deepEqual(delta.comparison.skillListing, {
       beforeTokens: latest.skillListingTokens,
       afterTokens:

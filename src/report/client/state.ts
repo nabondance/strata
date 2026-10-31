@@ -8,10 +8,11 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
     const revisions = expandRevisions(data);
     let selected = revisions.length - 1;
-    // The baseline follows the revision before the selected one until a specific revision is chosen.
-    let baseline = 'previous';
+    // The baseline follows the selected revision until a specific revision is chosen: 'change' is the revision
+    // before the latest change at or before it, 'previous' the revision just before it.
+    let baseline = 'change';
     const beforeHistory = { components: [], estimatedTokens: 0 };
-    const baselineRevision = () => baseline === 'previous' ? viewRevisions[selected - 1] ?? beforeHistory : viewRevisions[baseline];
+    const baselineRevision = () => viewRevisions[baselineIndex()] ?? beforeHistory;
     let activeView = 'all';
     // 'estimate', or a provider whose own counts the provider view is drawn with.
     let activeMeasure = 'estimate';
@@ -128,9 +129,14 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
       button.onclick = () => { expanded[id] = !expanded[id]; redraw(); };
       return expanded[id] ? items : items.slice(0, limit);
     }
-    /** The repository name, the counting notice, and the shallow-clone and submodule notices. */
+    /** The repository name, the ignored patterns, the counting notice, and the shallow-clone and submodule notices. */
     function setupNotices() {
       $('repo').textContent = data.repository;
+      // The --ignore patterns, as the user typed them: every total leaves out the paths they match.
+      const ignored = data.ignore || [];
+      $('repo-ignore').hidden = !ignored.length;
+      $('repo-ignore').textContent = ignored.length ? ' · ignoring ' + plural(ignored.length, 'pattern') : '';
+      $('repo-ignore').title = ignored.length ? 'Paths matching these patterns are left out of every revision: ' + ignored.join(', ') : '';
       renderMethod();
       $('shallow').hidden = !data.shallow;
       // Name the submodules holding agent configuration that was not analyzed; count those that could not be checked.
@@ -145,9 +151,9 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
         if (configuredSubmodules.length > 5) listed.push('and ' + fmt(configuredSubmodules.length - 5) + ' more');
         submoduleNotes.push('Not analyzed: ' + fmt(configuredSubmodules.length) + ' Git submodules hold recognized agent configuration files: ' + listed.join(', ') + '. Run Strata on one to see its history.');
       }
-      if (uncheckedSubmodules) {
-        submoduleNotes.push(fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.');
-      }
       $('submodules').hidden = !submoduleNotes.length;
       $('submodules').textContent = submoduleNotes.join(' ');
+      // A fresh clone leaves submodules uninitialized, so that alone is a quiet note beside the measurement disclosure.
+      $('submodules-unchecked').hidden = !uncheckedSubmodules;
+      $('submodules-unchecked').textContent = uncheckedSubmodules ? fmt(uncheckedSubmodules) + ' Git submodule' + (uncheckedSubmodules === 1 ? ' was' : 's were') + ' not checked for agent configuration because ' + (uncheckedSubmodules === 1 ? 'it is' : 'they are') + ' not checked out at the recorded commit.' : '';
     }`;

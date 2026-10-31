@@ -92,7 +92,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
       }),
     });
     assertLineAgesMatchTrees(repo, report);
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     const revisions = expandRevisions(report);
     const labels = (revision) =>
       Object.fromEntries(
@@ -222,7 +222,7 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
 
     // `strata diff` uses the same labels; a .claude/skills change stays in Claude's row.
     const delta = compareGitCommits(repo, added, migrated);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     const legacyDelta = delta.comparison.components.find((component) => component.path === ".cursorrules");
     assert.deepEqual([legacyDelta.kind, legacyDelta.category, legacyDelta.legacy], ["removed", "rules", true]);
     const skillDelta = delta.comparison.components.find((c) => c.path === ".claude/skills/review/SKILL.md");
@@ -258,7 +258,8 @@ test("recognizes Cursor configuration, and has Cursor read other tools' files on
     // The legacy label is not a path, so a shareable report keeps it.
     const shareable = redactReport(report);
     assert.equal(shareable.components.filter((component) => component.legacy).length, 1);
-    assert.ok(!JSON.stringify(shareable).includes(".cursorrules"));
+    // `.cursorrules` is a Cursor convention, not a name the repository chose, so it stays.
+    assert.equal(shareable.components.find((component) => component.legacy).path, ".cursorrules");
 
     const { get } = loadReportUi(renderHtml(report));
     const cursorTab = get("provider-tabs").children.find((child) => child.textContent === "Cursor + shared");

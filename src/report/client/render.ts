@@ -6,7 +6,7 @@ export const renderScript = `    function render(index, dragging) {
       const delta = revision.estimatedTokens - (previous?.estimatedTokens ?? 0);
       slider.value = index;
       renderLegend();
-      $('target').value = String(index);
+      selectTarget(index);
       for (const bucket of chartBuckets) {
         const isSelected = bucket.start <= index && index <= bucket.end;
         bucket.button.classList.toggle('selected', isSelected);
@@ -15,6 +15,7 @@ export const renderScript = `    function render(index, dragging) {
       }
       // A revision before the chart's first bar still leaves the chart reachable by Tab.
       if (chartBuckets.length && !chartBuckets.some((bucket) => bucket.button.tabIndex === 0)) chartBuckets[0].button.tabIndex = 0;
+      markSilhouette();
       $('date').textContent = revision.date.slice(0, 10);
       $('tokens').textContent = fmt(revision.estimatedTokens);
       $('components').textContent = fmt(revision.components.length);

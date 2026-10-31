@@ -8,10 +8,11 @@ import { pathToFileURL } from "node:url";
 import { getEncoding } from "js-tiktoken";
 import { analyzeRepository, categories } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
-import { expandRevisions } from "../dist/expand.js";
+import { compactRevisions, expandRevisions, fillRevisions } from "../dist/expand.js";
+import { summarize } from "../dist/inventory.js";
 import { createMeasurer } from "../dist/measurement.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
-import { redactReport } from "../dist/privacy.js";
+import { redactReport, shareableConventions } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { clientScript, panelScripts } from "../dist/report/client.js";
 import { renderHtml } from "../dist/report.js";
@@ -20,7 +21,7 @@ import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { apiPlan } from "./provider-plans.mjs";
-import { exerciseReportUi } from "./report-ui.mjs";
+import { exerciseReportUi, loadReportUi } from "./report-ui.mjs";
 import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
 test("tracks configuration across first-parent history without reading untracked files", async () => {
@@ -118,7 +119,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerReport.schemaVersion, 20);
+    assert.equal(providerReport.schemaVersion, 21);
     assert.equal(providerReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -202,7 +203,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 13);
+    assert.equal(prDelta.schemaVersion, 14);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -218,8 +219,13 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(!safeMarkdown.includes("<img"));
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
-    assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 20);
+    // A branch name resolves to its full commit ID; a name that resolves to nothing is an error.
+    assert.equal(compareGitCommits(repo, "main", merge).base, merge);
+    assert.throws(
+      () => compareGitCommits(repo, "no-such-branch", merge),
+      /Base "no-such-branch" does not name a commit/,
+    );
+    assert.equal(report.schemaVersion, 21);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -450,7 +456,32 @@ test("tracks configuration across first-parent history without reading untracked
     const longUi = exerciseReportUi(renderHtml(longHistory), longHistory);
     assert.equal(longUi("chart").children.length, 100);
     // A grouped bar names the revisions it covers.
-    assert.ok(longUi("chart").children.some((bar) => /^Revisions \d+–\d+ · /.test(bar.title)));
+    assert.ok(longUi("chart").children.some((bar) => /^Revisions \d+–\d+ · /.test(bar.getAttribute("aria-label"))));
+    // The latest revision changed nothing, so "Previous change" reaches back past the unchanged ones.
+    longUi("baseline").value = "change";
+    longUi("baseline").listeners.change();
+    longUi("target").value = String(longHistory.revisions.length - 1);
+    longUi("target").listeners.change();
+    assert.equal(longUi("baseline").value, "change");
+    assert.equal(
+      longUi("compare-components").children.length,
+      compareRevisions(revisions.at(-2) ?? { components: [], estimatedTokens: 0 }, revisions.at(-1)).components
+        .length || 1,
+    );
+    assert.equal(
+      longUi("compare-span").textContent,
+      `Previous change: revision ${report.revisions.length} · ${report.revisions.at(-1).date.slice(0, 10)}, compared with revision ${report.revisions.length - 1} before it.`,
+    );
+    // A target the selects do not list, because it changed nothing, is shown first while selected.
+    const unchanged = report.revisions.length;
+    longUi("slider").value = String(unchanged);
+    longUi("slider").listeners.change();
+    assert.equal(longUi("target").value, String(unchanged));
+    assert.equal(longUi("target").children[0].value, String(unchanged));
+    assert.match(longUi("target").children[0].textContent, new RegExp(`^${unchanged + 1} · .* · no change$`));
+    longUi("target").value = String(longHistory.revisions.length - 1);
+    longUi("target").listeners.change();
+    assert.notEqual(longUi("target").children[0].value, String(unchanged));
     // History before the first tracked file is left off the chart and stays selectable.
     const nothingTracked = {
       ...report.revisions[0],
@@ -472,8 +503,12 @@ test("tracks configuration across first-parent history without reading untracked
     const lateUi = exerciseReportUi(renderHtml(lateStart), lateStart);
     assert.equal(lateUi("chart").children.length, report.revisions.length);
     assert.equal(lateUi("slider").min, 2);
-    assert.equal(lateUi("baseline").children.length, lateStart.revisions.length + 1);
-    assert.match(lateUi("chart").children[0].title, /^Revision 3 · /);
+    // The first revision is listed although nothing changed there; the second is not.
+    assert.equal(
+      lateUi("baseline").children.length,
+      2 + lateStart.revisions.filter((revision, index) => !index || revision.changes.length).length,
+    );
+    assert.match(lateUi("chart").children[0].getAttribute("aria-label"), /^Revision 3 · /);
     assert.ok(!html.includes("Follow the project conventions."));
     const shareable = redactReport(report);
     const shareableJson = JSON.stringify(shareable);
@@ -481,15 +516,25 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(shareable.privacy.mode, "shareable");
     assert.equal(report.privacy.mode, "local");
     const shareableRevisions = expandRevisions(shareable);
-    assert.match(shareable.components[0].path, /^file-\d{5}$/);
-    assert.match(shareableRevisions[0].skillGroups[0].root, /^skill-\d{5}$/);
-    assert.match(shareableRevisions[0].skillGroups[0].manifestPath, /^file-\d{5}$/);
+    // Paths keep their folders and convention names; every other folder name and file stem is an alias.
+    for (const component of shareable.components) {
+      for (const segment of component.path.split("/")) {
+        assert.ok(shareableConventions.names.has(segment) || /^[df]\d+(\.[a-z.]+)?$/.test(segment), segment);
+      }
+    }
+    assert.ok(shareable.components.some((component) => /^d\d+\/d\d+\/GEMINI\.md$/.test(component.path)));
+    assert.match(shareableRevisions[0].skillGroups[0].root, /^\.(agents|claude|gemini)\/skills\/d\d+$/);
+    assert.match(
+      shareableRevisions[0].skillGroups[0].manifestPath,
+      /^\.(agents|claude|gemini)\/skills\/d\d+\/SKILL\.md$/,
+    );
+    assert.doesNotMatch(
+      shareableJson,
+      /packages|app\/|release|orphan|reviewer|permissions|checklist|example|icon|odd|notes/,
+    );
     for (const revision of revisions) {
       assert.ok(!shareableJson.includes(revision.id));
-      for (const component of revision.components) {
-        assert.ok(!shareableJson.includes(component.path));
-        assert.ok(!shareableJson.includes(component.blob));
-      }
+      for (const component of revision.components) assert.ok(!shareableJson.includes(component.blob));
     }
     assert.ok(!shareableJson.includes(report.repository));
     assert.equal(shareable.revisions.at(-1).estimatedTokens, revisions.at(-1).estimatedTokens);
@@ -507,7 +552,7 @@ test("tracks configuration across first-parent history without reading untracked
     for (const revision of report.revisions) assert.ok(!svg.includes(revision.id));
     assert.ok(svg.includes(`${report.repository} / ${report.branch}`));
     for (const category of categories) {
-      const present = report.revisions.some((revision) => revision.categoryTotals[category].estimatedTokens > 0);
+      const present = revisions.some((revision) => revision.categoryTotals[category].estimatedTokens > 0);
       assert.equal(svg.includes(`>${category}</text>`), present, category);
     }
     assert.match(svg, new RegExp(`<text[^>]*>${report.revisions.at(-1).date.slice(0, 10)}</text>`));
@@ -583,8 +628,8 @@ test("tracks configuration across first-parent history without reading untracked
       encoding: "utf8",
     });
     assert.equal(cli.status, 0, cli.stderr);
-    assert.match(cli.stderr, /Analyzing 9 revisions/);
-    assert.match(cli.stderr, /Processed 9\/9 revisions/);
+    // A run this short prints no progress.
+    assert.doesNotMatch(cli.stderr, /Analyzing|Processed/);
     const cliReport = JSON.parse(readFileSync(output, "utf8"));
     assert.equal(cliReport.revisions.length, 9);
     assert.equal(cliReport.revisions.at(-1).id, merge);
@@ -842,6 +887,184 @@ test("tracks configuration across first-parent history without reading untracked
     const detached = await analyzeRepository(repo);
     assert.equal(detached.branch, "detached HEAD");
     assert.equal(detached.revisions.length, splitReport.revisions.length);
+  } finally {
+    cleanup();
+  }
+});
+
+// Schema 21 leaves out what repeats the previous revision; `fillRevisions` restores it exactly.
+test("leaves out category totals and first parents that repeat the previous revision", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-carried-");
+  try {
+    put("CLAUDE.md", "Root instructions.\n");
+    put("AGENTS.md", "Shared instructions.\n");
+    put(".claude/skills/release/SKILL.md", "---\nname: release\ndescription: Prepare a release\n---\nShip it.\n");
+    const ids = [commit("configuration")];
+    put("README.md", "Not agent configuration.\n");
+    ids.push(commit("readme"));
+    put("src/index.ts", "export {};\n");
+    ids.push(commit("code"));
+    put("CLAUDE.md", "Root instructions, now longer.\n");
+    ids.push(commit("grow instructions"));
+    // Same size, so the same totals although a recognized file changed.
+    put("CLAUDE.md", "Root instructions, now LONGER.\n");
+    ids.push(commit("same-size edit"));
+    ids.push(commit("empty", { flags: ["--allow-empty"] }));
+
+    const report = await analyzeRepository(repo);
+    assert.equal(report.schemaVersion, 21);
+    const stored = report.revisions;
+    assert.equal(stored.length, 6);
+    // The first revision always carries both fields.
+    assert.equal(stored[0].firstParent, null);
+    assert.ok(stored[0].categoryTotals);
+    for (const revision of stored.slice(1)) assert.ok(!("firstParent" in revision), revision.id);
+    assert.deepEqual(
+      stored.map((revision) => "categoryTotals" in revision),
+      [true, false, false, true, false, false],
+    );
+    assert.equal(stored[4].changes.length, 1);
+    // Per-revision totals the README and the skill rely on stay on every revision.
+    for (const revision of stored) {
+      for (const field of ["id", "date", "componentCount", "estimatedTokens", "skillListingTokens", "changes"]) {
+        assert.ok(field in revision, `${revision.id} ${field}`);
+      }
+    }
+
+    // Filling restores every revision's totals and parent, which the JSON round trip keeps.
+    const filled = fillRevisions(JSON.parse(JSON.stringify(report)).revisions);
+    assert.deepEqual(fillRevisions(stored), filled);
+    assert.deepEqual(fillRevisions(filled), filled);
+    assert.deepEqual(compactRevisions(filled), stored);
+    assert.deepEqual(
+      filled.map((revision) => revision.firstParent),
+      [null, ...ids.slice(0, -1)],
+    );
+    const expanded = expandRevisions(report);
+    expanded.forEach((revision, index) => {
+      assert.deepEqual(revision.categoryTotals, summarize(revision.components).categoryTotals, `revision ${index}`);
+      assert.deepEqual(filled[index].categoryTotals, revision.categoryTotals);
+      assert.equal(revision.firstParent, filled[index].firstParent);
+    });
+    assert.notDeepEqual(filled[3].categoryTotals, filled[0].categoryTotals);
+    assert.throws(() => fillRevisions(stored.slice(1)), /first revision/);
+
+    // Shareable aliases keep the same fields out, and the HTML embeds the compacted revisions.
+    const shareable = redactReport(report);
+    assert.deepEqual(
+      shareable.revisions.map((revision) => ["firstParent" in revision, "categoryTotals" in revision]),
+      stored.map((revision) => ["firstParent" in revision, "categoryTotals" in revision]),
+    );
+    assert.deepEqual(
+      fillRevisions(shareable.revisions).map((revision) => revision.firstParent),
+      [null, ...shareable.revisions.slice(0, -1).map((revision) => revision.id)],
+    );
+    // The last revision has no stored totals, so the legend it draws on startup reads filled ones.
+    const legendCategories = categories.filter((category) => filled.at(-1).categoryTotals[category].count);
+    for (const subject of [report, shareable]) {
+      const html = renderHtml(subject);
+      assert.equal(html.match(/"categoryTotals":/g).length, 2);
+      assert.equal(html.match(/"firstParent":/g).length, 1);
+      const ui = loadReportUi(html);
+      assert.deepEqual(
+        ui.get("legend").children.map((label) => [label.textContent, label.children.at(-1).textContent]),
+        legendCategories.map((category) => {
+          const total = filled.at(-1).categoryTotals[category];
+          const files = `${total.count} file${total.count === 1 ? "" : "s"}`;
+          return [category, total.count === total.sourceOnlyCount ? files : String(total.estimatedTokens)];
+        }),
+      );
+    }
+    assert.match(renderSvg(report), /<polygon/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("--ignore leaves matching paths out of every revision, of imports and symlinks, and of the diff", async () => {
+  const { importLinks } = await import("../dist/import-links.js");
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-ignore-");
+  try {
+    put("AGENTS.md", "Root instructions.\n");
+    put("CLAUDE.md", "@docs/guide.md\n@examples/notes.md\n@docs/linked.md\n@examples/guide-link.md\n");
+    put("docs/guide.md", "Guide.\n");
+    put("examples/notes.md", "Example notes.\n");
+    put("examples/agent/AGENTS.md", "Example app instructions.\n");
+    put("templates/basic/CLAUDE.md", "Template instructions.\n");
+    // A link into an ignored folder, and an ignored link out of one.
+    symlinkSync("../examples/notes.md", join(repo, "docs/linked.md"));
+    symlinkSync("../docs/guide.md", join(repo, "examples/guide-link.md"));
+    const first = commit("Configuration with example apps and templates");
+    // The example app's instructions move out of the ignored folder, and the notes change.
+    put("packages/agent/AGENTS.md", "Example app instructions.\n");
+    git("rm", "-q", "examples/agent/AGENTS.md");
+    put("examples/notes.md", "Example notes, edited.\n");
+    const second = commit("Move the example app's instructions");
+    put("templates/basic/CLAUDE.md", "Template instructions, edited.\n");
+    commit("Edit only a template");
+
+    const ignore = ["examples/**", "templates/"];
+    const paths = (revision) => revision.components.map(({ path }) => path);
+    const all = await analyzeRepository(repo);
+    assert.equal(all.ignore, undefined);
+    const full = expandRevisions(all);
+    assert.ok(paths(full[0]).includes("examples/agent/AGENTS.md"));
+    assert.ok(paths(full[0]).includes("templates/basic/CLAUDE.md"));
+    assert.ok(paths(full[0]).includes("examples/notes.md"));
+    assert.equal(full[2].changes.length, 1);
+    assert.deepEqual(
+      importLinks(full[0].components).map(({ target, status }) => `${target} ${status}`),
+      ["docs/guide.md resolved", "examples/notes.md resolved", "examples/notes.md resolved", "docs/guide.md resolved"],
+    );
+
+    const report = await analyzeRepository(repo, { ignore });
+    assert.deepEqual(report.ignore, ignore);
+    assert.ok(!report.components.some(({ path }) => /^(examples|templates)\//.test(path)));
+    const revisions = expandRevisions(report);
+    assert.deepEqual(paths(revisions[0]), ["AGENTS.md", "CLAUDE.md", "docs/guide.md"]);
+    assert.deepEqual(paths(revisions[1]), ["AGENTS.md", "CLAUDE.md", "docs/guide.md", "packages/agent/AGENTS.md"]);
+    // Leaving an ignored folder is an addition, not a rename; an edit there changes nothing.
+    assert.deepEqual(
+      revisions[1].changes.map(({ kind, path }) => `${kind} ${path}`),
+      ["added packages/agent/AGENTS.md"],
+    );
+    assert.deepEqual(revisions[2].changes, []);
+    for (const [index, revision] of revisions.entries()) {
+      assert.ok(revision.estimatedTokens < full[index].estimatedTokens);
+    }
+    // Imports of ignored files, through a link or of an ignored link, are missing; no link is followed.
+    assert.deepEqual(
+      importLinks(revisions[0].components).map(({ target, status }) => `${target} ${status}`),
+      [
+        "docs/guide.md resolved",
+        "examples/notes.md missing",
+        "docs/linked.md missing",
+        "examples/guide-link.md missing",
+      ],
+    );
+    assert.ok(!revisions[0].components.some(({ imports }) => imports?.some((entry) => entry.symlinkTarget)));
+    // A shareable report aliases the literal segments of the patterns like any path and keeps the wildcards.
+    const sharedIgnore = redactReport(report).ignore;
+    assert.equal(sharedIgnore.length, ignore.length);
+    for (const [index, pattern] of ignore.entries()) {
+      const aliased = sharedIgnore[index];
+      assert.equal(aliased.endsWith("/"), pattern.endsWith("/"));
+      assert.equal(aliased.includes("**"), pattern.includes("**"));
+      assert.ok(!/examples|templates/.test(aliased), aliased);
+    }
+
+    const delta = compareGitCommits(repo, first, second, { ignore });
+    assert.deepEqual(delta.ignore, ignore);
+    assert.deepEqual(
+      delta.comparison.components.map(({ kind, path }) => `${kind} ${path}`),
+      ["added packages/agent/AGENTS.md"],
+    );
+    assert.equal(compareGitCommits(repo, first, second).ignore, undefined);
+    assert.match(
+      renderPullRequestDelta(delta),
+      /Left out at both commits: paths matching examples\/\\\*\\\*, templates\//,
+    );
+    assert.doesNotMatch(renderPullRequestDelta(compareGitCommits(repo, first, second)), /Left out/);
   } finally {
     cleanup();
   }

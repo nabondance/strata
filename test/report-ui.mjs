@@ -4,7 +4,7 @@ import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../dist/instruction-age.js";
 import { viewRevision } from "../dist/provider-view.js";
-import { timelineBuckets } from "../dist/timeline.js";
+import { timelineBuckets, timelineScale } from "../dist/timeline.js";
 
 /** Run the report's script against a minimal fake DOM and return its elements by ID. */
 export function loadReportUi(html) {
@@ -15,6 +15,7 @@ export function loadReportUi(html) {
       this.children = [];
       this.style = {};
       this.listeners = {};
+      this.attributes = {};
       this.classes = new Set();
       this.classList = {
         add: (name) => this.classes.add(name),
@@ -36,7 +37,13 @@ export function loadReportUi(html) {
       return null;
     }
     prepend(...children) {
+      for (const child of children) if (child instanceof Element) child.parentElement = this;
       this.children.unshift(...children);
+    }
+    remove() {
+      if (!this.parentElement) return;
+      this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+      this.parentElement = null;
     }
     replaceChildren(...children) {
       this.children = children;
@@ -44,7 +51,12 @@ export function loadReportUi(html) {
     addEventListener(event, listener) {
       this.listeners[event] = listener;
     }
-    setAttribute() {}
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    }
+    getAttribute(name) {
+      return this.attributes[name] ?? null;
+    }
     focus() {
       this.focused = true;
       document.activeElement = this;
@@ -54,7 +66,9 @@ export function loadReportUi(html) {
     }
     getBoundingClientRect() {
       if (this.className === "treemap-leaf") return { bottom: 100, right: 180 };
-      if (this.className === "leaf-name") return { bottom: 40 };
+      // A test can say which names fit, in a full or compact rectangle; one that does not runs past its lower edge.
+      if (this.className === "leaf-name")
+        return { bottom: layout.labelFits?.(this.textContent, this.parentElement) === false ? 200 : 40 };
       if (this.className === "leaf-size")
         return layout.crampedLabels ? { top: 42, bottom: 95, right: 165 } : { top: 60, bottom: 80, right: 150 };
       return { bottom: 0, right: 0 };
@@ -96,13 +110,67 @@ export function loadReportUi(html) {
   return { get: (id) => elements.get(id), timers, layout };
 }
 
+/** The options of a select, inside its month groups or not. */
+export function selectOptions(select) {
+  return select.children.flatMap((child) => (child.tag === "optgroup" ? child.children : [child]));
+}
+
+/** The revision "Previous change" compares with: the one before the latest change at or before `index`. */
+export function previousChange(revisions, index) {
+  let at = index;
+  while (at >= 0 && !revisions[at].changes.length) at -= 1;
+  return Math.max(-1, at - 1);
+}
+
+const compactFormat = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+
+/** The y-axis labels the history chart should show for these revision totals. */
+export function expectedTicks(totals) {
+  return timelineScale(Math.max(1, ...totals)).ticks.map((value) => compactFormat.format(value));
+}
+
 export function exerciseReportUi(html, report) {
   const revisions = expandRevisions(report);
   const { get, timers, layout } = loadReportUi(html);
+  // The value axis labels round steps of the largest total; the step caption appears only when bars group revisions.
+  const tickLabels = () => get("chart-ticks").children.map((tick) => tick.children[0].textContent);
+  assert.deepEqual(tickLabels(), expectedTicks(revisions.map((revision) => revision.estimatedTokens)));
+  assert.ok(tickLabels().length >= 3 && tickLabels().length <= 5);
+  assert.equal(get("chart-ticks").children.at(-1).style.bottom, "210.0px");
+  const charted =
+    revisions.length -
+    Math.max(
+      0,
+      revisions.findIndex((revision) => revision.components.length),
+    );
+  assert.equal(get("chart-steps").hidden, charted <= 100);
+  if (charted > 100)
+    assert.equal(
+      get("chart-steps").textContent,
+      `${new Intl.NumberFormat().format(charted)} revisions shown as 100 steps; each step shows the last revision in its group.`,
+    );
+  // The selects list the first, the latest, and every revision that changed something, after the two relative choices.
+  const listed = revisions.filter(
+    (revision, index) => !index || index === revisions.length - 1 || revision.changes.length,
+  );
+  assert.deepEqual(
+    selectOptions(get("baseline")).map((option) => option.value),
+    ["change", "previous", ...listed.map((revision) => String(revisions.indexOf(revision)))],
+  );
+  assert.equal(selectOptions(get("target")).length, listed.length);
+  assert.equal(
+    get("baseline").children.some((child) => child.tag === "optgroup"),
+    listed.length > 50,
+  );
   // The masthead silhouette has a layer for each category holding tokens; the legend also lists source-only ones.
   const tokenCategories = Object.values(revisions.at(-1).categoryTotals).filter((total) => total.estimatedTokens > 0);
-  assert.ok(get("silhouette").children.length >= tokenCategories.length);
-  assert.ok(get("silhouette").children.length <= get("legend").children.length);
+  const silhouetteLayers = get("silhouette").children.filter((child) => child.className !== "silhouette-mark");
+  assert.ok(silhouetteLayers.length >= tokenCategories.length);
+  assert.ok(silhouetteLayers.length <= get("legend").children.length);
+  // A line in the silhouette marks the selected revision.
+  const mark = get("silhouette").children.at(-1);
+  assert.equal(mark.className, "silhouette-mark");
+  assert.equal(mark.hidden, !silhouetteLayers.length);
   assert.equal(get("repo").textContent, report.repository);
   // Long lists start with their first rows; the rest of this exercise runs with them expanded.
   assert.equal(get("files").children.length, Math.min(25, revisions.at(-1).components.length) || 1);
@@ -117,12 +185,15 @@ export function exerciseReportUi(html, report) {
     get("skill-toggle").listeners.click();
     assert.equal(get("skill-groups").children.length, revisions.at(-1).skillGroups.length);
   }
-  // The comparison starts against the previous revision, so it lists what the selected revision changed.
-  assert.equal(get("baseline").value, "previous");
+  // The comparison starts against the previous change, so it lists what the latest change did.
+  assert.equal(get("baseline").value, "change");
+  assert.equal(get("compare-span").hidden, false);
   assert.equal(
     get("compare-components").children.length,
-    compareRevisions(revisions.at(-2) ?? { components: [], estimatedTokens: 0 }, revisions.at(-1)).components.length ||
-      1,
+    compareRevisions(
+      revisions[previousChange(revisions, revisions.length - 1)] ?? { components: [], estimatedTokens: 0 },
+      revisions.at(-1),
+    ).components.length || 1,
   );
   // The legend carries the selected revision's figure for each category, and the two long panels start closed.
   assert.ok(get("legend").children.every((entry) => entry.children.at(-1).tag === "b"));
@@ -161,24 +232,27 @@ export function exerciseReportUi(html, report) {
         ages.at(to).reduce((sum, cohort) => sum + (cohort.from <= from ? cohort.bytes : 0), 0) / ages.bytes[from],
       );
     assert.equal(get("compare-kept-wrap").hidden, !ages.bytes[2]);
-    if (ages.bytes[2])
+    // The share is the headline; the bytes it is a share of are named under it.
+    if (ages.bytes[2]) {
+      assert.equal(get("compare-kept").textContent, kept(2, 3));
       assert.equal(
-        get("compare-kept").textContent,
-        `${kept(2, 3)} of ${new Intl.NumberFormat().format(ages.bytes[2])} bytes`,
+        get("compare-kept-bytes").textContent,
+        `of ${new Intl.NumberFormat().format(ages.bytes[2])} bytes of instruction text`,
       );
+    }
     assert.equal(get("compare-kept-label").textContent, "Instruction text kept");
     // A baseline after the target has nothing to keep.
     get("baseline").value = "4";
     get("baseline").listeners.change();
     assert.equal(get("compare-kept-wrap").hidden, true);
-    // The previous revision is the default baseline.
+    // "Previous revision" compares with the revision just before the target.
     get("baseline").value = "previous";
     get("baseline").listeners.change();
+    assert.equal(get("compare-span").hidden, true);
     get("target").value = "4";
     get("target").listeners.change();
     assert.equal(get("compare-kept-wrap").hidden, !ages.bytes[3]);
-    if (ages.bytes[3])
-      assert.match(get("compare-kept").textContent, new RegExp(`^${kept(3, 4).replace(/[<>]/, "\\$&")} of `));
+    if (ages.bytes[3]) assert.equal(get("compare-kept").textContent, kept(3, 4));
     // A bar selects the last revision it covers, like the history chart.
     get("age-chart").children[0].listeners.click();
     const firstBucket = timelineBuckets(ages.bytes.length, 100, ageStart)[0];
@@ -270,6 +344,15 @@ export function exerciseReportUi(html, report) {
   assert.ok(claudeTab);
   claudeTab.listeners.click();
   openOnEstimate("claude");
+  // The value axis follows the view's own scale.
+  assert.deepEqual(
+    tickLabels(),
+    expectedTicks(
+      revisions.map(
+        (revision, index) => viewRevision(revision, "claude", revisions[index - 1], report.components).estimatedTokens,
+      ),
+    ),
+  );
   // Kept text covers all files, and says so outside the All files view.
   assert.equal(get("compare-kept-label").textContent, "Instruction text kept (all files)");
   const claudeView = viewRevision(revisions[4], "claude", revisions[3]);

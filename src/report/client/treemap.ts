@@ -33,6 +33,11 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
       treeLegend.replaceChildren();
       treemapLabels = [];
       if (!layout.totalTokens) root.append(text('p', 'No instructional token estimates at this revision.', 'empty'));
+      // A name another rectangle shares takes the folders that tell the two apart; a skill is named by its directory.
+      const labelled = layout.groups.flatMap((group) => group.leaves.map((leaf) => viewRevisions[selected].components[leaf.componentIndex]));
+      const names = treemapNames(labelled.map((component) => component.skill?.role === 'manifest' ? component.skill.root : component.path));
+      const shorter = shorterTreemapNames(names);
+      const leafNames = new Map(labelled.map((component, index) => [component, { label: names[index], shorter: shorter[index] }]));
       for (const group of layout.groups) {
         // The category's block shows through as the band holding its name and the seams between its files.
         const block = text('div', '', 'treemap-group');
@@ -67,11 +72,11 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
           }
           // Rectangles too small for even one short line stay unlabeled; fitTreemapLabels decides the rest.
           if (share.width >= 3.5 && share.height >= 5.5) {
-            const label = component.skill?.role === 'manifest' ? component.skill.root.split('/').at(-1) : component.path.split('/').at(-1);
+            const { label, shorter } = leafNames.get(component);
             const name = text('span', label, 'leaf-name');
             const size = text('span', fmt(leaf.estimatedTokens) + ' tokens', 'leaf-size');
             button.append(name, size);
-            treemapLabels.push({ button, name, size });
+            treemapLabels.push({ button, name, size, label, shorter });
             if (share.width >= 28 && share.height >= 22 && share.width * share.height >= 700) button.classList.add('large');
           }
           const showDetail = () => { $('treemap-hover').textContent = detail; $('treemap-hover').classList.add('detail'); };
@@ -122,8 +127,9 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
 
     function fitTreemapLabels() {
       if (typeof getComputedStyle !== 'function') return;
-      for (const { button, name, size } of treemapLabels) {
+      for (const { button, name, size, label, shorter } of treemapLabels) {
         button.classList.remove('compact');
+        name.textContent = label;
         // A tall, narrow rectangle reads its name top to bottom instead of breaking it mid-word.
         const shape = button.getBoundingClientRect();
         if (shape.width < 90 && shape.height > shape.width * 1.8) button.classList.add('upright');
@@ -146,11 +152,19 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
         }
         if (!nameFits()) {
           name.style.fontSize = '11px';
+          // A name with folders gives up whole folders, in forms no other rectangle can show, and then every folder
+          // behind one ellipsis, a form another rectangle may share; shorterTreemapNames lists them in that order.
+          if (!nameFits() && shorter.length) {
+            if (!shorter.some((option) => { name.textContent = option; return nameFits(); })) name.textContent = label;
+          }
           if (!nameFits()) {
-            // Last resort: one small line, cut short with an ellipsis.
+            // Last resort: one small line. It shows the name or a shorter form whole when one fits, and otherwise
+            // the name cut short with an ellipsis; a name with folders keeps them at its start, so two rectangles of
+            // the same name still read differently.
             name.style.fontSize = '';
             button.classList.add('compact');
             [bottom, right] = inner();
+            if (!nameFits() && !shorter.some((option) => { name.textContent = option; return nameFits(); })) name.textContent = label;
             const compactBox = name.getBoundingClientRect();
             if (right - compactBox.left < 28 || compactBox.bottom > bottom + 1) name.hidden = true;
           }

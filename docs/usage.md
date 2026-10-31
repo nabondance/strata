@@ -19,20 +19,46 @@ strata analyze /path/to/git/repository
 
 The repository argument defaults to the current directory. By default, Strata writes the report to a private temporary directory and prints its path.
 
-| Option                     | What it does                                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `--output <file>` (`-o`)   | Write the report to this file. `--output -` writes it to standard output, for another program to read. |
-| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`.                  |
-| `--open`                   | Open the HTML report or SVG image with the default application.                                        |
-| `--quiet` (`-q`)           | Print only the report path, with no progress or summary.                                               |
+| Option                     | What it does                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--output <file>` (`-o`)   | Write the report to this file. `--output -` writes it to standard output, for another program to read.                 |
+| `--format <format>` (`-f`) | `html` (default), `json` for machine-readable output, `svg` for an image, or `badge`.                                  |
+| `--open`                   | Open the HTML report or SVG image with the default application.                                                        |
+| `--quiet` (`-q`)           | Print only the report path, with no progress or summary.                                                               |
+| `--ignore <glob>`          | Leave out paths matching a pattern at every revision; repeat it for more. See [Leaving paths out](#leaving-paths-out). |
 
-With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both.
+With `--output -`, the summary joins the progress on standard error, and `--quiet` silences both. Progress appears only once a run has taken more than two seconds: one line updated in place on a terminal, or a line per tenth of the history in a log such as CI's.
+
+The summary's `At session start:` line gives each agent's up-front and on-demand tokens. When an agent skips a root `AGENTS.md` by default (Claude Code beside a root Claude file, Codex beside a non-empty `AGENTS.override.md`), the line adds the tokens it skips. When no revision has a recognized file, the summary names the main paths Strata looks for and links to [the analysis scope](analysis-scope.md).
 
 ```sh
 strata analyze /path/to/repository --open
 strata analyze /path/to/repository --format json --output report.json
 strata analyze --format json --output - | jq '.revisions[] | [.date, .estimatedTokens]'
 ```
+
+### Leaving paths out
+
+A monorepo's example apps, templates, and test fixtures can ship their own `AGENTS.md`, `CLAUDE.md`, or skills. Those count toward the repository's totals unless you leave them out with `--ignore`, which `analyze` and `diff` both take:
+
+```sh
+strata analyze --ignore 'examples/**' --ignore 'templates/'
+strata diff --base main --head HEAD --ignore 'examples/**'
+```
+
+A tracked file whose repository-relative path matches any pattern is treated as if it were not in the tree, at every revision (or at both commits for `diff`): it is not counted, a Claude `@path` import of it is reported missing, and a symlink there is not followed. Submodule file counts leave out matching paths too. Patterns follow `.gitignore`:
+
+| Pattern       | Matches                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `*.md`        | `*` is any run of characters within one folder or file name, and `?` one such character.                                                      |
+| `examples/**` | `**` crosses folders: `examples/**` is everything under `examples`, `**/fixtures` any `fixtures` folder, `a/**/b` `b` at any depth under `a`. |
+| `templates/`  | A trailing `/` matches a folder and everything in it, never a file of that name.                                                              |
+| `/CLAUDE.md`  | A leading `/`, or a `/` in the middle, anchors the pattern at the repository root.                                                            |
+| `CLAUDE.md`   | A pattern without a `/` (other than a trailing one) matches at any depth, so `templates/` also matches `packages/templates/`.                 |
+
+A pattern that matches a folder leaves out everything inside it. Other characters, including `[` and `\`, match themselves, and `!` patterns, which re-include a path in `.gitignore`, are refused. Quote patterns so the shell does not expand them.
+
+The report records the patterns in a top-level `ignore` field, the HTML header says `ignoring 2 patterns` (hover it for the list), the summary prints them on one line, and the `diff` Markdown names them, so a reader knows the totals are partial. `--shareable` aliases the folder and file names in them like any other path and keeps the wildcards, so `examples/**` reads `d12/**`.
 
 ### An image for a README
 
@@ -83,11 +109,12 @@ Shields' `label`, `color`, and `style` query parameters change its look. [Runnin
 
 ## Compare two commits
 
-`diff` compares two commits, given as full commit IDs. It reads both revisions directly from Git and prints a Markdown summary by default.
+`diff` compares two commits. Each can be any Git revision that names a commit, such as a commit ID, a short ID, a branch, a tag, or `HEAD~10`; the output names both by full commit ID. A revision that names no commit, or one a shallow clone lacks, is an error. It reads both revisions directly from Git and prints a Markdown summary by default. When no tracked file changed, the summary says so instead of printing empty tables.
 
 - `--format json` gives structured data instead.
 - `--output` saves the result to a file.
 - `--json-output <file>` also writes the JSON from the same comparison to a second file. One run then gives both formats, without counting twice under `--precise`.
+- `--ignore <glob>` leaves matching paths out of both trees, as for `analyze` (see [Leaving paths out](#leaving-paths-out)).
 
 ```sh
 strata diff /path/to/repository --base <base-commit> --head <head-commit>
@@ -219,7 +246,7 @@ ant auth status                      # shows the active profile
 
 ## Shareable reports
 
-In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and file paths, skill directory names, MCP server names, commit IDs, and blob IDs with numbered aliases. The aliases are deterministic, so the same history always gets the same aliases. Dates, labels, and measurements remain visible, so inspect a report before sharing it.
+In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and MCP server names, commit IDs, and blob IDs with numbered aliases. Paths are aliased one folder or file name at a time, so the report keeps its folder tree: `packages/core/AGENTS.md` becomes something like `d1/d2/AGENTS.md`. Folder names get aliases `d1`, `d2`, …, file names keep their extension and get `f1`, `f2`, … for the rest, and tool convention names such as `.claude`, `skills`, `AGENTS.md`, and `SKILL.md` stay as they are. One name gets the same alias everywhere in a report, and the same history always gets the same aliases. Dates, labels, measurements, and the shape of the folder tree remain visible, so inspect a report before sharing it. `strata diff` has no shareable mode.
 
 ## The interpretation skill
 
@@ -236,9 +263,9 @@ The `skill` command refuses to overwrite an existing file.
 
 ### Timeline and comparison
 
-- **Comparison.** Select a baseline and a target revision to compare them. The comparison shows signed changes (`+` or `-`) in estimated tokens and file counts, by provider, category, and component. When either revision has a skill, the change in listed skill tokens is shown beside them. It starts against the previous revision, so it lists what the selected revision changed.
-- **Timeline.** The timeline sets the target revision. For histories longer than 100 revisions, the chart groups neighboring revisions into at most 100 bars. Each bar shows its group's last revision, while the slider still reaches every charted commit.
-- **Where the chart starts.** The chart and slider start at the first revision with tracked configuration in the current view. Earlier revisions stay available in the baseline and target selectors.
+- **Comparison.** Select a baseline and a target revision to compare them. The comparison shows signed changes (`+` or `-`) in estimated tokens and file counts, by provider, category, and component. When either revision has a skill, the change in listed skill tokens is shown beside them. It starts against the previous change: the revision before the latest change at or before the target, so it lists that change even when the selected revision changed nothing. "Previous revision" compares with the revision just before the target. The selectors list only revisions that changed something, plus the first and the latest.
+- **Timeline.** The timeline sets the target revision. For histories longer than 100 revisions, the chart groups neighboring revisions into at most 100 bars. Each bar shows its group's last revision, a line under the chart says how many revisions the bars stand for, and the slider still reaches every charted commit. Hovering or focusing a bar shows the revisions it covers and its tokens by category.
+- **Where the chart starts.** The chart and slider start at the first revision with tracked configuration in the current view. Earlier revisions that changed something stay available in the baseline and target selectors.
 - **Moved files.** The comparison is based on the stored files at those two points, so a moved file may appear as a removal and an addition.
 
 ### Provider tabs
@@ -266,6 +293,7 @@ The treemap shows the selected revision's instruction files as rectangles. Each 
 
 - Rectangles of files that the selected revision added, edited, or renamed are outlined.
 - Hover or focus a rectangle for its full path and token count. Select it to find its file in the inventory.
+- A name that two rectangles share gets the folders that tell them apart, such as `core/AGENTS.md` and `server/AGENTS.md`, or `.claude/skills/review` and `.agents/skills/review`.
 - Source-only and zero-token files stay in the inventory and get no area: source-only files have no token count, and zero-token files have nothing to size.
 
 ### Configuration map
@@ -290,18 +318,21 @@ A folder only holds its files, and a line does not show that a session loaded a 
   - It is weighed by bytes, always covers all files, and groups text by author date.
   - "Compare revisions" also gives the share of the baseline's instruction text still present at the target.
 
+When no revision tracks a recognized file, the report shows one card in place of the panels, listing the main paths Strata recognizes.
+
 The skill-bundle and tracked-components tables are collapsed under their headings. Open one to see its first rows, and expand it to see the full list.
 
 ## The JSON report
 
 - **Components.** JSON reports store each distinct file version once, in a top-level `components` list.
-- **Revisions.** Every revision carries its totals and its `changes`. Each change points at the component now at that path.
-- **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. This keeps reports small on long histories.
+- **Revisions.** Every revision carries its `estimatedTokens`, `componentCount`, and `changes`. Each change points at the component now at that path.
+- **Carried-forward fields.** A revision leaves out `categoryTotals` when they equal the previous revision's, and `firstParent` when it is the previous revision's `id`. The first revision always has both. To read a revision's category totals, take the nearest one at or before it, for example `jq '[.revisions[].categoryTotals | select(.)] | last'` for the latest.
+- **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. Together with the carried-forward fields, this keeps reports small on long histories.
 
-The bundled interpretation skill explains schema version 20 and that replay rule, and also:
+The bundled interpretation skill explains schema version 21 and these rules, and also:
 
 - up-front context, Claude imports, MCP servers, and instruction age;
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;
 - the limits of what JSON can establish.
 
-It also covers the `strata diff` JSON (schema version 13) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+It also covers the `strata diff` JSON (schema version 14) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.

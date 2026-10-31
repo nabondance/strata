@@ -20,8 +20,10 @@ import {
 } from "../dist/limits.js";
 import { tiktokenImplementation } from "../dist/measurement.js";
 import { compareGitCommits } from "../dist/pr-delta.js";
-import { redactReport } from "../dist/privacy.js";
+import { redactReport, shareableConventions } from "../dist/privacy.js";
+import { progressReporter } from "../dist/progress.js";
 import { renderHtml } from "../dist/report.js";
+import { loadReportUi } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
 const cliPath = resolve("dist/cli.js");
@@ -178,10 +180,19 @@ test("incremental history matches a full tree listing at every revision", async 
     assert.equal(revisions[2].components[0].path, ".claude/rules/style.md");
     assert.equal(report.components[0].path, ".claude/agents/a\nb.md");
     assert.equal(shareable.components.length, report.components.length);
-    for (const component of shareable.components) assert.match(component.path, /^file-\d{5}$/);
+    // Each folder name and file stem is a convention name or an alias, and the extension stays.
+    const aliased = (path) =>
+      path
+        .split("/")
+        .every((segment) => shareableConventions.names.has(segment) || /^[df]\d+(\.(md|sh))?$/.test(segment));
+    for (const component of shareable.components) assert.ok(aliased(component.path), component.path);
     for (const revision of shareable.revisions) {
-      for (const change of revision.changes) assert.match(change.path, /^file-\d{5}$/);
+      for (const change of revision.changes) {
+        assert.ok(aliased(change.path), change.path);
+        if (change.previousPath !== undefined) assert.ok(aliased(change.previousPath), change.previousPath);
+      }
     }
+    assert.doesNotMatch(JSON.stringify(shareable), /style|review|check|audit|side|a\\nb/);
     assert.doesNotMatch(renderHtml(report), /Claude API/);
     assert.match(renderHtml(report), /Content-Security-Policy/);
   } finally {
@@ -234,7 +245,7 @@ test("command line follows common conventions", () => {
     // Invocation mistakes exit with 2 and point at help; runtime failures exit with 1.
     for (const [args, message] of [
       [["frobnicate"], /Unknown command: frobnicate/],
-      [["--frobnicate"], /Unknown option: --frobnicate/],
+      [["--frobnicate"], /^strata: Unknown option '--frobnicate'\.\n/],
       [["help", "frobnicate"], /Unknown command/],
       [["analyze", repo, "--frobnicate"], /Unknown option '--frobnicate'/],
       [["analyze", repo, "extra"], /Unexpected argument: extra/],
@@ -246,7 +257,6 @@ test("command line follows common conventions", () => {
       [["analyze", repo, "--claude-model", "x"], /require --precise/],
       [["diff", repo, "--base", base], /requires --base <commit> and --head <commit>/],
       [["diff", repo, "--base", base, "--head", head, "--format", "html"], /--format must be markdown or json/],
-      [["diff", repo, "--base", "main", "--head", head], /full Git commit IDs, not main/],
       [["skill", "extra"], /Unexpected argument: extra/],
       [["diff", repo, "--base", base, "--head", head, "--limit-tokens", "10%"], /whole number of tokens/],
       [["diff", repo, "--base", base, "--head", head, "--limit-increase", "1.5"], /whole number of tokens/],
@@ -282,14 +292,61 @@ test("command line follows common conventions", () => {
       assert.match(result.stderr, /Run strata --help for usage/);
       assert.equal(result.stdout, "");
     }
-    const notRepository = strata(["analyze", outside]);
-    assert.equal(notRepository.status, 1);
-    assert.match(notRepository.stderr, /^strata: Git failed \(rev-parse\): not a git repository/);
-    assert.doesNotMatch(notRepository.stderr, /Run strata --help/);
-    assert.equal(strata(["diff", outside, "--base", base, "--head", head]).status, 1);
-    const missingCommit = strata(["diff", repo, "--base", base, "--head", "0".repeat(40)]);
-    assert.equal(missingCommit.status, 1);
-    assert.match(missingCommit.stderr, /is unavailable/);
+    // Node's advice on positionals that start with '-' is left out; a 0.5 option says what replaced it.
+    const unknown = strata(["analyze", repo, "--frobnicate"]);
+    assert.equal(unknown.stderr, "strata: Unknown option '--frobnicate'.\nRun strata --help for usage.\n");
+    for (const removed of ["--tokenizer", "--model", "--codex-model", "--provider-api"]) {
+      for (const args of [["analyze", repo, removed], ["diff", repo, `${removed}=x`], [removed]]) {
+        const result = strata(args);
+        assert.equal(result.status, 2, args.join(" "));
+        assert.equal(
+          result.stderr,
+          `strata: Unknown option '${removed}'. It was removed in 0.6: Codex is now counted exactly by default, and --precise covers Claude and Gemini.\nRun strata --help for usage.\n`,
+        );
+      }
+    }
+
+    // A path outside any repository, a missing directory, or a file is named, without Git's message.
+    for (const [path, message] of [
+      [outside, `${outside} is not inside a Git repository.`],
+      [join(outside, "nope"), `The directory ${join(outside, "nope")} does not exist.`],
+      [join(repo, "AGENTS.md"), `${join(repo, "AGENTS.md")} is not a directory.`],
+    ]) {
+      for (const args of [
+        ["analyze", path],
+        ["diff", path, "--base", base, "--head", head],
+      ]) {
+        const result = strata(args);
+        assert.equal(result.status, 1, args.join(" "));
+        assert.equal(result.stderr, `strata: ${message}\n`);
+      }
+    }
+
+    // Any revision that names a commit works, and the delta keeps the full IDs.
+    const full = JSON.parse(strata(["diff", repo, "--base", base, "--head", head, "-f", "json"]).stdout);
+    for (const [from, to] of [
+      ["main~1", "main"],
+      [base.slice(0, 7), "HEAD"],
+      [`${head}~`, `${head}^{commit}`],
+    ]) {
+      const result = strata(["diff", repo, "--base", from, "--head", to, "-f", "json"]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(result.stdout), full);
+    }
+    for (const [args, message] of [
+      [["--base", base, "--head", "0".repeat(40)], `Head "${"0".repeat(40)}"`],
+      [["--base", "HEAD~5", "--head", head], 'Base "HEAD~5"'],
+      // Git reads it as a revision, not as its own option.
+      [["--base=--all", "--head", head], 'Base "--all"'],
+      [["--base", "nope", "--head", head], 'Base "nope"'],
+    ]) {
+      const result = strata(["diff", repo, ...args]);
+      assert.equal(result.status, 1, args.join(" "));
+      assert.equal(
+        result.stderr,
+        `strata: ${message} does not name a commit in this repository; check it, or fetch it if this clone lacks it\n`,
+      );
+    }
 
     // --json-output writes the JSON of the same comparison beside the Markdown.
     const both = join(outside, "both");
@@ -405,7 +462,7 @@ test("limits report a passed number and exit with 3, only when set", () => {
     const none = diff("--format", "json");
     assert.equal(none.status, 0);
     assert.equal(JSON.parse(none.stdout).limits, undefined);
-    assert.equal(JSON.parse(none.stdout).schemaVersion, 13);
+    assert.equal(JSON.parse(none.stdout).schemaVersion, 14);
 
     const over = diff(
       "--format",
@@ -635,7 +692,7 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     assert.match(plain.summary, /^## Strata configuration delta/);
     assert.doesNotMatch(plain.stdout + plain.stderr, /::/);
     const delta = JSON.parse(readFileSync(plain.outputs["json-file"], "utf8"));
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     assert.deepEqual(
       { ...plain.outputs, "json-file": undefined },
       {
@@ -852,6 +909,124 @@ test("on a pull request the Action compares GitHub's merge commit with the base 
 });
 
 /** Runs the Action's comparison step as GitHub does for `shell: bash`, with each input as its environment variable. */
+test("--ignore leaves paths out of analyze and diff, and the report header and summary say so", () => {
+  const { repo, put, commit, cleanup } = fixture();
+  try {
+    put("AGENTS.md", "Root instructions for every agent.\n");
+    put("CLAUDE.md", "@examples/notes.md\n");
+    put("examples/notes.md", "Example notes.\n");
+    put("examples/agent/AGENTS.md", "Example app instructions.\n");
+    put("templates/basic/CLAUDE.md", "Template instructions.\n");
+    const base = commit("Configuration with example apps and templates");
+    put("templates/basic/CLAUDE.md", "Template instructions, grown by a few more words.\n");
+    put("AGENTS.md", "Root instructions for every agent, edited.\n");
+    const head = commit("Edit a template and the root");
+    const ignore = ["--ignore", "examples/**", "--ignore", "templates/"];
+
+    const plain = JSON.parse(strata(["analyze", repo, "-f", "json", "-o", "-"]).stdout);
+    assert.equal(plain.ignore, undefined);
+    const json = strata(["analyze", repo, "-f", "json", "-o", "-", ...ignore]);
+    assert.equal(json.status, 0, json.stderr);
+    const report = JSON.parse(json.stdout);
+    assert.deepEqual(report.ignore, ["examples/**", "templates/"]);
+    assert.deepEqual(
+      expandRevisions(report).map((revision) => revision.components.map(({ path }) => path)),
+      [
+        ["AGENTS.md", "CLAUDE.md"],
+        ["AGENTS.md", "CLAUDE.md"],
+      ],
+    );
+    assert.match(
+      json.stderr,
+      /^Ignoring 2 patterns \(examples\/\*\*, templates\/\): the paths they match are left out of every revision\.$/m,
+    );
+    // The import of an ignored file is missing.
+    assert.match(json.stderr, /1 Claude @path import is unresolved at the last revision \(1 missing\)/);
+    // --shareable aliases the literal segments of the patterns like any path, and keeps the wildcards.
+    const shared = JSON.parse(strata(["analyze", repo, "-f", "json", "-o", "-", "--shareable", ...ignore]).stdout);
+    assert.equal(shared.ignore.length, report.ignore.length);
+    assert.match(shared.ignore[0], /^d\d+\/\*\*$/);
+    assert.match(shared.ignore[1], /^d\d+\/$/);
+    assert.ok(!JSON.stringify(shared).includes("examples") && !JSON.stringify(shared).includes("templates"));
+
+    // The header line names how many patterns were ignored, with the patterns in its title.
+    const { get } = loadReportUi(strata(["analyze", repo, "-o", "-", ...ignore]).stdout);
+    assert.equal(get("repo-ignore").hidden, false);
+    assert.equal(get("repo-ignore").textContent, " · ignoring 2 patterns");
+    assert.match(get("repo-ignore").title, /examples\/\*\*, templates\/$/);
+    const without = loadReportUi(strata(["analyze", repo, "-o", "-"]).stdout).get;
+    assert.equal(without("repo-ignore").hidden, true);
+
+    const delta = strata(["diff", repo, "--base", base, "--head", head, "-f", "json", ...ignore]);
+    assert.equal(delta.status, 0, delta.stderr);
+    const parsed = JSON.parse(delta.stdout);
+    assert.deepEqual(parsed.ignore, ["examples/**", "templates/"]);
+    assert.deepEqual(
+      parsed.comparison.components.map(({ path }) => path),
+      ["AGENTS.md"],
+    );
+    const unfiltered = JSON.parse(strata(["diff", repo, "--base", base, "--head", head, "-f", "json"]).stdout);
+    assert.equal(unfiltered.ignore, undefined);
+    assert.equal(unfiltered.comparison.components.length, 2);
+    assert.match(
+      strata(["diff", repo, "--base", base, "--head", head, "--ignore", "templates/"]).stdout,
+      /^Left out at both commits: paths matching templates\/ \(`--ignore`\)\./m,
+    );
+
+    for (const command of [
+      ["analyze", repo],
+      ["diff", repo, "--base", base, "--head", head],
+    ]) {
+      const refused = strata([...command, "--ignore", "!examples/keep.md"]);
+      assert.equal(refused.status, 2);
+      assert.match(refused.stderr, /--ignore: Ignore patterns cannot re-include paths/);
+      assert.equal(strata([...command, "--ignore="]).status, 2);
+    }
+    assert.match(strata(["help", "analyze"]).stdout, /--ignore <glob>/);
+    assert.match(strata(["help", "diff"]).stdout, /--ignore <glob>/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the Action passes its ignore input to strata diff, one pattern per line or comma", {
+  skip: process.platform === "win32",
+}, () => {
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("AGENTS.md", "Root.\n");
+    put("examples/app/AGENTS.md", "Example.\n");
+    put("my templates/CLAUDE.md", "Template.\n");
+    const base = commit("Add instructions");
+    put("examples/app/AGENTS.md", "Example, grown.\n");
+    put("my templates/CLAUDE.md", "Template, grown.\n");
+    put("AGENTS.md", "Root, grown.\n");
+    const head = commit("Grow instructions");
+    const run = actionRunner(temp, { GITHUB_WORKSPACE: repo, STRATA_BASE: base, STRATA_HEAD: head });
+    const changed = (result) =>
+      JSON.parse(readFileSync(result.outputs["json-file"], "utf8")).comparison.components.map(({ path }) => path);
+
+    const plain = run({});
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.equal(JSON.parse(readFileSync(plain.outputs["json-file"], "utf8")).ignore, undefined);
+    assert.equal(changed(plain).length, 3);
+
+    // Newlines and commas both separate patterns; spaces around one are trimmed, and spaces inside kept.
+    const ignored = run({ STRATA_IGNORE: "examples/**,\n  my templates/  \n\n" });
+    assert.equal(ignored.status, 0, ignored.stderr);
+    const delta = JSON.parse(readFileSync(ignored.outputs["json-file"], "utf8"));
+    assert.deepEqual(delta.ignore, ["examples/**", "my templates/"]);
+    assert.deepEqual(changed(ignored), ["AGENTS.md"]);
+    assert.match(ignored.summary, /Left out at both commits: paths matching examples\/\\\*\\\*, my templates\//);
+    // A pattern Strata refuses fails the step.
+    assert.equal(run({ STRATA_IGNORE: "!examples/keep.md" }).status, 2);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 function actionRunner(temp, defaults) {
   const action = readFileSync("action.yml", "utf8");
   const script = action
@@ -879,6 +1054,7 @@ function actionRunner(temp, defaults) {
         STRATA_EVENT_HEAD: "",
         STRATA_EVENT_MERGE: "",
         STRATA_PRECISE: "false",
+        STRATA_IGNORE: "",
         STRATA_LIMIT_TOKENS: "",
         STRATA_LIMIT_INCREASE: "",
         STRATA_LIMIT_UP_FRONT_TOKENS: "",
@@ -904,6 +1080,124 @@ function actionRunner(temp, defaults) {
     return { ...result, summary: read(summary), outputs };
   };
 }
+
+test("the analyze summary names the method in words and says where Strata looks when it finds nothing", () => {
+  const { repo, put, commit } = fixture();
+  try {
+    put("README.md", "No agent configuration here.\n");
+    put("skills/pdf/SKILL.md", "---\nname: pdf\ndescription: Not under a recognized skill folder.\n---\n");
+    commit("Skills at the root");
+    const empty = strata(["analyze", repo, "-o", "-", "-f", "json"]);
+    assert.equal(empty.status, 0, empty.stderr);
+    assert.equal(
+      empty.stderr,
+      [
+        `Analyzed 1 revisions of ${JSON.parse(empty.stdout).repository}.`,
+        "Latest: 0 tracked components, 0 stored-text tokens (UTF-8 bytes / 4 per file, an estimate).",
+        "Strata recognized no agent configuration in this history. It looks for files such as CLAUDE.md, AGENTS.md, GEMINI.md,",
+        ".github/copilot-instructions.md, and the .claude/, .codex/, .agents/skills/, and .cursor/rules/ folders.",
+        "Everything it recognizes: https://github.com/nabondance/strata/blob/main/docs/analysis-scope.md",
+        "",
+      ].join("\n"),
+    );
+    // The JSON keeps the method ID.
+    assert.match(JSON.parse(empty.stdout).measurement.method, /^utf8-bytes-divided-by-four-v1: /);
+    assert.equal(strata(["analyze", repo, "-q", "-o", "-"]).stderr, "");
+
+    // Once a revision had a recognized file, an empty latest revision is not "nothing recognized".
+    put("CLAUDE.md", "Root instructions.\n");
+    commit("Add instructions");
+    rmSync(join(repo, "CLAUDE.md"));
+    commit("Remove instructions");
+    const removed = strata(["analyze", repo, "-o", "-", "-f", "json"]);
+    assert.match(removed.stderr, /^Latest: 0 tracked components/m);
+    assert.doesNotMatch(removed.stderr, /recognized no agent configuration/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("the session-start summary shows the AGENTS.md a provider skips", () => {
+  const { repo, put, commit } = fixture();
+  try {
+    put("CLAUDE.md", "Claude instructions.\n");
+    put("AGENTS.md", "x".repeat(400));
+    commit("Both root files");
+    const result = strata(["analyze", repo, "-o", "-", "-f", "json"]);
+    assert.equal(result.status, 0, result.stderr);
+    const line = result.stderr.split("\n").find((text) => text.startsWith("At session start:"));
+    assert.match(
+      line,
+      /^At session start: Claude Code 6 tokens \(0 more when needed, 100 skipped: AGENTS\.md, as CLAUDE\.md exists\), /,
+    );
+    assert.match(line, /, Codex 100 tokens \(0 more when needed\)[,.]/);
+    assert.equal(line.match(/skipped/g).length, 1);
+    // Without a root Claude file, nothing is skipped and the line says nothing about it.
+    rmSync(join(repo, "CLAUDE.md"));
+    commit("AGENTS.md only");
+    assert.doesNotMatch(strata(["analyze", repo, "-o", "-", "-f", "json"]).stderr, /skipped/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("a diff with no changed file prints a line instead of empty tables, and the same JSON", () => {
+  const { repo, put, commit } = fixture();
+  try {
+    put("CLAUDE.md", "Root instructions.\n");
+    const base = commit("Add instructions");
+    put("README.md", "Not agent configuration.\n");
+    const head = commit("Edit the README");
+    const markdown = strata(["diff", repo, "--base", base, "--head", head]);
+    assert.equal(markdown.status, 0, markdown.stderr);
+    assert.match(markdown.stdout, /\n\nNo instruction files changed\.\n\n/);
+    assert.doesNotMatch(markdown.stdout, /\| Category |\| File /);
+    const delta = JSON.parse(strata(["diff", repo, "--base", base, "--head", head, "-f", "json"]).stdout);
+    assert.deepEqual(withoutProviders(delta), compareGitCommits(repo, base, head));
+    assert.deepEqual(delta.comparison.components, []);
+    // A change keeps both tables and drops the line.
+    put("CLAUDE.md", "Root instructions, grown.\n");
+    const grown = strata(["diff", repo, "--base", base, "--head", commit("Grow")]).stdout;
+    assert.match(grown, /\| Category \| Δ files \| Δ tokens \|/);
+    assert.match(grown, /\| CLAUDE\.md \| edited \|/);
+    assert.doesNotMatch(grown, /No instruction files changed/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("progress waits two seconds, then rewrites one line on a terminal and appends tenths elsewhere", () => {
+  const run = (isTTY, times) => {
+    const written = [];
+    let clock = 0;
+    const report = progressReporter({ isTTY, write: (text) => written.push(text) }, () => clock, 2000);
+    for (const [at, completed] of times) {
+      clock = at;
+      report({ completed, total: 20 });
+    }
+    return written;
+  };
+  // A run that ends within the delay prints nothing.
+  const quick = Array.from({ length: 21 }, (_, completed) => [completed * 50, completed]);
+  assert.deepEqual(run(false, quick), []);
+  assert.deepEqual(run(true, quick), []);
+  // A slow run prints from the first update after the delay: on a terminal one line, cleared at the end.
+  const slow = Array.from({ length: 21 }, (_, completed) => [completed * 200, completed]);
+  assert.deepEqual(run(false, slow), [
+    "Processed 10/20 revisions.\n",
+    "Processed 12/20 revisions.\n",
+    "Processed 14/20 revisions.\n",
+    "Processed 16/20 revisions.\n",
+    "Processed 18/20 revisions.\n",
+    "Processed 20/20 revisions.\n",
+  ]);
+  const terminal = run(true, slow);
+  assert.equal(terminal.length, 11);
+  assert.ok(terminal.every((text) => text.startsWith("\r\x1b[KAnalyzing revisions ") && !text.includes("\n")));
+  assert.equal(terminal.at(-1), "\r\x1b[KAnalyzing revisions 20/20\r\x1b[K");
+  // A repeated final update prints nothing more.
+  assert.deepEqual(run(false, [...slow, [5000, 20]]), run(false, slow));
+});
 
 test("analyze notes submodules that hold agent configuration", () => {
   const { repo, git, put, commit } = fixture();
@@ -934,7 +1228,7 @@ test("analyze notes submodules that hold agent configuration", () => {
     // A shareable run keeps the submodule's name out of its output too.
     const shareable = strata(["analyze", repo, "--shareable", "--format", "json", "--output", "-"]);
     assert.doesNotMatch(shareable.stdout + shareable.stderr, /claude-template/);
-    assert.match(shareable.stderr, /submodule submodule-00001 holds 1 recognized/);
+    assert.match(shareable.stderr, /submodule d1 holds 1 recognized/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

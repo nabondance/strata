@@ -21,6 +21,7 @@ export const reportStyles = `    ${displayFontFace}
     .wordmark { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .03em; line-height: 1; }
     h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; overflow-wrap: anywhere; margin: 26px 0 10px; }
     .repo-meta { color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .04em; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+    #repo-ignore { cursor: help; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; border-top: 1px solid #4a554f; margin-top: 26px; }
     .stat { padding: 14px 0 20px; min-width: 0; }
     .stat span { display: block; color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
@@ -194,4 +195,44 @@ export const reportStyles = `    ${displayFontFace}
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .config-map { --gutter: 64px; } .map-row { grid-template-columns: minmax(0, 1fr) 36px 7ch; gap: 8px; } /* Names need the room; the detail line and accessible name still give each tag. */ .map-tag { display: none; } }`;
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .config-map { --gutter: 64px; } .map-row { grid-template-columns: minmax(0, 1fr) 36px 7ch; gap: 8px; } /* Names need the room; the detail line and accessible name still give each tag. */ .map-tag { display: none; } }
+    .empty-state h2 { text-transform: none; font-size: 28px; line-height: 1.15; overflow-wrap: anywhere; }
+    .empty-state p { max-width: 70ch; font-size: 14px; line-height: 1.55; }
+    .empty-state ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0 0 14px; padding: 0; }
+    .empty-state code { display: inline-block; border: 1px solid var(--line); background: var(--paper); padding: 3px 8px; font-size: 13px; }
+    .submodule-note { margin-top: -10px; }
+    .silhouette .silhouette-mark { left: 0; right: auto; width: 2px; margin-left: -1px; background: var(--bone); opacity: .9; }
+    .silhouette .silhouette-mark[hidden] { display: none; }
+    /* Stored instruction history: a value axis in the left gutter, calendar labels between the end dates, and a hover card. */
+    .history-plot { position: relative; padding-left: 40px; }
+    .history-plot .chart-scroll { position: relative; z-index: 1; }
+    .history-plot .chart { background: none; }
+    .history-ticks { position: absolute; left: 0; right: 0; top: 4px; height: 219px; pointer-events: none; }
+    .history-tick { position: absolute; left: 40px; right: 0; height: 0; border-top: 1px solid var(--grid); }
+    .history-tick span { position: absolute; right: 100%; padding-right: 7px; transform: translateY(-50%); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .history-plot .timeline-meta { position: relative; }
+    .history-dates { position: absolute; inset: 0; pointer-events: none; }
+    .history-dates span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+    .history-steps { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    /* The selected column keeps its stack in full color: a faint tint behind it, and a cap above it in the ink color. */
+    .history-plot .bar.selected { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+    .history-plot .bar.selected .stack { box-shadow: 0 -2px 0 var(--sheet), 0 -5px 0 var(--ink); }
+    .history-plot .bar:focus-visible .stack { box-shadow: 0 -2px 0 var(--sheet), 0 -5px 0 var(--clay); }
+    .history-tip { position: absolute; top: 0; z-index: 2; display: grid; gap: 3px; min-width: 170px; max-width: min(260px, calc(100% - 40px)); padding: 9px 11px; border: 1px solid var(--edge); background: var(--sheet); color: var(--ink); font-size: 12px; line-height: 1.35; pointer-events: none; box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 14%, transparent); }
+    .history-tip-date { color: var(--muted); font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+    .history-tip-row { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+    .history-tip-row b { margin-left: auto; padding-left: 12px; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .history-tip-total { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 2px; }
+    @media (max-width: 520px) { .history-plot { padding-left: 34px; } .history-tick { left: 34px; } .history-dates span:not(.primary) { display: none; } }
+    /* Compare revisions: what "Previous change" stands for, the bytes under the kept share, and the MCP servers as a list. */
+    .compare-span { margin: -8px 0 16px; font-size: 12px; }
+    .compare-summary .compare-kept-bytes { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .compare-mcp-names { display: flex; flex-wrap: wrap; gap: 10px 36px; margin: 10px 0 0; font-size: 13px; }
+    .compare-mcp-heading { display: block; margin-bottom: 4px; color: var(--ink); font-size: 12px; font-weight: 600; }
+    .compare-mcp-names ul { margin: 0; padding: 0; list-style: none; }
+    .compare-mcp-names li { margin: 2px 0; }
+    .compare-mcp-names b { color: var(--ink); font-weight: 600; }
+    .compare-mcp-names .path { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .compare-mcp-names summary { cursor: pointer; }
+    .compare-mcp-names summary:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+    .compare-mcp-names details ul { margin: 4px 0 6px 14px; }`;

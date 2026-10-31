@@ -9,7 +9,8 @@ import {
 import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { blobSizes, git, listTree } from "./git.js";
+import { blobSizes, git, listTree, resolveCommit } from "./git.js";
+import { type Ignored, ignoreMatcher } from "./ignore.js";
 import {
   byPath,
   distinctBlobs,
@@ -47,28 +48,30 @@ import {
 
 type ComparedListing = NonNullable<ComponentDelta["listing"]>;
 
-function commitId(repo: string, id: string): string {
-  if (!/^[0-9a-f]{40,64}$/i.test(id)) throw new Error("Base and head must be full Git commit IDs");
-  try {
-    return git(repo, ["rev-parse", "--verify", "--quiet", `${id}^{commit}`])
-      .toString("utf8")
-      .trim();
-  } catch {
-    throw new Error(`Commit ${id} is unavailable; fetch full base and head history first`);
+/** Resolve a revision expression, such as `HEAD~3` or a short ID, to its full commit ID; `side` names it in the error. */
+function commitId(repo: string, revision: string, side: "Base" | "Head"): string {
+  const id = resolveCommit(repo, revision);
+  if (id === null) {
+    throw new Error(
+      `${side} ${JSON.stringify(revision)} does not name a commit in this repository; check it, or fetch it if this clone lacks it`,
+    );
   }
+  return id;
 }
 
 /**
  * The recognized files in a commit's tree, followed by the files Claude imports there that no path
- * rule recognizes. All of them are added to `pass`, which import parsing hands what it reads.
+ * rule recognizes. All of them are added to `pass`, which import parsing hands what it reads. An
+ * entry `ignored` accepts is dropped from the tree first, so no import reaches it.
  */
 function trackedFiles(
   repo: string,
   id: string,
   imports: Map<string, ClaudeImport[]>,
   pass: ContentPass,
+  ignored: Ignored,
 ): TrackedFile[] {
-  const tree = listTree(repo, id);
+  const tree = listTree(repo, id).filter(({ path }) => !ignored(path));
   const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
   pass.add(recognized);
   const imported = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
@@ -93,9 +96,11 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 13;
+  schemaVersion: 14;
   base: string;
   head: string;
+  /** The `--ignore` patterns, as given, when there were any: both trees leave out the paths they match. */
+  ignore?: string[];
   measurement: Measurement;
   comparison: Comparison;
   /** Per provider that reads stored text at either commit, for a session started at the repository root. */
@@ -108,11 +113,13 @@ export interface PullRequestDelta {
 }
 
 /** With `text`, the shared read also finds which instruction blobs are blank or not UTF-8, for provider counts. */
-function readCommits(repo: string, base: string, head: string, text?: TextCheck) {
+function readCommits(repo: string, base: string, head: string, ignore: readonly string[], text?: TextCheck) {
   const measurer = createMeasurer("estimate");
+  const ignored = ignoreMatcher(ignore);
   git(repo, ["rev-parse", "--git-dir"]);
-  const ids = [commitId(repo, base), commitId(repo, head)] as const;
-  const imports = new Map<string, ClaudeImport[]>();
+  const ids = [commitId(repo, base, "Base"), commitId(repo, head, "Head")] as const;
+  // Each tree keeps its own imports, since a symlink an import names can lead elsewhere in the other.
+  const imports = ids.map(() => new Map<string, ClaudeImport[]>());
   // One shared pass reads each blob whose content any step needs, once.
   const tokens = new TokenCounts(measurer);
   const gemini = new GeminiSettings();
@@ -120,7 +127,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
   const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
-  const files = ids.map((id) => trackedFiles(repo, id, imports, pass));
+  const files = ids.map((id, index) => trackedFiles(repo, id, imports[index]!, pass, ignored));
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
   const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
@@ -132,7 +139,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
     const settings = snapshot.find((file) => file.path === geminiSettingsPath);
     return { snapshot, names: settings ? (configured.get(settings.blob) ?? null) : null };
   });
-  const [before, after] = files.map((snapshot): ComparedRevision => {
+  const [before, after] = files.map((snapshot, index): ComparedRevision => {
     const components = snapshot
       .map((file) => {
         const key = versionKey(file.path, file.blob);
@@ -141,7 +148,7 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
           measured.get(file.blob)!,
           undefined,
           listings.get(key),
-          imports.get(key),
+          imports[index]!.get(key),
           rules.get(key),
           mcp.get(key),
         );
@@ -165,9 +172,10 @@ function readCommits(repo: string, base: string, head: string, text?: TextCheck)
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 13,
+    schemaVersion: 14,
     base: ids[0],
     head: ids[1],
+    ...(ignore.length ? { ignore: [...ignore] } : {}),
     measurement: measurer.measurement,
     comparison: compareRevisions(before!, after!),
     upFront,
@@ -188,9 +196,17 @@ export function limitFigures(delta: PullRequestDelta): LimitFigures {
   };
 }
 
-/** Compare two Git commits without checking them out or writing into the target repository. */
-export function compareGitCommits(repo: string, base: string, head: string): PullRequestDelta {
-  return readCommits(repo, base, head).delta;
+/**
+ * Compare two Git commits without checking them out or writing into the target repository. Paths
+ * matching an `ignore` pattern, read as `.gitignore` reads it, are left out of both trees.
+ */
+export function compareGitCommits(
+  repo: string,
+  base: string,
+  head: string,
+  options: { ignore?: readonly string[] } = {},
+): PullRequestDelta {
+  return readCommits(repo, base, head, options.ignore ?? []).delta;
 }
 
 /**
@@ -202,10 +218,10 @@ export async function compareGitCommitsWithProviders(
   repo: string,
   base: string,
   head: string,
-  options: { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void },
+  options: { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void; ignore?: readonly string[] },
 ): Promise<PullRequestDelta> {
   const text = new TextCheck(countsLocally(options.providerPlan));
-  const { delta, files, measured, snapshots } = readCommits(repo, base, head, text);
+  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options.ignore ?? [], text);
   const all = files.flat();
   const geminiBlobs = new Set(
     snapshots.flatMap(({ snapshot, names }) =>
@@ -379,6 +395,12 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     `Base \`${delta.base.slice(0, 12)}\` → head \`${delta.head.slice(0, 12)}\``,
     "",
+    ...(delta.ignore?.length
+      ? [
+          `Left out at both commits: paths matching ${delta.ignore.map(cell).join(", ")} (\`--ignore\`). The totals cover the rest of the repository.`,
+          "",
+        ]
+      : []),
     ...(delta.limits ? limitLines(delta.limits) : []),
     `Stored instructional text: **${signed(comparison.deltaTokens)}** tokens (${comparison.beforeTokens} → ${comparison.afterTokens}); tracked files: **${signed(comparison.deltaFiles)}** (${comparison.beforeFiles} → ${comparison.afterFiles}).`,
     "",
@@ -388,20 +410,25 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     ...mcpLines(delta),
     ...upFrontLines(delta),
     ...providerLines(delta),
-    "| Category | Δ files | Δ tokens |",
-    "| --- | ---: | ---: |",
-    ...comparison.byCategory
-      .filter((group) => group.deltaFiles || group.deltaTokens)
-      .map((group) => `| ${cell(group.key)} | ${signed(group.deltaFiles)} | ${signed(group.deltaTokens)} |`),
-    "",
-    listingColumn ? "| File | Change | Δ tokens | Δ listed |" : "| File | Change | Δ tokens |",
-    listingColumn ? "| --- | --- | ---: | ---: |" : "| --- | --- | ---: |",
-    ...comparison.components
-      .slice(0, 25)
-      .map(
-        (component) =>
-          `| ${cell(component.path)} | ${component.kind}${component.imported ? " (imported)" : ""} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
-      ),
+    // With no changed file, both tables would have headers only.
+    ...(!comparison.components.length
+      ? ["No instruction files changed."]
+      : [
+          "| Category | Δ files | Δ tokens |",
+          "| --- | ---: | ---: |",
+          ...comparison.byCategory
+            .filter((group) => group.deltaFiles || group.deltaTokens)
+            .map((group) => `| ${cell(group.key)} | ${signed(group.deltaFiles)} | ${signed(group.deltaTokens)} |`),
+          "",
+          listingColumn ? "| File | Change | Δ tokens | Δ listed |" : "| File | Change | Δ tokens |",
+          listingColumn ? "| --- | --- | ---: | ---: |" : "| --- | --- | ---: |",
+          ...comparison.components
+            .slice(0, 25)
+            .map(
+              (component) =>
+                `| ${cell(component.path)} | ${component.kind}${component.imported ? " (imported)" : ""} | ${signed(component.deltaTokens)} |${listingColumn ? `${listingCell(component.listing)} |` : ""}`,
+            ),
+        ]),
   ];
   if (comparison.components.length > 25)
     lines.push("", `${comparison.components.length - 25} more changed components omitted from this summary.`);

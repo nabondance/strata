@@ -10,13 +10,17 @@ export interface ClaudeImport {
   /** 1-based line of the import. */
   line: number;
   /**
-   * The repository path it names, resolved against the importing file's directory. Null when it
-   * points outside the repository (`external`), or names a path no regular file has anywhere in the
-   * analyzed history, whose text is then not stored.
+   * The repository path it names, resolved against the importing file's directory, whether or not
+   * any file has that path. Null when it points outside the repository (`external`).
    */
   target: string | null;
   /** Set when the import names a home-directory or absolute path, or climbs above the repository root. */
   external?: true;
+  /**
+   * Set when `target` is a Git symlink in the analyzed history: the path of the file the link leads
+   * to, following up to four links. An import resolves to it at a revision where `target` has no file.
+   */
+  symlinkTarget?: string;
 }
 
 /** An MCP server a tracked file defines, by name. Its command, URL, arguments, and environment are never stored. */
@@ -119,13 +123,17 @@ export type CategoryTotals = Record<
 /**
  * A revision as stored in a report: its totals and what it changed. Its file inventory is not
  * repeated; `expandRevisions` rebuilds it by replaying `changes` from the first revision.
+ *
+ * `firstParent` and `categoryTotals` are left out when they repeat the previous revision: an absent
+ * `firstParent` is the previous revision's `id`, and absent `categoryTotals` equal the previous
+ * revision's. The first revision always has both. `fillRevisions` restores them.
  */
 export interface Revision {
   id: string;
   date: string;
-  firstParent: string | null;
+  firstParent?: string | null;
   componentCount: number;
-  categoryTotals: CategoryTotals;
+  categoryTotals?: CategoryTotals;
   estimatedTokens: number;
   /**
    * Listed tokens of the skill manifests present. Measured separately and mostly drawn from text
@@ -145,8 +153,14 @@ export interface Revision {
   lineAge?: LineAgeChange;
 }
 
+/** A revision with the `firstParent` and `categoryTotals` it carries forward restored by `fillRevisions`. */
+export interface FilledRevision extends Revision {
+  firstParent: string | null;
+  categoryTotals: CategoryTotals;
+}
+
 /** A revision together with its rebuilt inventory. Unchanged revisions share one inventory. */
-export interface RevisionSnapshot extends Revision {
+export interface RevisionSnapshot extends FilledRevision {
   components: Component[];
   skillGroups: SkillGroup[];
 }
@@ -162,11 +176,16 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 20;
+  schemaVersion: 21;
   repository: string;
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */
   shallow: boolean;
+  /**
+   * The `--ignore` patterns, as given, when there were any: paths they match were left out at every
+   * revision, so the totals cover only the rest of the repository.
+   */
+  ignore?: string[];
   /** Submodules at the last revision, when there are any. Their files are never analyzed. */
   submodules?: Submodule[];
   privacy: { mode: "local" | "shareable" };

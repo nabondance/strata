@@ -143,7 +143,7 @@ export const mapScript = `    // The map draws the view's files; its import line
       // An empty tree holds nothing, so the note under it says why.
       // A provider tab can be empty at a revision that tracks other agents' files.
       const empty = activeView === 'all' || !revisions[selected].components.length ? 'No tracked files at this revision.' : 'No files in this view at this revision.';
-      mapNote = !map.rows.length ? empty : (data.privacy.mode === 'shareable' ? 'Paths are aliases in this export, so files are not grouped into folders. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
+      mapNote = !map.rows.length ? empty : (data.privacy.mode === 'shareable' ? 'Folder and file names are aliases in this export. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
       $('map-hover').textContent = mapNote;
       $('map-hover').classList.remove('detail');
       if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();

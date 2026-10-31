@@ -76,7 +76,7 @@ test("lists the MCP servers tracked files define, without storing their commands
 
     const report = await analyzeRepository(repo);
     const revisions = expandRevisions(report);
-    assert.equal(report.schemaVersion, 20);
+    assert.equal(report.schemaVersion, 21);
     assert.deepEqual(at(revisions[0]), {});
     assert.deepEqual(at(revisions[1]), {
       ".codex/config.toml": ["files:local", "paused docs:remote:off"],
@@ -125,7 +125,7 @@ test("lists the MCP servers tracked files define, without storing their commands
 
     // `strata diff` says which servers a change adds or removes, and that defining one does not load it.
     const delta = compareGitCommits(repo, before, head);
-    assert.equal(delta.schemaVersion, 13);
+    assert.equal(delta.schemaVersion, 14);
     const markdown = renderPullRequestDelta(delta);
     assert.match(
       markdown,
@@ -169,9 +169,16 @@ test("lists the MCP servers tracked files define, without storing their commands
       ],
     );
     assert.equal(ui.get("compare-mcp-wrap").hidden, false);
-    assert.match(
-      ui.get("compare-mcp-names").textContent,
-      /^MCP servers added: github \(\.mcp\.json\)\. MCP servers removed: local \(\.vscode\/mcp\.json\)\.$/,
+    // Added and removed servers are listed one per line, with the file that defines each.
+    const flat = (node) => (node.textContent ?? "") + node.children.map(flat).join("");
+    assert.deepEqual(
+      ui
+        .get("compare-mcp-names")
+        .children.map((group) => [group.children[0].textContent, ...group.children[1].children.map(flat)]),
+      [
+        ["MCP servers added (1)", "github .mcp.json"],
+        ["MCP servers removed (1)", "local .vscode/mcp.json"],
+      ],
     );
 
     // Parsing follows each tool's format; anything outside it is unresolved, not empty.

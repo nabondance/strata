@@ -28,7 +28,7 @@ export function reportBody(report: Report): string {
     <div class="masthead">
       <div class="header-top"><a class="brand" href="${brandUrl}" target="_blank" rel="noopener noreferrer" title="Strata on npm">${markSvg(30)}<span class="wordmark">STRATA</span></a></div>
       <h1 id="repo"></h1>
-      <p class="repo-meta" id="repo-meta"></p>
+      <p class="repo-meta"><span id="repo-meta"></span><span id="repo-ignore" hidden></span></p>
       <div class="stats">
         <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
         <div class="stat"><span id="tokens-label">${adjective} tokens</span><strong id="tokens"></strong></div>
@@ -41,17 +41,25 @@ export function reportBody(report: Report): string {
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
     <p class="notice warning" id="submodules" hidden></p>
-    ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: names, paths, and IDs are replaced with aliases.</p>' : ""}
-    <details class="notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
+    ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: repository, folder, file, and server names and IDs are replaced with aliases. Tool convention names such as <code>.claude</code> and <code>AGENTS.md</code> are kept.</p>' : ""}
+    <section class="panel empty-state" id="empty-state" aria-labelledby="empty-heading" hidden></section>
+    <details class="notice" id="counting-notice"><summary>Stored text, not session context · how tokens are counted<span class="counting-summary" id="counting-summary"></span></summary><p id="method"></p><table class="counting" id="counting" hidden><tbody id="counting-rows"></tbody></table><p id="counting-note" hidden></p></details>
+    <p class="notice submodule-note" id="submodules-unchecked" hidden></p>
+    <div id="report-panels">
     <nav class="provider-tabs" id="provider-tabs" aria-label="Configuration view"></nav>
     <p class="view-note" id="view-note"></p>
     <div class="measure-switch" id="measure-switch" role="group" aria-label="Count with" hidden></div>
     <section class="panel">
       <div class="panel-head"><h2>Stored instruction history</h2><div class="revision" id="revision"></div></div>
       <div class="legend" id="legend"></div>
-      <div class="chart-scroll"><div class="chart" id="chart"></div></div>
-      <input id="slider" type="range" aria-label="Select revision">
-      <div class="timeline-meta"><span id="timeline-start"></span><span id="timeline-end"></span></div>
+      <div class="history-plot" id="history-plot">
+        <div class="history-ticks" id="chart-ticks" aria-hidden="true"></div>
+        <div class="chart-scroll"><div class="chart" id="chart"></div></div>
+        <div class="history-tip" id="chart-tip" aria-hidden="true" hidden></div>
+        <input id="slider" type="range" aria-label="Select revision">
+        <div class="timeline-meta"><span id="timeline-start"></span><span class="history-dates" id="timeline-dates" aria-hidden="true"></span><span id="timeline-end"></span></div>
+        <p class="history-steps" id="chart-steps" hidden></p>
+      </div>
     </section>
     <section class="panel" aria-labelledby="treemap-heading">
       <h2 id="treemap-heading">Configuration at this revision</h2>
@@ -90,7 +98,7 @@ export function reportBody(report: Report): string {
     </details>
     <details class="panel" id="imports-panel" hidden>
       <summary><h2>Claude imports</h2><span class="summary-count" id="imports-count"></span></summary>
-      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep. Broken imports come first.</p>
+      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep. Broken imports come first; an import of a symlink shows the file it leads to after an arrow.</p>
       <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num" title="1 means imported directly by the starting file">Depth</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
       <button class="more" id="imports-more" type="button" hidden></button>
     </details>
@@ -107,14 +115,15 @@ export function reportBody(report: Report): string {
         <label>Baseline revision<select id="baseline"></select></label>
         <label>Target revision<select id="target"></select></label>
       </div>
+      <p class="muted compare-span" id="compare-span"></p>
       <div class="compare-summary">
         <span><span id="compare-tokens-label">${adjective} stored-text tokens</span><strong id="compare-tokens"></strong></span>
         <span>Tracked files<strong id="compare-files"></strong></span>
-        <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span id="compare-kept-label">Instruction text kept</span><strong id="compare-kept"></strong></span>
+        <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span id="compare-kept-label">Instruction text kept</span><strong id="compare-kept"></strong><small class="compare-kept-bytes" id="compare-kept-bytes"></small></span>
         <span id="compare-mcp-wrap" hidden>MCP servers<strong id="compare-mcp"></strong></span>
         <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Skill summary tokens</span><strong id="compare-listing"></strong></span>
       </div>
-      <p class="muted" id="compare-mcp-names" hidden></p>
+      <div class="muted compare-mcp-names" id="compare-mcp-names" hidden></div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
@@ -132,6 +141,7 @@ export function reportBody(report: Report): string {
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
       ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
+    </div>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
   </main>`;
 }
