@@ -207,7 +207,7 @@ strata diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --outp
 
 The last form writes both files from one comparison, as the Action does.
 
-The JSON delta has its own schema version, 12, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
+The JSON delta has its own schema version, 13, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
 
 ### What the delta contains
 
@@ -221,7 +221,7 @@ The JSON delta has its own schema version, 12, and includes the report's measure
 
 Strata's [manual Action smoke workflow](https://github.com/nabondance/strata/actions/workflows/action-smoke.yml) runs the Action on GitHub's runner. It compares the last two commits in this repository, from a shallow checkout that lacks the earlier commit, and runs it:
 
-- with a model and a limit it stays within;
+- with a limit it stays within;
 - with a limit passed under `warn`;
 - with a limit passed under `fail`.
 

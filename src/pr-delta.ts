@@ -233,6 +233,8 @@ export async function compareGitCommitsWithProviders(
       0,
     );
   };
+  // No counted provider reads stored text at either commit: the delta has no provider fields.
+  if (!metadata.length) return delta;
   return {
     ...delta,
     providerMeasurements: metadata,

@@ -39,7 +39,7 @@ What the local count means:
 - It is exact for `o200k_base`. It excludes message framing, special-token handling, actual loaded context, and billing.
 - Text that spells a special token, such as `<|endoftext|>` in a file about language models, is counted as ordinary text rather than rejected.
 - Text is counted one pattern piece at a time, with a cache of distinct pieces. This gives the same total as encoding the whole text (see [the benchmark notes](benchmark.md)).
-- It is taken from the shared content pass, so it reads no file version a second time.
+- It is taken from the shared content pass, so it rarely reads a file version a second time; see [History extraction](#history-extraction).
 - It does not claim accuracy for Claude or Gemini.
 
 Without `--precise`, Strata makes no network request and transfers no content. Structured configuration and supporting resources are measured in source bytes only. See [the tokenizer study](tokenizers.md) for evidence.
@@ -74,7 +74,7 @@ Without `--precise`, Strata makes no network request and transfers no content. S
   - A version that is not valid UTF-8 has no text count, so its providers use the byte estimate for every file and send nothing.
 - Before sending, the CLI prints which host will receive how many instruction file versions. This notice is shown even with `--quiet`.
 - A method that fails during the run, such as one whose token is rejected, is discarded whole and the next method is tried. So one provider's counts never mix methods.
-- `--dry-run` resolves credentials and reports each provider's method and what would be sent, without counting or sending anything.
+- `--dry-run` resolves credentials and reports each provider's method and what would be sent, without sending anything or counting remotely. The local Codex count, taken with the shared read, still runs.
 - Access tokens and keys are held in memory for the run only. They are never written to reports or output.
 
 Each provider's metadata in the report records:
@@ -114,7 +114,7 @@ Blob sizes come from `git cat-file --batch-check`. Blob content is read in bound
 
 Settings, MCP, and other source-only files are otherwise read only where a section below says so.
 
-One shared pass reads each of these blobs once and gives its content to every step that needs it: line counts, Gemini settings, skill listings, rule loading, MCP server names, and the provider-count check for blank or non-UTF-8 text, which also takes the local Codex count. Claude import parsing runs first, because it decides which files join the analysis; the blobs it reads are handed to the shared pass, which does not read them again. The one exception is `--precise` counting with a local tokenizer or a provider API: each of those methods reads the text again when it counts it, so instruction text is never kept in memory waiting for a request.
+One shared pass reads each of these blobs once and gives its content to every step that needs it: line counts, Gemini settings, skill listings, rule loading, MCP server names, and the provider-count check for blank or non-UTF-8 text, which also takes the local Codex count. Claude import parsing runs first, because it decides which files join the analysis; the blobs it reads are handed to the shared pass, which does not read them again. The local Codex count is taken in the pass, from the content it reads for the provider-count text check. Two cases read text again: `--precise` counting with a provider API reads each file version when it sends it, so instruction text is never kept in memory waiting for a request, and a Codex file version whose blob the pass first read for a file Codex does not read (such as `CLAUDE.md` text moved unchanged to `AGENTS.md`) is read again to count it.
 
 Each instructional version is reduced to counts of its lines as soon as it is read, and each distinct line's text is kept once. Memory therefore grows with the number of distinct lines, plus a few bytes for each line of each distinct version, not with the history's text.
 
@@ -149,7 +149,7 @@ A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 19,
+  "schemaVersion": 20,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -232,6 +232,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 17 | `upFront` |
 | 18 | `mcp` |
 | 19 | `lineAgeMethod` and `lineAge`; a narrower `shallow` |
+| 20 | Codex provider counts on every run; `measurement` always the byte estimate |
 
 #### Version 8: provider counts
 
@@ -386,7 +387,7 @@ It also narrows `shallow`. It is true only when the first revision is a shallow 
 Version 20 removes `--tokenizer`, `--model`, `--codex-model`, and `--provider-api`; see [The estimate and Codex's local count](#the-estimate-and-codexs-local-count). The shape is unchanged, but:
 
 - `measurement` is always the byte estimate, so its `encoding` and `model` are always `null`.
-- `providerMeasurements`, `providerTokenCounts`, and `providerTokenTotals` are present without `--precise` whenever Codex reads an instructional file, holding Codex's `o200k_base` counts.
+- `providerMeasurements`, `providerTokenCounts`, and `providerTokenTotals` are present without `--precise` whenever Codex reads an instructional file, holding Codex's `o200k_base` counts. They are absent, rather than empty, when no counted provider reads one, with or without `--precise`; the PR delta's `providerMeasurements` and `providerTotals` follow the same rule.
 - Codex's `model` is `o200k_base`, the encoding, instead of a model name such as `gpt-5`.
 
 Version 19 and earlier have Codex counts only with `--precise`, and their `measurement` may be an OpenAI encoding.

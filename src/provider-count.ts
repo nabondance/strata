@@ -81,7 +81,7 @@ export function textRecipients(measured: ProviderMeasurementMetadata): string[] 
   return [...new Set([...(measured.recipient ? [measured.recipient] : []), ...(measured.alsoSentTo ?? [])])];
 }
 
-/** The encoding Codex instructions are counted with under `--precise`. */
+/** The encoding Codex instructions are counted with on this machine, with or without `--precise`. */
 export const localEncoding = "o200k_base";
 
 export const estimateMethod = "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file";

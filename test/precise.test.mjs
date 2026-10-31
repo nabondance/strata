@@ -415,14 +415,15 @@ test("--precise looks up credentials only for providers the history has instruct
       });
       const label = Object.keys(files).join(", ");
       assert.deepEqual(
-        report.providerMeasurements.map(({ provider }) => provider),
+        // A history with no counted provider's instructions has no provider fields at all.
+        report.providerMeasurements?.map(({ provider }) => provider) ?? [],
         expected,
         label,
       );
       assert.deepEqual([...new Set(ran)], commands, label);
       assert.equal(notices.length, expected.filter((provider) => provider !== "codex").length, label);
       assert.equal(requests.length, expected.length * 2, `${label}: a wrapper probe and one file each`);
-      assert.deepEqual(Object.keys(report.revisions.at(-1).providerTokenTotals), expected, label);
+      assert.deepEqual(Object.keys(report.revisions.at(-1).providerTokenTotals ?? {}), expected, label);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

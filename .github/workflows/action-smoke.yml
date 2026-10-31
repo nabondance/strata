@@ -9,7 +9,7 @@ permissions:
 # Runs the Action from this checkout against the last two commits, from a
 # default shallow checkout that lacks the earlier one, as a user's workflow would. Pull requests already
 # cover the event defaults (strata-pr-delta.yml); this covers given commits,
-# a model, limits, and the outputs.
+# limits, and the outputs.
 jobs:
   local-action:
     runs-on: ubuntu-latest
@@ -30,7 +30,6 @@ jobs:
         with:
           base: ${{ steps.revisions.outputs.base }}
           head: ${{ steps.revisions.outputs.head }}
-          model: gpt-4o
           limit-tokens: 1000000
       - name: Over a limit, as a warning
         id: warned

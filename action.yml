@@ -68,7 +68,7 @@ outputs:
     description: Path of the Markdown delta, the same text as the job summary.
     value: ${{ steps.compare.outputs.summary-file }}
   json-file:
-    description: Path of the JSON delta (schema version 12), for later steps.
+    description: Path of the JSON delta (schema version 13), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
 runs:
   using: composite

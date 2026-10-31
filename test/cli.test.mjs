@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { getEncoding } from "js-tiktoken";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
@@ -34,6 +35,51 @@ const fixture = () => syntheticRepo("strata-cli-");
 function withoutProviders({ providerMeasurements, providerTotals, ...delta }) {
   return delta;
 }
+
+test("without --precise, only Codex reads get provider counts, taken offline", () => {
+  const { repo, put, commit } = fixture();
+  try {
+    // Claude only: no provider fields at all, so the report shows no provider note.
+    const text = "Shared project instructions for every agent.\n";
+    put("CLAUDE.md", text);
+    const base = commit("Claude only");
+    const report = JSON.parse(strata(["analyze", repo, "--format", "json", "-o", "-"]).stdout);
+    assert.equal(report.providerMeasurements, undefined);
+    assert.ok(report.revisions.every((revision) => revision.providerTokenTotals === undefined));
+    const html = strata(["analyze", repo, "-o", "-"]).stdout;
+    assert.doesNotMatch(html, /class="muted provider-note"/);
+    assert.match(html, /<details class="panel" id="files-panel">/);
+
+    // The same blob moves from CLAUDE.md to AGENTS.md, so the comparison reads it for Claude first;
+    // Codex's count is still the o200k_base count of that text, and the files panel stays closed.
+    rmSync(join(repo, "CLAUDE.md"));
+    put("AGENTS.md", text);
+    const head = commit("Move to AGENTS.md");
+    const delta = JSON.parse(strata(["diff", repo, "--base", base, "--head", head, "--format", "json"]).stdout);
+    const exact = getEncoding("o200k_base").encode(text).length;
+    assert.deepEqual(delta.providerTotals, [
+      { provider: "codex", beforeTokens: 0, afterTokens: exact, deltaTokens: exact },
+    ]);
+    const claudeOnly = JSON.parse(strata(["diff", repo, "--base", base, "--head", base, "--format", "json"]).stdout);
+    assert.equal(claudeOnly.providerMeasurements, undefined);
+    assert.equal(claudeOnly.providerTotals, undefined);
+    assert.match(strata(["analyze", repo, "-o", "-"]).stdout, /<details class="panel" id="files-panel">/);
+
+    // A Codex file that is not UTF-8 text makes Codex use the estimate, and the run says why.
+    put("AGENTS.md", Buffer.from([0x68, 0x69, 0xff, 0x0a]));
+    commit("Not UTF-8");
+    const fallback = strata(["analyze", repo, "--format", "json", "-o", "-"]);
+    assert.equal(fallback.status, 0, fallback.stderr);
+    const measured = JSON.parse(fallback.stdout).providerMeasurements;
+    assert.deepEqual(
+      measured.map(({ provider, accuracy }) => [provider, accuracy]),
+      [["codex", "estimate"]],
+    );
+    assert.match(measured[0].fallbacks.join(" "), /not valid UTF-8/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
 
 test("incremental history matches a full tree listing at every revision", async () => {
   const { repo, git, put, commit } = fixture();

@@ -170,7 +170,7 @@ Without `--precise`, nothing is sent. With it:
 - **What is sent.** When step 1 or 2 applies, Strata sends the text of each recognized Claude or Gemini instruction file version to that provider's token-count endpoint.
 - **What you are told.** Before sending, Strata prints the host and the number of file versions. The run ends with each provider's method and anything it skipped.
 - **What is never sent.** Settings, skill resources, and blank files. Codex is counted on this machine.
-- **Files that are not text.** A file version that is not valid UTF-8 text cannot be counted as text. Its providers use the byte estimate for it and send nothing.
+- **Files that are not text.** A file version that is not valid UTF-8 text cannot be counted as text. Each provider that reads it uses the byte estimate for all its files, so one provider's counts never mix methods, and nothing is sent.
 - **Imported and shared files.** Markdown that a Claude `@path` import reaches is a Claude instruction file and is sent like one. A shared file such as `AGENTS.md` is sent to Claude's or Gemini's endpoint when Strata counts it as read by that provider.
 - **What reports record.** The method, its accuracy, the credential source, and the receiving host, never a key or token.
 

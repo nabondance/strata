@@ -275,6 +275,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
   const provided = plan ? await countProviderBlobs(root, written, measured, plan, geminiBlobs, text!, onNotice) : null;
   const countedByPlan = provided ? provided.metadata.map(({ provider }) => provider) : [];
+  // A provider with no instructions in the history gets no count, so a report with none has no provider fields.
+  const hasProviderCounts = countedByPlan.length > 0;
 
   // Each distinct file version is stored once; revisions refer to it by index.
   const table: Component[] = [];
@@ -351,7 +353,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
       firstParent,
       ...summarize(components),
       changes,
-      ...(plan ? { providerTokenTotals } : {}),
+      ...(hasProviderCounts ? { providerTokenTotals } : {}),
       ...(geminiContext ? { geminiContextFiles: geminiContext } : {}),
       ...(lineAge ? { lineAge } : {}),
     });
@@ -376,7 +378,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     ...(submodules.size ? { submodules: inspectSubmodules(root, submodules) } : {}),
     privacy: { mode: "local" },
     measurement: measurer.measurement,
-    ...(provided ? { providerMeasurements: provided.metadata } : {}),
+    ...(hasProviderCounts ? { providerMeasurements: provided!.metadata } : {}),
     lineAgeMethod,
     components: order.map((index) => table[index]!),
     revisions,

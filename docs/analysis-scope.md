@@ -321,11 +321,11 @@ Without `--precise`, no repository content is sent.
 
 ### Report fields
 
-The report is schema version 19. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
+The report is schema version 20. Each field below first appeared in the version shown. "9 or earlier" marks a field that predates the recorded schema history. [Schema versions](decisions.md#schema-versions) describes each version's change.
 
 | Field | Meaning | Since version |
 | --- | --- | --- |
-| `providerTokenCounts` on instructional components, `providerTokenTotals` on revisions | provider counts from `--precise`, kept apart from the default estimate | 8 |
+| `providerTokenCounts` on instructional components, `providerTokenTotals` on revisions | each provider's own counts, kept apart from the estimate: Codex's on every run, Claude's and Gemini's with `--precise` | 8 |
 | `privacy.mode` | `local`, or `shareable` for a report with aliased identifiers | 9 or earlier |
 | `measurement` (`family`, `accuracy`, `encoding`, `model`, `implementation`) | how the report's token figures were measured | 9 or earlier |
 | `skill` (`root`, `role`) on skill components | the skill directory a file belongs to, and whether it is the manifest or a resource | 9 or earlier |
