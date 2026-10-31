@@ -40,9 +40,8 @@ function assertReadsEachBlobOnce(repo, base, head) {
     const output = join(bin, "out.json");
     for (const args of [
       ["analyze", repo, "--output", output, "--format", "json"],
-      ["analyze", repo, "--output", output, "--format", "json", "--tokenizer", "openai-o200k_base"],
       ["analyze", repo, "--output", output, "--format", "json", "--precise", "--dry-run", "--no-cache"],
-      ["diff", repo, "--base", base, "--head", head, "--format", "json", "--tokenizer", "openai-o200k_base"],
+      ["diff", repo, "--base", base, "--head", head, "--format", "json"],
       ["diff", repo, "--base", base, "--head", head, "--format", "json", "--precise", "--dry-run", "--no-cache"],
     ]) {
       writeFileSync(log, "");
@@ -121,7 +120,7 @@ test("dates instruction lines by the revision they appeared at and follows them 
 
     const report = await analyzeRepository(repo);
     assertLineAgesMatchTrees(repo, report);
-    assert.equal(report.schemaVersion, 19);
+    assert.equal(report.schemaVersion, 20);
     assert.equal(report.lineAgeMethod, "exact-trimmed-line-multiset-stored-bytes-v1");
     assert.equal(report.revisions.length, 12);
     const copy = report.components.find((component) => component.path === ".claude/skills/build/copy.txt");
@@ -203,12 +202,7 @@ test("dates instruction lines by the revision they appeared at and follows them 
       cli.stdout,
     );
 
-    // A tokenizer reads instruction text to count it, and the line ages come from that same read.
-    const tokenized = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.deepEqual(
-      tokenized.revisions.map((revision) => revision.lineAge),
-      changes,
-    );
+    // Without --precise, Codex reads (AGENTS.md after the rename) are counted from the same read as the line ages.
     assertReadsEachBlobOnce(repo, git("rev-parse", "HEAD~11"), git("rev-parse", "HEAD"));
   } finally {
     cleanup();

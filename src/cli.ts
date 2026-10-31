@@ -22,18 +22,16 @@ import {
   limitSummary,
   parseLimits,
 } from "./limits.js";
-import { type MeasurementMode, modeForModel, modelEncodings, modelPrefixEncodings } from "./measurement.js";
 import type { Component, Report, Submodule } from "./model.js";
 import {
-  compareGitCommits,
-  compareGitCommitsPrecise,
+  compareGitCommitsWithProviders,
   limitFigures,
   type PullRequestDelta,
   renderPullRequestDelta,
 } from "./pr-delta.js";
-import { defaultModels, resolvePrecisePlan } from "./precise.js";
+import { defaultModels, localPlan, resolvePrecisePlan } from "./precise.js";
 import { redactReport } from "./privacy.js";
-import type { CountedProvider, ProviderCountOptions, ProviderCountPlan } from "./provider-count.js";
+import type { CountedProvider, ProviderCountPlan } from "./provider-count.js";
 import { renderHtml } from "./report.js";
 import { renderSvg } from "./svg.js";
 import {
@@ -50,17 +48,10 @@ const providerLabel: Record<CountedProvider, string> = { claude: "Claude", gemin
 /** A mistake in how the command was invoked. Exits with status 2; other failures exit with 1. */
 class UsageError extends Error {}
 
-const tokenizers = [
-  "estimate",
-  "openai-cl100k_base",
-  "openai-o200k_base",
-] as const satisfies readonly MeasurementMode[];
-const models = Object.keys(modelEncodings).join(", ");
-
-const measurementHelp = `Measurement (offline; choose at most one):
-      --tokenizer <mode>     ${tokenizers.join(", ")} (default: estimate)
-      --model <name>         Count with a documented OpenAI model encoding: ${models},
-                             or a name starting with ${Object.keys(modelPrefixEncodings).join(", ")}`;
+const measurementHelp = `Measurement:
+  Token figures are estimates: UTF-8 bytes / 4 per file. Files Codex reads are also counted
+  exactly, on this machine, with OpenAI's o200k_base encoding, shown as Codex's own totals.
+  --precise adds Claude and Gemini counts from their token-count APIs.`;
 
 const preciseHelp = `Precise counts (opt-in content transfer):
       --precise              Count each provider's instructions with the most precise method
@@ -69,7 +60,8 @@ const preciseHelp = `Precise counts (opt-in content transfer):
                              key (ANTHROPIC_API_KEY; GEMINI_API_KEY or GOOGLE_API_KEY), then the
                              estimate. Claude and Gemini instruction text is sent to that
                              provider's token-count API when an account or key is found; the
-                             run says what went where. Codex is counted locally, never sent.
+                             run says what went where. Codex is always counted locally and
+                             never sent.
                              Only providers with instructions in the history are looked up.
                              Strata installs neither CLI: get ant with
                              brew install anthropics/tap/ant, and gcloud from
@@ -77,8 +69,7 @@ const preciseHelp = `Precise counts (opt-in content transfer):
       --dry-run              With --precise, print what would be used and sent, then stop
       --no-cache             With --precise, ignore and do not update the local count cache
       --claude-model <name>  Claude model to count with (default: ${defaultModels.claude})
-      --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})
-      --codex-model <name>   OpenAI model whose encoding counts Codex (default: ${defaultModels.codex})`;
+      --gemini-model <name>  Gemini model to count with (default: ${defaultModels.gemini})`;
 
 /** Exit status when a limit set with --limit-* is passed and --on-limit is fail. */
 const overLimitStatus = 3;
@@ -155,8 +146,6 @@ ${measurementHelp}
 ${limitsHelp.analyze}
 
 ${preciseHelp}
-      --provider-api         Deprecated: use --precise. Requires both model flags and API keys,
-                             and fails instead of falling back.
 
   -h, --help                 Show this help
 
@@ -244,21 +233,6 @@ function repositoryArgument(positionals: string[]): string {
   return positionals[0] ?? ".";
 }
 
-function measurementArguments(values: { tokenizer?: string | undefined; model?: string | undefined }): {
-  mode: MeasurementMode;
-  model: string | null;
-} {
-  if (values.model !== undefined && values.tokenizer !== undefined)
-    throw new UsageError("Choose either --model or --tokenizer");
-  const tokenizer = choice("--tokenizer", values.tokenizer, tokenizers, "estimate");
-  if (values.model === undefined) return { mode: tokenizer, model: null };
-  try {
-    return { mode: modeForModel(values.model), model: values.model };
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : String(error));
-  }
-}
-
 /** Reports can reveal repository structure, so files are created readable by the owner only. */
 function writePrivate(destination: string, content: string, flag: "w" | "wx" = "w"): void {
   mkdirSync(dirname(destination), { recursive: true });
@@ -323,7 +297,6 @@ const preciseOptions = {
   "no-cache": { type: "boolean" },
   "claude-model": { type: "string" },
   "gemini-model": { type: "string" },
-  "codex-model": { type: "string" },
 } as const satisfies NonNullable<ParseArgsConfig["options"]>;
 
 /** Validate the precise-count flags and resolve each provider's methods; undefined without --precise. */
@@ -333,30 +306,22 @@ function preciseArguments(values: {
   "no-cache"?: boolean | undefined;
   "claude-model"?: string | undefined;
   "gemini-model"?: string | undefined;
-  "codex-model"?: string | undefined;
-  model?: string | undefined;
-  tokenizer?: string | undefined;
 }): { plan: ProviderCountPlan; cache: FileCountCache | undefined; onNotice: (line: string) => void } | undefined {
   if (!values.precise) {
-    if (values["claude-model"] || values["gemini-model"] || values["codex-model"])
-      throw new UsageError("--claude-model, --gemini-model, and --codex-model require --precise");
+    if (values["claude-model"] || values["gemini-model"])
+      throw new UsageError("--claude-model and --gemini-model require --precise");
     if (values["dry-run"] || values["no-cache"]) throw new UsageError("--dry-run and --no-cache require --precise");
     return undefined;
   }
-  if (values.model !== undefined || values.tokenizer !== undefined)
-    throw new UsageError("Choose either --precise or --model/--tokenizer");
-  for (const flag of ["claude-model", "gemini-model", "codex-model"] as const) {
+  for (const flag of ["claude-model", "gemini-model"] as const) {
     if (values[flag] === "") throw new UsageError(`--${flag} needs a model name`);
   }
-  const codexModel = values["codex-model"];
-  if (codexModel) measurementArguments({ model: codexModel });
   const cache = values["no-cache"] ? undefined : fileCountCache(defaultCachePath());
   const dryRun = values["dry-run"] ?? false;
   return {
     plan: resolvePrecisePlan({
       ...(values["claude-model"] ? { claudeModel: values["claude-model"] } : {}),
       ...(values["gemini-model"] ? { geminiModel: values["gemini-model"] } : {}),
-      ...(codexModel ? { codexModel } : {}),
       ...(cache ? { cache } : {}),
       dryRun,
     }),
@@ -425,11 +390,8 @@ async function analyze(args: string[]): Promise<void> {
     open: { type: "boolean" },
     shareable: { type: "boolean" },
     quiet: { type: "boolean", short: "q" },
-    tokenizer: { type: "string" },
-    model: { type: "string" },
     ...preciseOptions,
     ...limitOptions,
-    "provider-api": { type: "boolean" },
   });
   const repository = repositoryArgument(positionals);
   const limits = limitArguments(values);
@@ -439,37 +401,13 @@ async function analyze(args: string[]): Promise<void> {
   if (values.open && (format === "json" || format === "badge"))
     throw new UsageError("--open requires HTML or SVG output");
   if (values.open && toStdout) throw new UsageError("--open requires a report file, not standard output");
-  const measurement = measurementArguments(values);
-
-  let providerCounts: ProviderCountOptions | undefined;
-  if (values.precise && values["provider-api"]) throw new UsageError("Choose either --precise or --provider-api");
-  if (values["provider-api"] && (values.model !== undefined || values.tokenizer !== undefined))
-    throw new UsageError("Choose either --provider-api or --model/--tokenizer");
-  const codexModel = values["codex-model"];
-  if (values["provider-api"] && (values["dry-run"] || values["no-cache"]))
-    throw new UsageError("--dry-run and --no-cache require --precise, not --provider-api");
-  const precise = values["provider-api"] ? undefined : preciseArguments(values);
-  if (values["provider-api"]) {
-    process.stderr.write("Warning: --provider-api is deprecated; use --precise.\n");
-    const claudeModel = values["claude-model"];
-    const geminiModel = values["gemini-model"];
-    if (!claudeModel || !geminiModel)
-      throw new UsageError("--provider-api requires explicit --claude-model and --gemini-model values");
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-    if (!anthropicApiKey) throw new UsageError("--provider-api requires ANTHROPIC_API_KEY");
-    if (!geminiApiKey) throw new UsageError("--provider-api requires GEMINI_API_KEY (or GOOGLE_API_KEY)");
-    if (codexModel) measurementArguments({ model: codexModel });
-    providerCounts = { claudeModel, geminiModel, anthropicApiKey, geminiApiKey, ...(codexModel ? { codexModel } : {}) };
-  }
+  const precise = preciseArguments(values);
 
   let analyzed: Report;
   try {
     analyzed = await analyzeRepository(repository, {
-      ...measurement,
       ...(values.quiet ? {} : { onProgress: progressReporter() }),
-      ...(providerCounts ? { providerCounts } : {}),
-      ...(precise ? { providerPlan: precise.plan } : {}),
+      providerPlan: precise?.plan ?? localPlan(),
       onNotice: precise?.onNotice ?? noticeToStderr,
     });
   } finally {
@@ -674,8 +612,6 @@ async function diff(args: string[]): Promise<void> {
     output: { type: "string", short: "o" },
     format: { type: "string", short: "f" },
     "json-output": { type: "string" },
-    tokenizer: { type: "string" },
-    model: { type: "string" },
     ...preciseOptions,
     ...limitOptions,
     ...increaseLimitOptions,
@@ -696,17 +632,13 @@ async function diff(args: string[]): Promise<void> {
     resolve(jsonOutput) === resolve(values.output)
   )
     throw new UsageError("--json-output and --output must be different files");
-  const measurement = measurementArguments(values);
   const precise = preciseArguments(values);
   let delta: PullRequestDelta;
   try {
-    delta = precise
-      ? await compareGitCommitsPrecise(repository, values.base, values.head, {
-          ...measurement,
-          providerPlan: precise.plan,
-          onNotice: precise.onNotice,
-        })
-      : compareGitCommits(repository, values.base, values.head, measurement);
+    delta = await compareGitCommitsWithProviders(repository, values.base, values.head, {
+      providerPlan: precise?.plan ?? localPlan(),
+      onNotice: precise?.onNotice ?? noticeToStderr,
+    });
   } finally {
     saveCache(precise?.cache);
   }

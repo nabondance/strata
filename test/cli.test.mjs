@@ -30,6 +30,11 @@ const strata = (args, options = {}) =>
 /** A new repository for one test, which removes it when done. */
 const fixture = () => syntheticRepo("strata-cli-");
 
+/** A CLI delta without the Codex counts the CLI adds, to compare with the library's `compareGitCommits`. */
+function withoutProviders({ providerMeasurements, providerTotals, ...delta }) {
+  return delta;
+}
+
 test("incremental history matches a full tree listing at every revision", async () => {
   const { repo, git, put, commit } = fixture();
   try {
@@ -301,9 +306,6 @@ test("command line follows common conventions", () => {
     assert.equal(badgeJson.message, `≈${report.revisions[1].estimatedTokens.toLocaleString("en-US")} tokens`);
     assert.doesNotMatch(badge.stdout, new RegExp(head.slice(0, 7)));
     assert.doesNotMatch(badge.stdout, /AGENTS\.md/);
-    const exactBadge = strata(["analyze", repo, "-f", "badge", "--tokenizer", "openai-o200k_base", "-o", "-"]);
-    assert.equal(exactBadge.status, 0, exactBadge.stderr);
-    assert.match(JSON.parse(exactBadge.stdout).message, /^[\d,]+ tokens$/);
 
     const quiet = strata(["analyze", repo, "--quiet"]);
     assert.equal(quiet.status, 0, quiet.stderr);
@@ -330,7 +332,7 @@ test("command line follows common conventions", () => {
 
     const delta = strata(["diff", "--base", base, "--head", head, "--format", "json"], { cwd: repo });
     assert.equal(delta.status, 0, delta.stderr);
-    assert.deepEqual(JSON.parse(delta.stdout), compareGitCommits(repo, base, head));
+    assert.deepEqual(withoutProviders(JSON.parse(delta.stdout)), compareGitCommits(repo, base, head));
     assert.ok(JSON.parse(delta.stdout).comparison.deltaTokens > 0);
     assert.match(strata(["diff", repo, "--base", base, "--head", head]).stdout, /^## Strata configuration delta/);
   } finally {
@@ -357,7 +359,7 @@ test("limits report a passed number and exit with 3, only when set", () => {
     const none = diff("--format", "json");
     assert.equal(none.status, 0);
     assert.equal(JSON.parse(none.stdout).limits, undefined);
-    assert.equal(JSON.parse(none.stdout).schemaVersion, 12);
+    assert.equal(JSON.parse(none.stdout).schemaVersion, 13);
 
     const over = diff(
       "--format",
@@ -375,7 +377,12 @@ test("limits report a passed number and exit with 3, only when set", () => {
     );
     assert.equal(over.status, 3, over.stderr);
     const delta = JSON.parse(over.stdout);
-    assert.deepEqual({ ...delta, limits: undefined }, { ...plain, limits: undefined });
+    // The CLI adds Codex's local counts to what the library comparison holds.
+    assert.deepEqual({ ...withoutProviders(delta), limits: undefined }, { ...plain, limits: undefined });
+    assert.deepEqual(
+      delta.providerMeasurements.map(({ provider, accuracy }) => [provider, accuracy]),
+      [["codex", "encoding-exact"]],
+    );
     assert.deepEqual(
       delta.limits.map(({ name, agent, result }) => [name, agent, result]),
       [
@@ -582,7 +589,7 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     assert.match(plain.summary, /^## Strata configuration delta/);
     assert.doesNotMatch(plain.stdout + plain.stderr, /::/);
     const delta = JSON.parse(readFileSync(plain.outputs["json-file"], "utf8"));
-    assert.equal(delta.schemaVersion, 12);
+    assert.equal(delta.schemaVersion, 13);
     assert.deepEqual(
       { ...plain.outputs, "json-file": undefined },
       {
@@ -825,8 +832,6 @@ function actionRunner(temp, defaults) {
         STRATA_EVENT_BASE: "",
         STRATA_EVENT_HEAD: "",
         STRATA_EVENT_MERGE: "",
-        STRATA_TOKENIZER: "estimate",
-        STRATA_MODEL: "",
         STRATA_PRECISE: "false",
         STRATA_LIMIT_TOKENS: "",
         STRATA_LIMIT_INCREASE: "",

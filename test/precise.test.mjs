@@ -9,7 +9,7 @@ import { getEncoding } from "js-tiktoken";
 import { analyzeRepository } from "../dist/analyze.js";
 import { fileCountCache } from "../dist/count-cache.js";
 import { expandRevisions } from "../dist/expand.js";
-import { compareGitCommitsPrecise, renderPullRequestDelta } from "../dist/pr-delta.js";
+import { compareGitCommitsWithProviders, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { defaultModels, installHints, resolvePrecisePlan } from "../dist/precise.js";
 import { redactReport } from "../dist/privacy.js";
 import { countRemoteText } from "../dist/provider-count.js";
@@ -88,7 +88,7 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
       onNotice: (line) => notices.push(line),
     });
-    assert.equal(report.schemaVersion, 19);
+    assert.equal(report.schemaVersion, 20);
     assert.deepEqual(summary(report), {
       claude: ["api-counted", "signed-in Anthropic account (ant auth login)", "api.anthropic.com"],
       gemini: ["api-counted", "signed-in Google Cloud account (gcloud, Vertex AI)", "aiplatform.googleapis.com"],
@@ -96,7 +96,7 @@ test("--precise uses a signed-in account through the provider CLI, with default 
     });
     assert.deepEqual(
       report.providerMeasurements.map(({ model }) => model),
-      [defaultModels.claude, defaultModels.gemini, defaultModels.codex],
+      [defaultModels.claude, defaultModels.gemini, "o200k_base"],
     );
     assert.ok(report.providerMeasurements.every((measured) => !measured.fallbacks));
 
@@ -219,7 +219,7 @@ test("the HTML report describes the counting method in use and charts a provider
     );
     // The full description, wrapper included, stays one hover away.
     assert.match(get("counting-rows").children[0].title, /less the 2-token message wrapper measured by counting "a"/);
-    assert.deepEqual(rows().at(-1), ["Codex", "Exact · local", "gpt-5, on this machine"]);
+    assert.deepEqual(rows().at(-1), ["Codex", "Exact · local", "o200k_base, on this machine"]);
     assert.match(get("counting-note").textContent, /^All files adds providers together/);
 
     // The Claude tab opens on Claude's API counts and says so.
@@ -520,7 +520,7 @@ test("--precise --dry-run says what would be used and sent, and sends nothing", 
       "  Skipped: no Google Cloud project: set GOOGLE_CLOUD_PROJECT or `gcloud config set project`.",
       "  Skipped: GEMINI_API_KEY and GOOGLE_API_KEY are not set.",
       "  Skipped: no local exact Gemini tokenizer exists.",
-      `Codex: would count 1 instruction file version locally with ${defaultModels.codex} (o200k_base); nothing sent.`,
+      `Codex: would count 1 instruction file version locally with o200k_base; nothing sent.`,
     ]);
   } finally {
     rmSync(repo, { recursive: true, force: true });
@@ -571,10 +571,10 @@ test("strata diff --precise adds each provider's totals at both commits", async 
     git("commit", "-q", "-m", "Add AGENTS.md");
     const head = git("rev-parse", "HEAD");
     const { fetchImpl } = countServer();
-    const delta = await compareGitCommitsPrecise(repo, base, head, {
+    const delta = await compareGitCommitsWithProviders(repo, base, head, {
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
     });
-    assert.equal(delta.schemaVersion, 12);
+    assert.equal(delta.schemaVersion, 13);
     const codexTokens = getEncoding("o200k_base").encode("Shared instructions.\n").length;
     assert.deepEqual(
       delta.providerTotals.map(({ provider, beforeTokens, afterTokens, deltaTokens }) => [
@@ -765,7 +765,7 @@ test("strata analyze --precise reports each provider's method and what it skippe
     assert.match(result.stdout, /Claude: \d+ tokens latest, byte estimate\./);
     assert.match(result.stdout, /Skipped: no signed-in Anthropic account: run `ant auth login`\./);
     assert.match(result.stdout, /Skipped: ANTHROPIC_API_KEY is not set\./);
-    assert.match(result.stdout, new RegExp(`Codex: \\d+ tokens latest, encoding-exact with ${defaultModels.codex}\\.`));
+    assert.match(result.stdout, /Codex: \d+ tokens latest, encoding-exact with o200k_base\./);
     assert.doesNotMatch(result.stderr, /Sending/);
     const report = JSON.parse(readFileSync(output, "utf8"));
     assert.deepEqual(
@@ -774,13 +774,10 @@ test("strata analyze --precise reports each provider's method and what it skippe
     );
 
     for (const [args, message] of [
-      [["--precise", "--provider-api"], /Choose either --precise or --provider-api/],
-      [["--precise", "--model", "gpt-4o"], /Choose either --precise or --model\/--tokenizer/],
-      [["--precise", "--codex-model", "gpt-unknown"], /Unsupported model: gpt-unknown/],
-      [
-        ["--provider-api", "--claude-model", "c", "--gemini-model", "g", "--dry-run"],
-        /require --precise, not --provider-api/,
-      ],
+      [["--tokenizer", "openai-o200k_base"], /Unknown option '--tokenizer'/],
+      [["--precise", "--model", "gpt-4o"], /Unknown option '--model'/],
+      [["--precise", "--codex-model", "gpt-5"], /Unknown option '--codex-model'/],
+      [["--provider-api"], /Unknown option '--provider-api'/],
       [["--precise", "--claude-model", ""], /--claude-model needs a model name/],
       [["--dry-run"], /require --precise/],
     ]) {

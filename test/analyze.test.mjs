@@ -19,6 +19,7 @@ import { renderSvg } from "../dist/svg.js";
 import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
+import { apiPlan } from "./provider-plans.mjs";
 import { exerciseReportUi } from "./report-ui.mjs";
 import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
@@ -104,13 +105,9 @@ test("tracks configuration across first-parent history without reading untracked
     assertLineAgesMatchTrees(repo, report);
     const revisions = expandRevisions(report);
     const providerRequests = [];
-    const providerApiReport = await analyzeRepository(repo, {
-      providerCounts: {
-        claudeModel: "claude-test-model",
-        geminiModel: "gemini-test-model",
-        codexModel: "gpt-4o",
-        anthropicApiKey: "anthropic-test-key",
-        geminiApiKey: "gemini-test-key",
+    const providerReport = await analyzeRepository(repo, {
+      providerPlan: {
+        methods: { ...apiPlan().methods, codex: [{ kind: "local" }] },
         fetchImpl: async (url, init) => {
           const body = JSON.parse(init.body);
           providerRequests.push({ url, headers: init.headers, body });
@@ -121,22 +118,22 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerApiReport.schemaVersion, 19);
-    assert.equal(providerApiReport.measurement.accuracy, "estimate");
+    assert.equal(providerReport.schemaVersion, 20);
+    assert.equal(providerReport.measurement.accuracy, "estimate");
     assert.deepEqual(
-      providerApiReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
+      providerReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
       [
         ["claude", "claude-test-model", "api-counted"],
         ["gemini", "gemini-test-model", "api-counted"],
-        ["codex", "gpt-4o", "encoding-exact"],
+        ["codex", "o200k_base", "encoding-exact"],
       ],
     );
-    const providerApiRevisions = expandRevisions(providerApiReport);
-    const sharedMeasured = providerApiRevisions[0].components.find((component) => component.path === "AGENTS.md");
+    const providerRevisions = expandRevisions(providerReport);
+    const sharedMeasured = providerRevisions[0].components.find((component) => component.path === "AGENTS.md");
     assert.equal(sharedMeasured.providerTokenCounts.claude.tokens, 7);
     // The fixture's Gemini settings keep the default context file, so Gemini does not read AGENTS.md.
     assert.equal(sharedMeasured.providerTokenCounts.gemini, undefined);
-    const sharedSkill = providerApiRevisions[0].components.find(
+    const sharedSkill = providerRevisions[0].components.find(
       (component) => component.path === ".agents/skills/release/SKILL.md",
     );
     assert.deepEqual(Object.keys(sharedSkill.providerTokenCounts), ["gemini", "codex"]);
@@ -144,10 +141,10 @@ test("tracks configuration across first-parent history without reading untracked
       sharedMeasured.providerTokenCounts.codex.tokens,
       getEncoding("o200k_base").encode("Shared project instructions.\n").length,
     );
-    assert.equal(providerApiRevisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
+    assert.equal(providerRevisions[0].components.filter((component) => component.path === "AGENTS.md").length, 1);
     assert.equal(
-      providerApiRevisions[0].providerTokenTotals.claude,
-      providerApiRevisions[0].components.reduce(
+      providerRevisions[0].providerTokenTotals.claude,
+      providerRevisions[0].components.reduce(
         (sum, component) => sum + (component.providerTokenCounts?.claude?.tokens ?? 0),
         0,
       ),
@@ -159,24 +156,24 @@ test("tracks configuration across first-parent history without reading untracked
     assert.ok(sharedRequests.some(({ url }) => url.includes("anthropic.com")));
     assert.ok(providerRequests.some(({ body }) => JSON.stringify(body).includes("Root instructions.")));
     assert.ok(!providerRequests.some(({ body }) => JSON.stringify(body).includes("settings.json")));
-    const providerJson = JSON.stringify(providerApiReport);
+    const providerJson = JSON.stringify(providerReport);
     assert.ok(!providerJson.includes("anthropic-test-key"));
     assert.ok(!providerJson.includes("gemini-test-key"));
     assert.ok(!providerJson.includes("Shared project instructions."));
     assert.match(
-      renderHtml(providerApiReport),
+      renderHtml(providerReport),
       /Text sent to: api\.anthropic\.com \(Claude\), generativelanguage\.googleapis\.com \(Gemini\)/,
     );
     // The per-provider columns are the point of this mode, so their table starts open.
-    assert.match(renderHtml(providerApiReport), /<details class="panel" id="files-panel" open>/);
+    assert.match(renderHtml(providerReport), /<details class="panel" id="files-panel" open>/);
     assert.match(renderHtml(report), /<details class="panel" id="files-panel">/);
-    const providerApiUi = exerciseReportUi(renderHtml(providerApiReport), providerApiReport);
-    assert.equal(providerApiUi("files").children[0].children.length, 8);
-    const sharedRow = providerApiUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");
+    const providerUi = exerciseReportUi(renderHtml(providerReport), providerReport);
+    assert.equal(providerUi("files").children[0].children.length, 8);
+    const sharedRow = providerUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");
     assert.equal(sharedRow.children[5].textContent, "7");
     assert.equal(sharedRow.children[6].textContent, "—");
     assert.ok(
-      providerApiUi("files").children.some((row) =>
+      providerUi("files").children.some((row) =>
         row.children.some((cell) => cell.title?.includes("claude-test-model")),
       ),
     );
@@ -205,7 +202,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 12);
+    assert.equal(prDelta.schemaVersion, 13);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -222,7 +219,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(safeMarkdown, /&lt;img/);
     assert.match(safeMarkdown, /\\\|bad/);
     assert.throws(() => compareGitCommits(repo, "main", merge), /full Git commit IDs/);
-    assert.equal(report.schemaVersion, 19);
+    assert.equal(report.schemaVersion, 20);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -599,113 +596,36 @@ test("tracks configuration across first-parent history without reading untracked
     );
     assert.equal(diffCli.status, 0, diffCli.stderr);
     assert.match(readFileSync(diffOutput, "utf8"), /Strata configuration delta/);
-    const openAiReport = await analyzeRepository(repo, { mode: "openai-o200k_base" });
-    assert.equal(openAiReport.schemaVersion, 19);
+    // Without --precise, the report keeps the estimate and Codex reads are also counted exactly on this machine.
     assert.deepEqual(
-      [
-        openAiReport.measurement.family,
-        openAiReport.measurement.accuracy,
-        openAiReport.measurement.encoding,
-        openAiReport.measurement.model,
-        openAiReport.measurement.implementation,
-      ],
-      ["openai", "encoding-exact", "o200k_base", null, "js-tiktoken@1.0.21"],
+      [cliReport.measurement.accuracy, cliReport.measurement.encoding, cliReport.measurement.model],
+      ["estimate", null, null],
     );
-    const openAiRevisions = expandRevisions(openAiReport);
-    const openAiInstruction = openAiRevisions[0].components.find((component) => component.path === "AGENTS.md");
-    assert.equal(
-      openAiInstruction?.estimatedTokens,
-      getEncoding("o200k_base").encode("Shared project instructions.\n").length,
-    );
-    assert.equal(
-      openAiRevisions[0].components.find((component) => component.path === ".agents/skills/release/assets/icon.png")
-        ?.estimatedTokens,
-      null,
-    );
-    assert.notEqual(openAiReport.revisions[0].estimatedTokens, revisions[0].estimatedTokens);
-    const openAiOutput = join(repo, "openai-report.json");
-    const openAiCli = spawnSync(
-      process.execPath,
-      [
-        "dist/cli.js",
-        "analyze",
-        repo,
-        "--tokenizer",
-        "openai-cl100k_base",
-        "--output",
-        openAiOutput,
-        "--format",
-        "json",
-      ],
-      { encoding: "utf8" },
-    );
-    assert.equal(openAiCli.status, 0, openAiCli.stderr);
-    assert.equal(JSON.parse(readFileSync(openAiOutput, "utf8")).measurement.encoding, "cl100k_base");
-    const modelOutput = join(repo, "model-report.json");
-    const modelCli = spawnSync(
-      process.execPath,
-      ["dist/cli.js", "analyze", repo, "--model", "gpt-4o", "--output", modelOutput, "--format", "json"],
-      { encoding: "utf8" },
-    );
-    assert.equal(modelCli.status, 0, modelCli.stderr);
-    const modelReport = JSON.parse(readFileSync(modelOutput, "utf8"));
-    assert.deepEqual(
-      [modelReport.measurement.model, modelReport.measurement.encoding, modelReport.schemaVersion],
-      ["gpt-4o", "o200k_base", 19],
-    );
-    assert.equal(
-      expandRevisions(modelReport)[0].components.find((component) => component.path === "AGENTS.md")?.estimatedTokens,
-      getEncoding("o200k_base").encode("Shared project instructions.\n").length,
-    );
-    const badModel = spawnSync(
-      process.execPath,
-      ["dist/cli.js", "analyze", repo, "--model", "claude", "--format", "json"],
-      { encoding: "utf8" },
-    );
-    assert.equal(badModel.status, 2);
-    assert.match(badModel.stderr, /Unsupported model/);
-    const conflictingMode = spawnSync(
-      process.execPath,
-      ["dist/cli.js", "analyze", repo, "--model", "gpt-4o", "--tokenizer", "estimate"],
-      { encoding: "utf8" },
-    );
-    assert.equal(conflictingMode.status, 2);
-    assert.match(conflictingMode.stderr, /either --model or --tokenizer/);
-    const badTokenizer = spawnSync(
-      process.execPath,
-      ["dist/cli.js", "analyze", repo, "--tokenizer", "claude", "--format", "json"],
-      { encoding: "utf8" },
-    );
-    assert.equal(badTokenizer.status, 2);
-    assert.match(badTokenizer.stderr, /--tokenizer must be/);
-    const missingProviderModel = spawnSync(
-      process.execPath,
-      ["dist/cli.js", "analyze", repo, "--provider-api", "--claude-model", "claude-test", "--format", "json"],
-      { encoding: "utf8" },
-    );
-    assert.equal(missingProviderModel.status, 2);
-    assert.match(missingProviderModel.stderr, /requires explicit --claude-model and --gemini-model/);
-    const missingProviderKey = spawnSync(
-      process.execPath,
-      [
-        "dist/cli.js",
-        "analyze",
-        repo,
-        "--provider-api",
-        "--claude-model",
-        "claude-test",
-        "--gemini-model",
-        "gemini-test",
-        "--format",
-        "json",
-      ],
+    assert.deepEqual(cliReport.providerMeasurements, [
       {
-        encoding: "utf8",
-        env: { ...process.env, ANTHROPIC_API_KEY: "", GEMINI_API_KEY: "", GOOGLE_API_KEY: "" },
+        provider: "codex",
+        model: "o200k_base",
+        method: "js-tiktoken@1.0.21: o200k_base, counted per instructional file",
+        version: "js-tiktoken@1.0.21",
+        accuracy: "encoding-exact",
       },
+    ]);
+    const cliRevisions = expandRevisions(cliReport);
+    const codexInstruction = cliRevisions[0].components.find((component) => component.path === "AGENTS.md");
+    assert.equal(codexInstruction.estimatedTokens, Math.ceil(Buffer.byteLength("Shared project instructions.\n") / 4));
+    assert.equal(
+      codexInstruction.providerTokenCounts.codex.tokens,
+      getEncoding("o200k_base").encode("Shared project instructions.\n").length,
     );
-    assert.equal(missingProviderKey.status, 2);
-    assert.match(missingProviderKey.stderr, /requires ANTHROPIC_API_KEY/);
+    assert.equal(
+      cliRevisions[0].components.find((component) => component.path === ".agents/skills/release/assets/icon.png")
+        ?.providerTokenCounts,
+      undefined,
+    );
+    for (const removed of [["--model", "gpt-4o"], ["--provider-api"], ["--tokenizer", "openai-o200k_base"]]) {
+      const result = spawnSync(process.execPath, ["dist/cli.js", "analyze", repo, ...removed], { encoding: "utf8" });
+      assert.equal(result.status, 2, removed.join(" "));
+    }
     assert.throws(() => createMeasurer("openai-o200k_base").count(Buffer.from([0xff])), /encoded data was not valid/);
     const shareableOutput = join(repo, "shareable.json");
     const shareableCli = spawnSync(

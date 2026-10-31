@@ -1,40 +1,11 @@
 import { Tiktoken } from "js-tiktoken/lite";
-import cl100kBase from "js-tiktoken/ranks/cl100k_base";
 import o200kBase from "js-tiktoken/ranks/o200k_base";
 
-export type MeasurementMode = "estimate" | "openai-cl100k_base" | "openai-o200k_base";
-
-export const modelEncodings = {
-  "gpt-4": "openai-cl100k_base",
-  "gpt-4o": "openai-o200k_base",
-  "gpt-4.1": "openai-o200k_base",
-  "gpt-5": "openai-o200k_base",
-  o3: "openai-o200k_base",
-  "o4-mini": "openai-o200k_base",
-} as const satisfies Record<string, MeasurementMode>;
-
 /**
- * Model-name prefixes that share an encoding, following tiktoken's `MODEL_PREFIX_TO_ENCODING`, so
- * dated or variant names such as `gpt-5-codex` or `gpt-4o-mini` resolve. Only families whose
- * encoding Strata ships are listed; `gpt-oss-` uses `o200k_harmony` and stays unsupported.
+ * `openai-o200k_base` is the encoding of every current OpenAI model (GPT-4o, GPT-4.1, GPT-5, o3,
+ * o4-mini, and Codex). Older encodings such as `cl100k_base` (GPT-4) are not shipped.
  */
-export const modelPrefixEncodings = {
-  "gpt-5": "openai-o200k_base",
-  "gpt-4.1-": "openai-o200k_base",
-  "gpt-4o-": "openai-o200k_base",
-  "o3-": "openai-o200k_base",
-  "o4-mini-": "openai-o200k_base",
-  "gpt-4-": "openai-cl100k_base",
-} as const satisfies Record<string, MeasurementMode>;
-
-export function modeForModel(model: string): MeasurementMode {
-  if (Object.hasOwn(modelEncodings, model)) return modelEncodings[model as keyof typeof modelEncodings];
-  const prefix = Object.keys(modelPrefixEncodings).find((candidate) => model.startsWith(candidate));
-  if (prefix) return modelPrefixEncodings[prefix as keyof typeof modelPrefixEncodings];
-  throw new Error(
-    `Unsupported model: ${model}. Choose ${Object.keys(modelEncodings).join(", ")}, a name starting with ${Object.keys(modelPrefixEncodings).join(", ")}, or an explicit --tokenizer encoding.`,
-  );
-}
+export type MeasurementMode = "estimate" | "openai-o200k_base";
 
 export interface Measurement {
   label: string;
@@ -43,7 +14,8 @@ export interface Measurement {
   family: "generic" | "openai";
   accuracy: "estimate" | "encoding-exact";
   encoding: string | null;
-  model: string | null;
+  /** Always null: reports always use the byte estimate, and the local Codex count names its encoding. Kept for the report schema. */
+  model: null;
   implementation: string;
 }
 
@@ -91,8 +63,7 @@ function pieceCounter(ranks: ConstructorParameters<typeof Tiktoken>[0]): (text: 
   };
 }
 
-export function createMeasurer(mode: MeasurementMode, model: string | null = null): Measurer {
-  if (model && modeForModel(model) !== mode) throw new Error(`Model ${model} does not use ${mode}`);
+export function createMeasurer(mode: MeasurementMode): Measurer {
   if (mode === "estimate") {
     return {
       measurement: {
@@ -110,22 +81,20 @@ export function createMeasurer(mode: MeasurementMode, model: string | null = nul
       countFromSize: (bytes) => Math.ceil(bytes / 4),
     };
   }
-  if (mode !== "openai-cl100k_base" && mode !== "openai-o200k_base") {
-    throw new Error(`Unsupported tokenizer mode: ${mode}`);
-  }
-  const encoding = mode === "openai-cl100k_base" ? "cl100k_base" : "o200k_base";
-  const countText = pieceCounter(encoding === "cl100k_base" ? cl100kBase : o200kBase);
+  if (mode !== "openai-o200k_base") throw new Error(`Unsupported tokenizer mode: ${mode}`);
+  const encoding = "o200k_base";
+  const countText = pieceCounter(o200kBase);
   const decoder = new TextDecoder("utf-8", { fatal: true });
   return {
     measurement: {
-      label: `Stored-text tokens under ${model ?? `OpenAI ${encoding}`}`,
-      method: `${tiktokenImplementation}: ${model ? `${model} → ` : ""}${encoding}, counted per instructional file`,
+      label: `Stored-text tokens under OpenAI ${encoding}`,
+      method: `${tiktokenImplementation}: ${encoding}, counted per instructional file`,
       limitations:
         "Exact for this text encoding, not a complete model request, loaded context, or billed tokens. Special-token and message framing are excluded. Structured configuration and supporting files remain source-only.",
       family: "openai",
       accuracy: "encoding-exact",
       encoding,
-      model,
+      model: null,
       implementation: tiktokenImplementation,
     },
     count: (blob) => countText(decoder.decode(blob)),

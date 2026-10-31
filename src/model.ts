@@ -162,7 +162,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 19;
+  schemaVersion: 20;
   repository: string;
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */

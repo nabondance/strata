@@ -3,7 +3,7 @@ import { type ContentUse, utf8Text } from "./content-pass.js";
 import { geminiContextFiles, geminiSettingsPath } from "./gemini-settings.js";
 import { readBlobs } from "./git.js";
 import type { BlobMeasurement, TrackedFile } from "./inventory.js";
-import { createMeasurer, modeForModel } from "./measurement.js";
+import { createMeasurer, type Measurer } from "./measurement.js";
 import {
   type CountedProvider,
   type CountMethod,
@@ -11,6 +11,7 @@ import {
   cacheFamily,
   countRemoteText,
   describeMethod,
+  localEncoding,
   type ProviderCountPlan,
   type ProviderMeasurementMetadata,
   type ProviderTextCount,
@@ -29,6 +30,8 @@ const providerRequestConcurrency = 8;
  * context file is counted for Gemini only when its blob is present in some revision whose settings
  * make Gemini read it, so versions Gemini never reads are not sent to its API.
  */
+const noBlobs = new Set<string>();
+
 export function countedProviders(
   file: TrackedFile,
   counted: readonly CountedProvider[],
@@ -58,10 +61,6 @@ export class GeminiSettings implements ContentUse {
   }
 }
 
-function encodingFor(model: string): string {
-  return modeForModel(model).replace("openai-", "");
-}
-
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 /** The one-letter text whose count, less its one token, measures a count endpoint's message wrapper. */
@@ -76,25 +75,45 @@ interface MethodCounts {
   counted: boolean;
 }
 
+/** Whether a plan counts Codex on this machine, so its counts can be taken during the shared content pass. */
+export function countsLocally(plan: ProviderCountPlan): boolean {
+  const codex = plan.methods.codex;
+  return Array.isArray(codex) && codex.some((method) => method.kind === "local");
+}
+
 /**
  * Which instruction blobs are blank (nothing to count) or not valid UTF-8 (not text to count),
  * found as the shared content pass reads them, so before anything is sent a file that is not UTF-8
- * text sends nothing and blank files never reach an endpoint.
+ * text sends nothing and blank files never reach an endpoint. With `countLocally`, it also counts
+ * the blobs Codex reads with the local encoding, so they are not read again.
  */
 export class TextCheck implements ContentUse {
   readonly blank = new Set<string>();
   readonly invalid = new Set<string>();
+  /** Local Codex counts by blob, for the blobs this pass read for a file Codex reads. */
+  readonly localCounts = new Map<string, number>();
   private readonly checked = new Set<string>();
+  private readonly local: Measurer | null;
+
+  constructor(countLocally = false) {
+    this.local = countLocally ? createMeasurer("openai-o200k_base") : null;
+  }
 
   wants(file: TrackedFile): boolean {
     return Boolean(file.classification.instructionalText && !this.checked.has(file.blob));
   }
 
-  read(blob: string, body: Buffer): void {
+  read(blob: string, body: Buffer, files: TrackedFile[]): void {
     this.checked.add(blob);
     const text = utf8Text(body);
-    if (text === null) this.invalid.add(blob);
-    else if (!text.trim()) this.blank.add(blob);
+    if (text === null) {
+      this.invalid.add(blob);
+      return;
+    }
+    if (!text.trim()) this.blank.add(blob);
+    if (this.local && files.some((file) => countedProviders(file, ["codex"], noBlobs).length)) {
+      this.localCounts.set(blob, this.local.count(body));
+    }
   }
 }
 
@@ -114,12 +133,13 @@ async function countWithMethod(
   method: Exclude<CountMethod, { kind: "unavailable" }>,
   wanted: Map<string, string>,
   measured: Map<string, BlobMeasurement>,
-  blank: Set<string>,
+  text: TextCheck,
   plan: ProviderCountPlan,
   onNotice: ((line: string) => void) | undefined,
 ): Promise<MethodCounts> {
-  const local = method.kind === "local" ? createMeasurer(modeForModel(method.model), method.model) : null;
-  const labels = describeMethod(method, local?.measurement.encoding ?? undefined);
+  const { blank } = text;
+  const local = method.kind === "local" ? createMeasurer("openai-o200k_base") : null;
+  const labels = describeMethod(method);
   const counts = new Map<string, ProviderTextCount>();
   let methodText = labels.method;
   if (method.kind === "estimate") {
@@ -185,7 +205,13 @@ async function countWithMethod(
     }
     await requestAll(remote, remoteOptions);
   } else {
-    for (const [blob, body] of readBlobs(root, toRead, (id) => measured.get(id)?.bytes ?? 0)) {
+    // Most blobs were counted during the shared content pass; only the rest are read here.
+    const unread = toRead.filter((blob) => {
+      const tokens = text.localCounts.get(blob);
+      if (tokens !== undefined) counts.set(blob, count(tokens));
+      return tokens === undefined;
+    });
+    for (const [blob, body] of readBlobs(root, unread, (id) => measured.get(id)?.bytes ?? 0)) {
       try {
         counts.set(blob, count(local!.count(body)));
       } catch (error) {
@@ -266,7 +292,7 @@ function previewMethod(
   const files = plural(wanted.size, "instruction file version");
   if (method.kind === "estimate") return `${name}: would use the byte estimate for ${files}; nothing sent.`;
   if (method.kind === "local") {
-    return `${name}: would count ${files} locally with ${method.model} (${encodingFor(method.model)}); nothing sent.`;
+    return `${name}: would count ${files} locally with ${localEncoding}; nothing sent.`;
   }
   const labels = describeMethod(method);
   const cache = cacheableModel(method.model) ? plan.cache : undefined;
@@ -316,7 +342,7 @@ export async function countProviderBlobs(
     const notText = [...blobs.keys()].filter((blob) => invalid.has(blob)).length;
     if (notText) {
       const reason = `${plural(notText, "instruction file version")} ${notText === 1 ? "is" : "are"} not valid UTF-8 text, so none were counted as text or sent`;
-      // The deprecated `--provider-api` has no estimate to fall back to.
+      // A plan without the estimate has nothing to fall back to.
       if (!methods.some((method) => method.kind === "estimate")) {
         throw new Error(`Could not count ${provider} instructions: ${reason}`);
       }
@@ -348,9 +374,9 @@ export async function countProviderBlobs(
         fallbacks.push(method.reason);
         continue;
       }
-      const labels = describeMethod(method, method.kind === "local" ? encodingFor(method.model) : undefined);
+      const labels = describeMethod(method);
       try {
-        const result = await countWithMethod(root, provider, method, blobs, measured, blank, plan, onNotice);
+        const result = await countWithMethod(root, provider, method, blobs, measured, text, plan, onNotice);
         for (const [blob, count] of result.counts) counts.set(`${provider}\0${blob}`, count);
         alsoSentTo.delete(labels.recipient ?? "");
         const { recipient, ...rest } = labels;

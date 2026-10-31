@@ -47,7 +47,8 @@ export type CountMethod =
       location: string;
       credential: string;
     }
-  | { kind: "local"; model: string }
+  /** OpenAI's o200k_base encoding, run on this machine. */
+  | { kind: "local" }
   | { kind: "estimate" }
   /** A more precise method that was ruled out before the run, reported as a fallback. */
   | { kind: "unavailable"; reason: string };
@@ -75,54 +76,19 @@ export interface CountCache {
   set(key: string, tokens: number): void;
 }
 
-/** The `--provider-api` options: explicit models and API keys, with no fallback. */
-export interface ProviderCountOptions {
-  claudeModel: string;
-  geminiModel: string;
-  codexModel?: string;
-  anthropicApiKey?: string;
-  geminiApiKey?: string;
-  fetchImpl?: typeof fetch;
-}
-
-export function providerApiPlan(options: ProviderCountOptions): ProviderCountPlan {
-  if (!options.anthropicApiKey) throw new Error("Provider API counting for claude requires ANTHROPIC_API_KEY");
-  if (!options.geminiApiKey)
-    throw new Error("Provider API counting for gemini requires GEMINI_API_KEY (or GOOGLE_API_KEY)");
-  const methods: ProviderCountPlan["methods"] = {
-    claude: [
-      {
-        kind: "anthropic",
-        model: options.claudeModel,
-        auth: "x-api-key",
-        secret: options.anthropicApiKey,
-        credential: "ANTHROPIC_API_KEY",
-      },
-    ],
-    gemini: [
-      {
-        kind: "gemini-api",
-        model: options.geminiModel,
-        secret: options.geminiApiKey,
-        credential: "GEMINI_API_KEY or GOOGLE_API_KEY",
-      },
-    ],
-  };
-  if (options.codexModel) methods.codex = [{ kind: "local", model: options.codexModel }];
-  return { methods, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) };
-}
-
 /** Every host that received this provider's instruction text, including from a method that then failed. */
 export function textRecipients(measured: ProviderMeasurementMetadata): string[] {
   return [...new Set([...(measured.recipient ? [measured.recipient] : []), ...(measured.alsoSentTo ?? [])])];
 }
+
+/** The encoding Codex instructions are counted with under `--precise`. */
+export const localEncoding = "o200k_base";
 
 export const estimateMethod = "utf8-bytes-divided-by-four-v1: UTF-8 bytes / 4, rounded up per instructional file";
 
 /** The labels a method's counts carry, without the credential. */
 export function describeMethod(
   method: Exclude<CountMethod, { kind: "unavailable" }>,
-  encoding?: string,
 ): Omit<ProviderMeasurementMetadata, "provider" | "fallbacks"> {
   switch (method.kind) {
     case "anthropic":
@@ -163,8 +129,9 @@ export function describeMethod(
       };
     case "local":
       return {
-        model: method.model,
-        method: `${tiktokenImplementation}: ${method.model} → ${encoding}, counted per instructional file`,
+        // A local count depends only on the encoding, which every current OpenAI model shares, so it names that.
+        model: localEncoding,
+        method: `${tiktokenImplementation}: ${localEncoding}, counted per instructional file`,
         version: tiktokenImplementation,
         accuracy: "encoding-exact",
       };

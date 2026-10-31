@@ -117,7 +117,7 @@ The Action builds Strata from its own source at that version, with the locked de
 
 | Output | Value |
 | --- | --- |
-| `tokens` | Stored instructional text at the head, in tokens, in the run's measurement |
+| `tokens` | Stored instructional text at the head, in estimated tokens |
 | `delta-tokens` | Its change from base to head, negative when it shrank |
 | `limit-result` | `over` when at least one limit is passed, `within` when every limit checked is met, `none` when no limit was checked: none was set, or none applied to any agent |
 | `summary-file` | Path of the Markdown delta, the same text as the job summary |
@@ -135,13 +135,11 @@ The outputs are set whenever the summary is written. That includes runs where a 
 
 ## Measurement
 
-These inputs choose how tokens are counted:
+Totals use the byte estimate. Codex files are also counted exactly, offline, with OpenAI's `o200k_base` encoding, and the delta shows them as Codex's own totals. One input adds Claude and Gemini counts:
 
 | Input | Default | Effect |
 | --- | --- | --- |
-| `tokenizer` | `estimate` | Offline token mode: `estimate`, `openai-cl100k_base`, or `openai-o200k_base` |
-| `model` | empty | A named OpenAI model, such as `gpt-4o`, counted offline through a documented model-to-encoding mapping. When set, it is used instead of `tokenizer` |
-| `precise` | `'false'` | `'true'` adds precise totals for each provider, described below. `tokenizer` and `model` are not used with it |
+| `precise` | `'false'` | `'true'` adds Claude and Gemini totals from their token-count APIs, described below |
 
 ### Precise counts
 
@@ -149,7 +147,7 @@ For precise totals per provider, set `precise: 'true'` and give the step the API
 
 - Claude is counted with `ANTHROPIC_API_KEY`.
 - Gemini is counted with `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
-- Codex is counted locally for `gpt-5`, so its text is not sent.
+- Codex is counted locally, as without `precise`, so its text is not sent.
 - A provider with neither a key nor a signed-in `gcloud` (see below) falls back to the estimate.
 
 <!-- x-release-please-start-version -->

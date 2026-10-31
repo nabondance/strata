@@ -58,7 +58,7 @@ Then reference the image from the README as `![Agent context through time](docs/
 
 ### A badge
 
-For a badge instead of a chart, `--format badge` writes the latest total as [shields.io endpoint JSON](https://shields.io/badges/endpoint-badge). The badge reads `agent context | ≈1,151 tokens`. The `≈` marks an estimate; it disappears when you count with an exact encoding (`--model` or an `openai-*` `--tokenizer`). The badge names nothing from the repository.
+For a badge instead of a chart, `--format badge` writes the latest total as [shields.io endpoint JSON](https://shields.io/badges/endpoint-badge). The badge reads `agent context | ≈1,151 tokens`. The `≈` marks the estimate. The badge names nothing from the repository.
 
 Publish the file somewhere public and point shields.io at it:
 
@@ -111,7 +111,7 @@ Both commands can check token limits you choose. None is set by default, and Str
 | `--limit-up-front-tokens [agent=]<n>` | What each agent keeps at session start (see [up-front context](decisions.md#up-front-context)) | `diff`, `analyze` |
 | `--limit-up-front-increase [agent=]<n>` | Its growth from base to head | `diff` |
 
-Limits use the run's own measurement, never the `--precise` counts. The percentage change is shown beside each increase, but it is never a limit.
+Limits use the byte estimate, never the provider counts (Codex's, or those from `--precise`). The percentage change is shown beside each increase, but it is never a limit.
 
 #### Limits for one agent
 
@@ -138,15 +138,14 @@ For pull requests, the opt-in [composite Action](pr-action.md) runs the same com
 
 ## Token measurement
 
-Strata measures instructional text with one of these methods. Choose either `--model` or `--tokenizer`, not both.
+Strata measures instructional text in two ways, with no option to choose:
 
-| Option | Method |
+| Figure | Method |
 | --- | --- |
-| `--tokenizer estimate` (default) | The text's UTF-8 byte length divided by four |
-| `--tokenizer openai-cl100k_base` or `--tokenizer openai-o200k_base` | An OpenAI text encoding, counted offline |
-| `--model <name>` | The encoding of a supported OpenAI model: `gpt-4o`, `gpt-4`, `gpt-4.1`, `gpt-5`, `o3`, or `o4-mini`. Dated or variant names of these, such as `gpt-4o-mini` or `gpt-5-codex`, also work. |
+| Every total, chart, comparison, and limit | The text's UTF-8 byte length divided by four |
+| Codex's own totals, in the report's Codex view and the `diff` provider table | OpenAI's `o200k_base` encoding, the one every current OpenAI model uses, counted offline |
 
-The chosen method applies to the whole history. It measures stored text, not loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
+`--precise` adds Claude's and Gemini's own totals in the same way. Provider totals stay separate and are never added to the estimate. Neither method measures loaded context, message framing, or billing. See [the tokenizer study](tokenizers.md) for details and limits.
 
 ### Precise counts
 
@@ -154,7 +153,7 @@ The chosen method applies to the whole history. It measures stored text, not loa
 
 1. **A signed-in account.** For Claude, an `ant auth login` profile from the Anthropic CLI, or, with neither that nor `ANTHROPIC_API_KEY`, a ready `gcloud` account on Vertex AI with Claude enabled. For Gemini, a `gcloud` account with a project set (`gcloud config set project`, or `GOOGLE_CLOUD_PROJECT`), counted through Vertex AI in `GOOGLE_CLOUD_LOCATION` (default `global`). See [signing in](#signing-in-for-precise-counts) below.
 2. **An API key** in the environment: `ANTHROPIC_API_KEY`; `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
-3. **A local exact tokenizer.** Codex instructions always use the OpenAI encoding of `--codex-model` (default `gpt-5`) and are never sent. Claude and Gemini have none.
+3. **A local exact tokenizer.** Codex instructions always use OpenAI's `o200k_base` encoding and are never sent, with or without `--precise`. Claude and Gemini have none.
 4. **The byte estimate.**
 
 Strata counts only providers that have recognized instructions somewhere in the history:
@@ -162,7 +161,7 @@ Strata counts only providers that have recognized instructions somewhere in the 
 - A repository with only Gemini files never runs `ant`.
 - A repository with only Claude files never asks for a Gemini key. It runs `gcloud` only when neither an `ant` account nor `ANTHROPIC_API_KEY` is available.
 
-The default models are `claude-opus-5-5` and `gemini-3.8-flash`. Override them with `--claude-model` and `--gemini-model`. The older `--provider-api` flag still works but is deprecated.
+The default models are `claude-opus-5-5` and `gemini-3.8-flash`. Override them with `--claude-model` and `--gemini-model`.
 
 #### What leaves the machine
 
@@ -300,10 +299,10 @@ The skill-bundle and tracked-components tables are collapsed under their heading
 - **Revisions.** Every revision carries its totals and its `changes`. Each change points at the component now at that path.
 - **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. This keeps reports small on long histories.
 
-The bundled interpretation skill explains schema version 19 and that replay rule, and also:
+The bundled interpretation skill explains schema version 20 and that replay rule, and also:
 
 - up-front context, Claude imports, MCP servers, and instruction age;
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;
 - the limits of what JSON can establish.
 
-It also covers the `strata diff` JSON (schema version 12) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+It also covers the `strata diff` JSON (schema version 13) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
