@@ -232,7 +232,7 @@ const page = `<!doctype html>
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .cli code { background: #2b3530; border: 1px solid #4a554f; color: ${brandColors.bone}; padding: 10px 14px; font-size: 15px; }
     .cli a { color: ${brandColors.ochre}; }
-    main { padding-top: 34px; padding-bottom: 40px; }
+    main.wrap { padding-top: 34px; padding-bottom: 40px; }
     .intro { color: var(--muted); max-width: 75ch; margin: 0 0 26px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 22px; }
     .card { background: var(--sheet); border: 1px solid var(--line); display: flex; flex-direction: column; }
@@ -242,19 +242,20 @@ const page = `<!doctype html>
     h2 { font-family: ${displayFontStack}; font-size: 25px; font-weight: 800; letter-spacing: .01em; margin: 0 0 4px; overflow-wrap: anywhere; }
     h2 a { color: inherit; text-decoration: none; }
     h2 a:hover { text-decoration: underline; }
-    .note { color: var(--muted); font-size: 14.5px; margin: 0 0 14px; }
+    /* Fixed heights keep the numbers, bars, and buttons aligned across a row of cards. */
+    .note { color: var(--muted); font-size: 14.5px; line-height: 1.5; height: 4.5em; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; margin: 0 0 14px; }
     dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 14px; }
     dt { color: var(--muted); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .08em; }
     dd { margin: 0; font-family: ${displayFontStack}; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums lining-nums; }
     .bar { display: flex; height: 8px; gap: 2px; margin-bottom: 8px; }
-    .legend { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); }
+    .legend { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px 14px; font-size: 13px; line-height: 1.5; min-height: calc(3em + 4px); color: var(--muted); }
     .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; }
     .legend b { color: var(--ink); font-weight: 600; }
     .meta { color: var(--muted); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0 0 14px; }
     .links { margin: auto 0 0; display: flex; gap: 18px; align-items: center; font-size: 15px; }
     .open { background: ${brandColors.clay}; color: #fff; text-decoration: none; padding: 7px 14px; font-weight: 600; }
     .open:hover { background: #9c4529; }
-    footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; padding-top: 18px; padding-bottom: 40px; }
+    footer.wrap { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; padding-top: 18px; padding-bottom: 40px; }
     footer p { margin: 0 0 6px; max-width: 90ch; }
   </style>
 </head>
