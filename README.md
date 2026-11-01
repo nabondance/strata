@@ -38,12 +38,19 @@ npx context-strata analyze --open
 Run this one command inside any Git repository. It writes a single HTML report that works offline. Nothing is uploaded, and the repository is never modified. The command ends with a summary like this:
 
 ```text
-Analyzed 46 revisions of strata.
-Latest: 4 tracked components, 1151 stored-text tokens (UTF-8 bytes / 4 per file, an estimate).
+Analyzed 95 revisions of strata.
+Latest: 6 tracked components, 5159 stored-text tokens (UTF-8 bytes / 4 per file, an estimate).
+Skills: 156 listed tokens, the names and descriptions kept in context before a skill is used; the skill files store 2574.
+At session start: Claude Code 2481 tokens (1469 more when needed), Codex 2478 tokens (1287 more when needed), Gemini CLI 78 tokens (1287 more when needed).
+Instruction age: half of the latest instruction text was in place by revision 67 (2026-10-18); 52% of the text at the first revision with instructions (2026-10-08) is still present.
+Codex: 3497 tokens latest, encoding-exact with o200k_base.
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
-![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-timeline-dark.png">
+  <img src="docs/images/report-timeline.png" alt="The Strata report: stored instruction tokens per revision, stacked by category">
+</picture>
 
 The images on this page are Strata's report on its own repository.
 
@@ -71,20 +78,38 @@ Every measurement describes what the repository **stores**. It does not say what
 
 The treemap sizes each file by its stored-text tokens at the selected revision:
 
-![Treemap of instruction files at one revision, sized by tokens and colored by category](docs/images/report-treemap.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-treemap-dark.png">
+  <img src="docs/images/report-treemap.png" alt="Treemap of instruction files at one revision, sized by tokens and colored by category">
+</picture>
+
+The configuration map lays out every file in its folder, with a bar for its share of the tokens and a line for each Claude `@path` import:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-map-dark.png">
+  <img src="docs/images/report-map.png" alt="Configuration map: each file in its folder with a token bar, and a line from CLAUDE.md to the AGENTS.md it imports">
+</picture>
 
 Pick any two revisions to see what changed between them:
 
-![Comparison of two revisions with token and file deltas by provider, category, and file](docs/images/report-compare.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-compare-dark.png">
+  <img src="docs/images/report-compare.png" alt="Comparison of two revisions with token and file deltas by provider, category, and file">
+</picture>
 
-From the command line, `strata diff` prints a summary like this one:
+From the command line, `strata diff` prints a Markdown summary; shortened, it looks like this:
 
 ```text
-Stored instructional text: +330 tokens (681 → 1011); tracked files: 0 (4 → 4).
+Stored instructional text: +138 tokens (5021 → 5159); tracked files: 0 (6 → 6).
+
+| Agent       | At start    | Δ at start | When needed | Δ when needed |
+| ----------- | ----------: | ---------: | ----------: | ------------: |
+| Claude Code | 2343 → 2481 |       +138 | 1469 → 1469 |             0 |
+| Codex       | 2340 → 2478 |       +138 | 1287 → 1287 |             0 |
 
 | File      | Change | Δ tokens |
 | --------- | ------ | -------: |
-| AGENTS.md | edited |     +330 |
+| AGENTS.md | edited |     +138 |
 ```
 
 And `strata analyze --format svg` draws the history as a static image for a README. This one is rendered from `main` by [this repository's own workflow](.github/workflows/strata-image.yml) on every push:
