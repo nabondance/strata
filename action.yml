@@ -78,7 +78,7 @@ outputs:
     description: Path of the JSON delta (schema version 14), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
   install:
-    description: "'npm' when Strata came from the published npm package, 'source' when it was built from the Action's source, as with `uses: ./` or a commit between releases."
+    description: "'npm' when Strata came from the published npm package, which happens when the Action's source matches a release's; 'source' when the Action built it from its own source."
     value: ${{ steps.install.outputs.install }}
 runs:
   using: composite
@@ -87,13 +87,14 @@ runs:
       with:
         node-version: "22"
     # Strata comes from npm when the package for this Action's version was built
-    # from the same source: the published, signed tarball, with no build. Its
-    # dist/source-digest.txt records that source. Anywhere else, such as
-    # `uses: ./`, a branch, or a commit between releases, or when npm cannot
-    # serve the package yet, Strata is built from the Action's own source. A
-    # later call in the same job reuses either. pnpm is installed with npm
-    # rather than pnpm/action-setup so the Action only depends on GitHub-owned
-    # actions and runs under a restrictive policy.
+    # by this repository's publish workflow from the same source as the Action:
+    # the package records that source's digest in dist/source-digest.txt, and
+    # its provenance names the repository, workflow, and tag that built it.
+    # Otherwise, as at a commit whose source differs from the release, or when
+    # npm cannot serve or verify the package, Strata is built from the Action's
+    # own source. A later call in the same job reuses either. pnpm is installed
+    # with npm rather than pnpm/action-setup so the Action only depends on
+    # GitHub-owned actions and runs under a restrictive policy.
     - name: Install Strata
       id: install
       shell: bash
@@ -101,34 +102,40 @@ runs:
         set -euo pipefail
         source_dir="$GITHUB_ACTION_PATH"
         version="$(node -p 'require(process.argv[1]).version' "$source_dir/package.json")"
-        digest="$(node "$source_dir/scripts/source-digest.mjs" "$source_dir")"
-        [[ "$digest" == sha256-* ]] || { echo "::error title=Strata::Could not read the Action's source digest."; exit 1; }
+        digest="$(node "$source_dir/scripts/source-digest.mjs" "$source_dir")" || digest=""
+        [[ "$digest" == sha256-* ]] || { echo "::error title=Strata::Could not compute the Action's source digest."; exit 1; }
         built_from() { [ "$(cat "$1/source-digest.txt" 2>/dev/null)" = "$digest" ]; }
         prefix="$RUNNER_TEMP/strata-npm-$version"
         package="$prefix/node_modules/context-strata"
-        if built_from "$package/dist"; then
+        # Written only once the package is installed and verified.
+        verified="$prefix/verified-source-digest"
+        dist="" install=""
+        if [ "$(cat "$verified" 2>/dev/null)" = "$digest" ] && built_from "$package/dist"; then
           dist="$package/dist" install=npm
         elif built_from "$source_dir/dist"; then
           dist="$source_dir/dist" install=source
         else
-          if npm install --prefix "$prefix" --no-audit --no-fund --ignore-scripts --loglevel=error \
-            "context-strata@$version"; then
-            if built_from "$package/dist"; then
-              # Checks the registry signatures and provenance of the installed packages.
-              npm audit signatures --prefix "$prefix" ||
-                {
-                  rm -rf "$prefix" # so a later call cannot reuse it
-                  echo "::error title=Strata::context-strata@$version from npm failed its signature check."
-                  exit 1
-                }
+          # Read the package's digest from its tarball before installing anything.
+          check="$(mktemp -d "$RUNNER_TEMP/strata-check-XXXXXX")"
+          if (cd "$check" && npm pack --silent "context-strata@$version" >/dev/null 2>&1) &&
+            [ "$(tar -xzOf "$check"/*.tgz package/dist/source-digest.txt 2>/dev/null)" = "$digest" ]; then
+            rm -rf "$prefix"
+            if npm install --prefix "$prefix" --no-audit --no-fund --ignore-scripts --loglevel=error \
+              "context-strata@$version" &&
+              npm audit signatures --prefix "$prefix" --json --include-attestations > "$check/audit.json" &&
+              node "$source_dir/scripts/verify-npm-package.mjs" "$check/audit.json" "$prefix/package-lock.json" "$version" &&
+              built_from "$package/dist"; then
+              echo "$digest" > "$verified"
               dist="$package/dist" install=npm
             else
-              echo "This Action's source differs from context-strata@$version on npm, so Strata is built from it."
+              rm -rf "$prefix"
+              echo "::warning title=Strata::context-strata@$version from npm could not be installed or verified, so Strata is built from the Action's source."
             fi
           else
-            echo "::notice title=Strata::context-strata@$version could not be installed from npm, so Strata is built from the Action's source."
+            echo "No context-strata@$version on npm was built from this Action's source, so Strata is built from it."
           fi
-          if [ -z "${dist:-}" ]; then
+          rm -rf "$check"
+          if [ -z "$dist" ]; then
             npm install --global pnpm@10.29.3
             (cd "$source_dir" && pnpm install --frozen-lockfile && pnpm build)
             dist="$source_dir/dist" install=source

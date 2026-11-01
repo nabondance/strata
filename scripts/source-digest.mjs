@@ -18,8 +18,8 @@ export function sourceDigest(root) {
   const files = [];
   const walk = (path) => {
     if (statSync(path).isDirectory()) {
-      // Untracked dotfiles such as .DS_Store are not part of the source.
-      for (const name of readdirSync(path)) if (!name.startsWith(".")) walk(join(path, name));
+      // .DS_Store is never tracked and npm leaves it out of the package.
+      for (const name of readdirSync(path)) if (name !== ".DS_Store") walk(join(path, name));
     } else {
       files.push(relative(root, path).split(sep).join("/"));
     }
