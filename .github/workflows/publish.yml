@@ -61,3 +61,39 @@ jobs:
       - run: npm install --global npm@11.5.1
       - name: Publish verified tarball with trusted publishing
         run: npm publish ./release/*.tgz --access public
+
+  # Runs the released Action by name once npm serves the tarball it installs,
+  # which can take minutes after publishing. Like this workflow, it has to be
+  # started explicitly, and only for the latest release, once v0 points at it.
+  test-published-action:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Start the published Action test
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          if [ "$latest" != "$TAG" ]; then
+            echo "$TAG is not the latest release ($latest), so v0 does not point at it and the test is not started."
+            exit 0
+          fi
+          for attempt in $(seq 1 40); do
+            if npm pack "context-strata@${TAG#v}" --pack-destination "$RUNNER_TEMP" >/dev/null 2>&1; then break; fi
+            if [ "$attempt" = 40 ]; then echo "::warning::npm still does not serve context-strata@${TAG#v}; starting the test anyway."; fi
+            sleep 15
+          done
+          # The release workflow moves v0 and only warns when it cannot.
+          release="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
+          major="$(gh api "repos/$GH_REPO/commits/${TAG%%.*}" --jq .sha)"
+          if [ "$major" != "$release" ]; then
+            echo "::error::${TAG%%.*} is at $major, not $TAG ($release), so nabondance/strata@${TAG%%.*} does not run this release. Move it, then run published-action.yml by hand."
+            exit 1
+          fi
+          gh workflow run published-action.yml --ref "$TAG"

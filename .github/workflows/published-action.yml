@@ -2,9 +2,11 @@ name: Published Action
 
 # Runs the released Action the way another repository does: by name, from the
 # release tags, not from this checkout (strata-pr-delta.yml and
-# action-smoke.yml cover the code under review with `uses: ./`). The release
-# workflow starts it on each new release tag once v0 has moved. It also runs
-# weekly to catch runner changes, by hand, and on pull requests that change it.
+# action-smoke.yml cover the code under review with `uses: ./`). The publish
+# workflow starts it on each new latest release once npm serves the package. It
+# also runs weekly to catch runner changes, by hand, and on pull requests that
+# change it. A release Action takes Strata from npm, so this is the workflow
+# that checks that path.
 on:
   pull_request:
     paths: [.github/workflows/published-action.yml]
@@ -65,6 +67,7 @@ jobs:
           LIMIT: ${{ steps.added.outputs.limit-result }}
           JSON: ${{ steps.added.outputs.json-file }}
           SUMMARY: ${{ steps.added.outputs.summary-file }}
+          INSTALL: ${{ steps.added.outputs.install }}
         run: |
           set -euo pipefail
           test "$EMPTY_TOKENS" = 0
@@ -75,7 +78,9 @@ jobs:
           test "$LIMIT" = within
           test "$(jq .comparison.afterTokens "$JSON")" = "$TOKENS"
           grep --quiet "Strata configuration delta" "$SUMMARY"
-          echo "Added configuration: $TOKENS tokens, all within the limit."
+          # Releases before the install output built from source; later ones use npm.
+          test -z "$INSTALL" || test "$INSTALL" = npm
+          echo "Added configuration: $TOKENS tokens, all within the limit; Strata from ${INSTALL:-source}."
 
   # This repository from a default shallow checkout, so the released Action
   # has to fetch the earlier commit itself.

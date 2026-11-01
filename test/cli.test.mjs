@@ -1044,6 +1044,7 @@ function actionRunner(temp, defaults) {
       env: {
         ...process.env,
         GITHUB_ACTION_PATH: resolve("."),
+        STRATA_DIST: resolve("dist"),
         RUNNER_TEMP: runner,
         GITHUB_STEP_SUMMARY: summary,
         GITHUB_OUTPUT: output,

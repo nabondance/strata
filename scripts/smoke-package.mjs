@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { sourceDigest } from "./source-digest.mjs";
 
 const repository = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -62,6 +63,8 @@ try {
   const strata = (...commandArgs) => run(join(install, "node_modules", ".bin", "strata"), commandArgs, { cwd: out });
 
   check(strata("--version").trim() === version, `strata --version prints ${version}`);
+  const recorded = readFileSync(join(install, "node_modules", name, "dist", "source-digest.txt"), "utf8").trim();
+  check(recorded === sourceDigest(repository), "the package records the source digest the Action compares");
   check(/^ {2}analyze /m.test(strata("--help")), "strata --help lists analyze");
   strata("skill", "--output", "skill.md");
   check(readFileSync(join(out, "skill.md"), "utf8").startsWith("---\n"), "strata skill writes the skill file");

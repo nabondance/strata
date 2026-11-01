@@ -77,21 +77,73 @@ outputs:
   json-file:
     description: Path of the JSON delta (schema version 14), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
+  install:
+    description: "'npm' when Strata came from the published npm package, which happens when the Action's source matches a release's; 'source' when the Action built it from its own source."
+    value: ${{ steps.install.outputs.install }}
 runs:
   using: composite
   steps:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: "22"
-    # Installed with npm rather than pnpm/action-setup so the Action only
-    # depends on GitHub-owned actions and runs under a restrictive policy.
-    - name: Build Strata
+    # Strata comes from npm when the package for this Action's version was built
+    # by this repository's publish workflow from the same source as the Action:
+    # the package records that source's digest in dist/source-digest.txt, and
+    # its provenance names the repository, workflow, and tag that built it.
+    # Otherwise, as at a commit whose source differs from the release, or when
+    # npm cannot serve or verify the package, Strata is built from the Action's
+    # own source. A later call in the same job reuses either. pnpm is installed
+    # with npm rather than pnpm/action-setup so the Action only depends on
+    # GitHub-owned actions and runs under a restrictive policy.
+    - name: Install Strata
+      id: install
       shell: bash
-      working-directory: ${{ github.action_path }}
       run: |
-        npm install --global pnpm@10.29.3
-        pnpm install --frozen-lockfile
-        pnpm build
+        set -euo pipefail
+        source_dir="$GITHUB_ACTION_PATH"
+        version="$(node -p 'require(process.argv[1]).version' "$source_dir/package.json")"
+        digest="$(node "$source_dir/scripts/source-digest.mjs" "$source_dir")" || digest=""
+        [[ "$digest" == sha256-* ]] || { echo "::error title=Strata::Could not compute the Action's source digest."; exit 1; }
+        built_from() { [ "$(cat "$1/source-digest.txt" 2>/dev/null)" = "$digest" ]; }
+        prefix="$RUNNER_TEMP/strata-npm-$version"
+        package="$prefix/node_modules/context-strata"
+        # Written only once the package is installed and verified.
+        verified="$prefix/verified-source-digest"
+        dist="" install=""
+        if [ "$(cat "$verified" 2>/dev/null)" = "$digest" ] && built_from "$package/dist"; then
+          dist="$package/dist" install=npm
+        elif built_from "$source_dir/dist"; then
+          dist="$source_dir/dist" install=source
+        else
+          # Read the package's digest from its tarball before installing anything.
+          check="$(mktemp -d "$RUNNER_TEMP/strata-check-XXXXXX")"
+          if (cd "$check" && npm pack --silent "context-strata@$version" >/dev/null 2>&1) &&
+            [ "$(tar -xzOf "$check"/*.tgz package/dist/source-digest.txt 2>/dev/null)" = "$digest" ]; then
+            rm -rf "$prefix"
+            if npm install --prefix "$prefix" --no-audit --no-fund --ignore-scripts --loglevel=error \
+              "context-strata@$version" &&
+              npm audit signatures --prefix "$prefix" --json --include-attestations > "$check/audit.json" &&
+              node "$source_dir/scripts/verify-npm-package.mjs" "$check/audit.json" "$prefix/package-lock.json" "$version" &&
+              built_from "$package/dist"; then
+              echo "$digest" > "$verified"
+              dist="$package/dist" install=npm
+            else
+              rm -rf "$prefix"
+              echo "::warning title=Strata::context-strata@$version from npm could not be installed or verified, so Strata is built from the Action's source."
+            fi
+          else
+            echo "No context-strata@$version on npm was built from this Action's source, so Strata is built from it."
+          fi
+          rm -rf "$check"
+          if [ -z "$dist" ]; then
+            npm install --global pnpm@10.29.3
+            (cd "$source_dir" && pnpm install --frozen-lockfile && pnpm build)
+            dist="$source_dir/dist" install=source
+          fi
+        fi
+        echo "Strata $version from $install: $dist"
+        echo "dist=$dist" >> "$GITHUB_OUTPUT"
+        echo "install=$install" >> "$GITHUB_OUTPUT"
     - name: Compare the commits
       id: compare
       shell: bash
@@ -111,6 +163,7 @@ runs:
         STRATA_LIMIT_UP_FRONT_TOKENS: ${{ inputs.limit-up-front-tokens }}
         STRATA_LIMIT_UP_FRONT_INCREASE: ${{ inputs.limit-up-front-increase }}
         STRATA_ON_LIMIT: ${{ inputs.on-limit }}
+        STRATA_DIST: ${{ steps.install.outputs.dist }}
       run: |
         fail() {
           # Workflow commands need %, CR, and LF escaped, or an input could end the message early.
@@ -214,7 +267,7 @@ runs:
         if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-limit "$STRATA_ON_LIMIT" --limit-annotations); fi
         # Status 3 means a limit was passed under on-limit: fail; the summary is written either way.
         status=0
-        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" || status=$?
+        node "$STRATA_DIST/cli.js" "${args[@]}" || status=$?
         if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
         cat "$markdown" >> "$GITHUB_STEP_SUMMARY"
         # limit-result comes from Strata's own rule for which limits were checked.
@@ -231,5 +284,5 @@ runs:
           console.log(`limit-result=${result}`);
           console.log(`summary-file=${markdown}`);
           console.log(`json-file=${json}`);
-        ' "$GITHUB_ACTION_PATH/dist/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
+        ' "$STRATA_DIST/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
         exit "$status"
