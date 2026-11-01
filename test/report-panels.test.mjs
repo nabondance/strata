@@ -479,10 +479,10 @@ test("the masthead silhouette follows the provider view and marks the selected r
     const mark = () => get("silhouette").children.at(-1);
     assert.equal(layers().length, 2);
     assert.equal(mark().hidden, false);
-    assert.equal(mark().style.left, "83.33%");
+    assert.equal(mark().style.left, "83.333%");
     get("target").value = "0";
     get("target").listeners.change();
-    assert.equal(mark().style.left, "16.67%");
+    assert.equal(mark().style.left, "16.667%");
     // Codex reads only AGENTS.md, so its view has one layer, drawn from the last revision.
     get("provider-tabs")
       .children.find((tab) => tab.textContent === "Codex + shared")
@@ -492,7 +492,7 @@ test("the masthead silhouette follows the provider view and marks the selected r
     get("target").value = "2";
     get("target").listeners.change();
     assert.equal(mark().hidden, false);
-    assert.equal(mark().style.left, "50.00%");
+    assert.equal(mark().style.left, "50.000%");
   } finally {
     cleanup();
   }

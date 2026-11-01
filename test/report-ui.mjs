@@ -4,7 +4,7 @@ import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../dist/instruction-age.js";
 import { viewRevision } from "../dist/provider-view.js";
-import { timelineBuckets, timelineScale } from "../dist/timeline.js";
+import { timelineBuckets, timelineScale, timelineStepsNote } from "../dist/timeline.js";
 
 /** Run the report's script against a minimal fake DOM and return its elements by ID. */
 export function loadReportUi(html) {
@@ -137,18 +137,24 @@ export function exerciseReportUi(html, report) {
   assert.deepEqual(tickLabels(), expectedTicks(revisions.map((revision) => revision.estimatedTokens)));
   assert.ok(tickLabels().length >= 3 && tickLabels().length <= 5);
   assert.equal(get("chart-ticks").children.at(-1).style.bottom, "210.0px");
-  const charted =
-    revisions.length -
-    Math.max(
-      0,
-      revisions.findIndex((revision) => revision.components.length),
-    );
-  assert.equal(get("chart-steps").hidden, charted <= 100);
-  if (charted > 100)
-    assert.equal(
-      get("chart-steps").textContent,
-      `${new Intl.NumberFormat().format(charted)} revisions shown as 100 steps; each step shows the last revision in its group.`,
-    );
+  const firstCharted = Math.max(
+    0,
+    revisions.findIndex((revision) => revision.components.length),
+  );
+  const charted = revisions.length - firstCharted;
+  const chartBuckets = timelineBuckets(
+    revisions.map((revision) => Object.values(revision.categoryTotals).map((total) => total.estimatedTokens)),
+    100,
+    firstCharted,
+  );
+  const note = timelineStepsNote(
+    charted,
+    chartBuckets,
+    chartBuckets.some((bucket) => bucket.peak > revisions[bucket.end].estimatedTokens),
+    (value) => new Intl.NumberFormat().format(value),
+  );
+  assert.equal(get("chart-steps").hidden, !note);
+  assert.equal(get("chart-steps").textContent, note);
   // The selects list the first, the latest, and every revision that changed something, after the two relative choices.
   const listed = revisions.filter(
     (revision, index) => !index || index === revisions.length - 1 || revision.changes.length,
@@ -213,13 +219,20 @@ export function exerciseReportUi(html, report) {
     expected.byCategory.filter((group) => group.deltaFiles || group.deltaTokens).length || 1,
   );
   assert.equal(get("slider").value, 3);
-  // Instruction age: one bar per charted revision, a legend entry per period present, and the text kept from the baseline.
+  // Instruction age: one bar per change in the amount of text, a legend entry per period present, and the text kept from the baseline.
   const ages = instructionAges(report);
   const ageStart = ages.bytes.findIndex((amount) => amount > 0);
   assert.equal(get("age-panel").hidden, ageStart < 0);
   if (ageStart >= 0) {
     const periods = instructionAgePeriods(report);
-    assert.equal(get("age-chart").children.length, Math.min(100, ages.bytes.length - ageStart));
+    assert.equal(
+      get("age-chart").children.length,
+      timelineBuckets(
+        ages.bytes.map((bytes) => [bytes]),
+        100,
+        ageStart,
+      ).length,
+    );
     const presentPeriods = new Set(ages.at(3).map((cohort) => periods.periodOf.get(cohort.from)));
     assert.equal(get("age-legend").children.length, presentPeriods.size);
     assert.ok(get("age-legend").children.every((entry) => /%$/.test(entry.children.at(-1).textContent)));
@@ -255,7 +268,11 @@ export function exerciseReportUi(html, report) {
     if (ages.bytes[3]) assert.equal(get("compare-kept").textContent, kept(3, 4));
     // A bar selects the last revision it covers, like the history chart.
     get("age-chart").children[0].listeners.click();
-    const firstBucket = timelineBuckets(ages.bytes.length, 100, ageStart)[0];
+    const firstBucket = timelineBuckets(
+      ages.bytes.map((bytes) => [bytes]),
+      100,
+      ageStart,
+    )[0];
     assert.equal(get("target").value, String(firstBucket.end));
     get("baseline").value = "2";
     get("baseline").listeners.change();
@@ -281,7 +298,7 @@ export function exerciseReportUi(html, report) {
     0,
     revisions.findIndex((revision) => revision.components.length),
   );
-  assert.equal(get("chart").children.length, Math.min(100, revisions.length - chartStart));
+  assert.equal(get("chart").children.length, chartBuckets.length);
   assert.equal(get("slider").min, chartStart);
   get("provider-filter").value = "claude";
   get("provider-filter").listeners.change();

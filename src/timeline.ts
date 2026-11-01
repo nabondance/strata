@@ -1,24 +1,151 @@
 export interface TimelineBucket {
   start: number;
   end: number;
+  /** The largest total of any revision in the bucket; above the last revision's when a higher one is hidden. */
+  peak: number;
+  /** How many changes the bucket holds: runs of revisions whose drawn values are the same. */
+  changes: number;
 }
 
 /**
- * Keep the overview bounded while the slider can still select every charted revision. Revisions
- * before `first` are left out, so a long history without configuration does not flatten the chart.
+ * Group the charted revisions into at most `maxBars` bars, given the values each revision draws (its token count
+ * per category, say). Revisions before `first` are left out, so a long history without configuration does not
+ * flatten the chart. A bar starts at each change, where the drawn values differ from the previous revision's, so
+ * revisions that look the same never take separate bars. When there are more changes than bars, neighboring bars are
+ * merged, the pair whose merged bar would be closest to every revision it covers first. Each bar shows its last
+ * revision; its `peak` keeps the highest total inside it. The slider can still select every charted revision.
  * The HTML report embeds this function's source, so it must stay self-contained.
  */
-export function timelineBuckets(revisions: number, maxBars = 100, first = 0): TimelineBucket[] {
+export function timelineBuckets(values: readonly (readonly number[])[], maxBars = 100, first = 0): TimelineBucket[] {
+  const count = values.length;
   const valid = (value: number, minimum: number) => Number.isSafeInteger(value) && value >= minimum;
-  if (!valid(revisions, 0) || !valid(maxBars, 1) || !valid(first, 0) || first > revisions) {
-    throw new Error("Invalid timeline size");
+  if (!valid(maxBars, 1) || !valid(first, 0) || first > count) throw new Error("Invalid timeline size");
+  const sum = (vector: readonly number[]) => vector.reduce((total, value) => total + value, 0);
+  interface Group extends TimelineBucket {
+    low: number[];
+    high: number[];
   }
-  const charted = revisions - first;
-  const count = Math.min(charted, maxBars);
-  return Array.from({ length: count }, (_, index) => ({
-    start: first + Math.floor((index * charted) / count),
-    end: first + Math.floor(((index + 1) * charted) / count) - 1,
-  }));
+  const groups: Group[] = [];
+  for (let index = first; index < count; index += 1) {
+    const vector = values[index] as readonly number[];
+    const last = groups.at(-1);
+    const previous = last ? (values[last.end] as readonly number[]) : undefined;
+    if (last && previous && previous.length === vector.length && previous.every((value, at) => value === vector[at])) {
+      last.end = index;
+      continue;
+    }
+    groups.push({ start: index, end: index, peak: sum(vector), changes: 1, low: [...vector], high: [...vector] });
+  }
+  const strip = (group: Group): TimelineBucket => ({
+    start: group.start,
+    end: group.end,
+    peak: group.peak,
+    changes: group.changes,
+  });
+  if (groups.length <= maxBars) return groups.map(strip);
+
+  // Merging a bar into the next one shows the next one's last revision for both. Its cost is how far that would be,
+  // summed over the values, from the furthest revision either covers, so a step that stays up merges cheaply, a
+  // spike that falls back does not, and steady growth merges evenly rather than from one end.
+  const cost = (left: Group, right: Group) => {
+    const shown = values[right.end] as readonly number[];
+    let total = 0;
+    for (let at = 0; at < shown.length; at += 1) {
+      const value = shown[at] as number;
+      const low = Math.min(left.low[at] ?? 0, right.low[at] ?? 0);
+      const high = Math.max(left.high[at] ?? 0, right.high[at] ?? 0);
+      total += Math.max(high - value, value - low);
+    }
+    return total;
+  };
+  const next = groups.map((_, index) => index + 1);
+  const previous = groups.map((_, index) => index - 1);
+  const version = groups.map(() => 0);
+  const alive = groups.map(() => true);
+  // A binary heap of candidate merges, cheapest first, then earliest; a candidate is stale once its version moves on.
+  type Candidate = [cost: number, start: number, left: number, version: number];
+  const heap: Candidate[] = [];
+  const before = (a: Candidate, b: Candidate) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+  const push = (left: number) => {
+    const right = next[left] as number;
+    if (left < 0 || right >= groups.length) return;
+    const leftGroup = groups[left] as Group;
+    const candidate: Candidate = [
+      cost(leftGroup, groups[right] as Group),
+      leftGroup.start,
+      left,
+      version[left] as number,
+    ];
+    heap.push(candidate);
+    for (let at = heap.length - 1; at > 0; ) {
+      const parent = (at - 1) >> 1;
+      if (!before(heap[at] as Candidate, heap[parent] as Candidate)) break;
+      [heap[at], heap[parent]] = [heap[parent] as Candidate, heap[at] as Candidate];
+      at = parent;
+    }
+  };
+  const pop = () => {
+    const top = heap[0] as Candidate;
+    const last = heap.pop() as Candidate;
+    if (heap.length) {
+      heap[0] = last;
+      for (let at = 0; ; ) {
+        const child = 2 * at + 1;
+        if (child >= heap.length) break;
+        const pick =
+          child + 1 < heap.length && before(heap[child + 1] as Candidate, heap[child] as Candidate) ? child + 1 : child;
+        if (!before(heap[pick] as Candidate, heap[at] as Candidate)) break;
+        [heap[at], heap[pick]] = [heap[pick] as Candidate, heap[at] as Candidate];
+        at = pick;
+      }
+    }
+    return top;
+  };
+  for (let index = 0; index < groups.length - 1; index += 1) push(index);
+  let remaining = groups.length;
+  while (remaining > maxBars && heap.length) {
+    const [, , left, stamp] = pop();
+    if (!alive[left] || stamp !== version[left]) continue;
+    const right = next[left] as number;
+    const leftGroup = groups[left] as Group;
+    const rightGroup = groups[right] as Group;
+    rightGroup.start = leftGroup.start;
+    rightGroup.peak = Math.max(leftGroup.peak, rightGroup.peak);
+    rightGroup.changes += leftGroup.changes;
+    rightGroup.low = rightGroup.low.map((value, at) => Math.min(value, leftGroup.low[at] ?? value));
+    rightGroup.high = rightGroup.high.map((value, at) => Math.max(value, leftGroup.high[at] ?? value));
+    alive[left] = false;
+    remaining -= 1;
+    const prior = previous[left] as number;
+    previous[right] = prior;
+    if (prior >= 0) next[prior] = right;
+    // The merged bar's own merges with both neighbors now cost more.
+    for (const changed of [prior, right]) {
+      if (changed < 0) continue;
+      version[changed] = (version[changed] as number) + 1;
+      push(changed);
+    }
+  }
+  return groups.filter((_, index) => alive[index]).map(strip);
+}
+
+/**
+ * The line under a grouped timeline, shared by the HTML report and the SVG image; empty when every charted revision
+ * has its own bar. `higher` says whether some bar hides a higher total, which a dashed line marks.
+ * The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelineStepsNote(
+  revisions: number,
+  buckets: readonly TimelineBucket[],
+  higher: boolean,
+  format: (value: number) => string = (value) => new Intl.NumberFormat("en-US").format(value),
+): string {
+  if (buckets.length >= revisions) return "";
+  const changes = buckets.reduce((total, bucket) => total + bucket.changes, 0);
+  if (changes <= buckets.length) {
+    return `${format(revisions)} revisions shown as ${format(buckets.length)} steps, one per change; each step shows the last revision in its group.`;
+  }
+  return `${format(revisions)} revisions and ${format(changes)} changes shown as ${format(buckets.length)} steps, merging the most alike neighbors; each step shows the last revision in its group.${higher ? " A dashed line marks a higher total inside a step." : ""}`;
 }
 
 export interface TimelineScale {
@@ -56,7 +183,7 @@ export interface TimelineDateTick {
 /**
  * Labels for the calendar boundaries inside a timeline, given the date of each bar. It takes the finest of months,
  * quarters, half-years, years, or longer that gives at most `maxTicks` labels, and keeps labels apart from each other
- * and from the dates already printed at both ends. Bars are revisions, not equal stretches of time, so boundaries can
+ * and from the dates already printed at both ends. Bars are changes, not equal stretches of time, so boundaries can
  * crowd where few revisions span a long time; those are dropped. A bar is a boundary when its period is later than the
  * previous bar's, not later than every bar before it, so a single out-of-order date does not hide the labels after it.
  * The HTML report embeds this function's source, so it must stay self-contained.

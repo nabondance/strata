@@ -3,7 +3,7 @@ import { markSvg } from "./brand.js";
 import { fillRevisions } from "./expand.js";
 import type { FilledRevision, Report } from "./model.js";
 import { categoryColors } from "./palette.js";
-import { timelineBuckets } from "./timeline.js";
+import { timelineBuckets, timelineStepsNote } from "./timeline.js";
 
 const width = 800;
 const left = 32;
@@ -35,7 +35,8 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
     0,
     revisions.findIndex((revision) => revision.componentCount > 0),
   );
-  const buckets = revisions.length ? timelineBuckets(revisions.length, 100, chartStart) : [];
+  const values = revisions.map((revision) => categories.map((category) => tokens(revision, category)));
+  const buckets = timelineBuckets(values, 100, chartStart);
   const charted = buckets.map((bucket) => revisions[bucket.end]!);
   const first = revisions[chartStart];
   // Like the HTML timeline, the scale and legend cover every charted revision, not only the last in each step.
@@ -45,16 +46,19 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
   const tokenAdjective = report.measurement.accuracy === "encoding-exact" ? "Encoding" : "Estimated";
   const latestTotals = `${numberFormat.format(latest?.estimatedTokens ?? 0)} tokens in ${numberFormat.format(latest?.componentCount ?? 0)} tracked files at the latest of ${numberFormat.format(revisions.length)} revisions`;
   if (options.minimal) {
-    const minimalStep = width / Math.max(1, charted.length);
+    // The layers alone, ungrouped like the HTML report's masthead: each charted revision takes the same width, and a
+    // step starts at each change. Past 2,000 changes the most alike neighbors merge, finer than the image can show.
+    const steps = timelineBuckets(values, 2000, chartStart);
+    const span = Math.max(1, revisions.length - chartStart);
+    const at = (index: number) => round(((index - chartStart) / span) * width);
     const description = `${tokenAdjective} stored-text tokens in Git-tracked agent configuration through time, one layer per category: ${latestTotals}.`;
     return [
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${minimalHeight}" viewBox="0 0 ${width} ${minimalHeight}" role="img" aria-labelledby="strata-title strata-desc">`,
       `<title id="strata-title">Strata: agent context through time</title>`,
       `<desc id="strata-desc">${escapeXml(description)}</desc>`,
       ...layerPolygons(
-        charted,
+        steps.map((step) => ({ revision: revisions[step.end]!, from: at(step.start), to: at(step.end + 1) })),
         layers,
-        (index) => round(index * minimalStep),
         (value) => round(minimalHeight - (value / Math.max(1, max)) * minimalHeight),
       ),
       `</svg>`,
@@ -114,7 +118,16 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
     );
   }
 
-  for (const polygon of layerPolygons(charted, layers, x, y)) add(polygon);
+  const columns = charted.map((revision, index) => ({ revision, from: x(index), to: x(index + 1) }));
+  for (const polygon of layerPolygons(columns, layers, y)) add(polygon);
+  // A step that merged changes can hide a higher total; a dashed line marks it, as in the HTML timeline.
+  const higher = buckets.filter((bucket, index) => bucket.peak > charted[index]!.estimatedTokens);
+  for (const bucket of higher) {
+    const index = buckets.indexOf(bucket);
+    add(
+      `<line x1="${x(index)}" y1="${y(bucket.peak)}" x2="${x(index + 1)}" y2="${y(bucket.peak)}" stroke="#5c6a63" stroke-width="1.5" stroke-dasharray="3 2"/>`,
+    );
+  }
   if (max === 0) {
     add(
       `<text x="${round((plotLeft + right) / 2)}" y="${plotTop + plotHeight / 2}" text-anchor="middle" font-family="${sans}" font-size="13" fill="#5c6a63">No instructional text is tracked yet.</text>`,
@@ -148,11 +161,7 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
 
   const notes = [
     `${report.measurement.label}. Stored configuration in Git, not loaded session context or billing.`,
-    ...(buckets.length < range.length
-      ? [
-          `${numberFormat.format(range.length)} revisions shown as ${buckets.length} steps; each step shows the last revision in its group.`,
-        ]
-      : []),
+    ...[timelineStepsNote(range.length, buckets, higher.length > 0)].filter(Boolean),
     ...(chartStart
       ? [
           `The chart starts at revision ${numberFormat.format(chartStart + 1)}: the ${numberFormat.format(chartStart)} earlier revisions have no tracked configuration.`,
@@ -181,23 +190,22 @@ export function renderSvg(report: Report, options: { minimal?: boolean } = {}): 
   ].join("\n");
 }
 
-/** Each category is a stepped layer stacked on the ones before it, like strata in a cut. */
+/** Each category is a stepped layer stacked on the ones before it, like strata in a cut; a column spans `from` to `to`. */
 function layerPolygons(
-  charted: readonly FilledRevision[],
+  columns: readonly { revision: FilledRevision; from: number; to: number }[],
   layers: Category[],
-  x: (index: number) => number,
   y: (value: number) => number,
 ): string[] {
-  const below = charted.map(() => 0);
+  const below = columns.map(() => 0);
   return layers.map((category) => {
     const bottom = [...below];
-    for (const [index, revision] of charted.entries()) below[index]! += tokens(revision, category);
-    const top = charted.flatMap((_, index) => [
-      `${x(index)},${y(below[index]!)}`,
-      `${x(index + 1)},${y(below[index]!)}`,
+    for (const [index, column] of columns.entries()) below[index]! += tokens(column.revision, category);
+    const top = columns.flatMap((column, index) => [
+      `${column.from},${y(below[index]!)}`,
+      `${column.to},${y(below[index]!)}`,
     ]);
-    const base = charted
-      .flatMap((_, index) => [`${x(index)},${y(bottom[index]!)}`, `${x(index + 1)},${y(bottom[index]!)}`])
+    const base = columns
+      .flatMap((column, index) => [`${column.from},${y(bottom[index]!)}`, `${column.to},${y(bottom[index]!)}`])
       .reverse();
     return `<polygon points="${[...top, ...base].join(" ")}" fill="${categoryColors[category]}"/>`;
   });

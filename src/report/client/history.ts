@@ -50,7 +50,9 @@ export const historyScript = `    function renderLegend() {
       chartBuckets = [];
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
-      const buckets = timelineBuckets(viewRevisions.length, 100, chartStart);
+      // A bar starts wherever the drawn layers change; the most alike neighbors merge when there are more than 100.
+      const values = viewRevisions.map((revision) => categories.map((category) => revision.categoryTotals[category].estimatedTokens));
+      const buckets = timelineBuckets(values, 100, chartStart);
       slider.min = chartStart;
       chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
@@ -67,7 +69,8 @@ export const historyScript = `    function renderLegend() {
         const button = text('button', '', 'bar');
         button.type = 'button';
         // The hover card shows this at once, so a native title would only repeat it late.
-        button.setAttribute('aria-label', bucketRange(bucket) + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + inlineStat() + ' at ' + (bucket.start === bucket.end ? 'this revision' : 'the last one'));
+        const higher = bucket.peak > revision.estimatedTokens;
+        button.setAttribute('aria-label', bucketRange(bucket) + ' · ' + revision.date.slice(0, 10) + ' · ' + fmt(revision.estimatedTokens) + ' ' + inlineStat() + ' at ' + (bucket.start === bucket.end ? 'this revision' : 'the last one') + (higher ? ', up to ' + fmt(bucket.peak) + ' in these revisions' : ''));
         const stack = text('span', '', 'stack');
         stack.style.height = Math.max(2, revision.estimatedTokens / scale.top * 210) + 'px';
         for (const category of categories) {
@@ -79,6 +82,12 @@ export const historyScript = `    function renderLegend() {
           stack.append(segment);
         }
         button.append(stack);
+        // A merged bar can hide a higher total; a dashed line marks it.
+        if (higher) {
+          const peak = text('span', '', 'peak');
+          peak.style.bottom = (bucket.peak / scale.top * 210).toFixed(1) + 'px';
+          button.append(peak);
+        }
         // Safari does not focus a clicked button, and arrow keys need the focus on a bar.
         button.addEventListener('click', () => {
           render(bucket.end);
@@ -94,11 +103,12 @@ export const historyScript = `    function renderLegend() {
         return label;
       }));
       const charted = viewRevisions.length - chartStart;
-      $('chart-steps').hidden = buckets.length >= charted;
-      $('chart-steps').textContent = fmt(charted) + ' revisions shown as ' + fmt(buckets.length) + ' steps; each step shows the last revision in its group.';
+      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt);
+      $('chart-steps').hidden = !note;
+      $('chart-steps').textContent = note;
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
-      renderSilhouette(buckets, max);
+      renderSilhouette(values, chartStart, max);
     }
 
     const slider = $('slider');
@@ -159,6 +169,7 @@ export const historyScript = `    function renderLegend() {
       const revision = viewRevisions[bucket.end];
       const steps = bucket.end - bucket.start + 1;
       const rows = [text('b', bucketRange(bucket)), text('span', revision.date.slice(0, 10) + (steps > 1 ? ' · the last of these ' + fmt(steps) : ''), 'history-tip-date')];
+      if (bucket.changes > 1) rows.push(text('span', fmt(bucket.changes) + ' changes in these revisions', 'history-tip-date'));
       for (const category of [...categories].reverse()) {
         const amount = revision.categoryTotals[category].estimatedTokens;
         if (!amount) continue;
@@ -172,6 +183,11 @@ export const historyScript = `    function renderLegend() {
       const total = text('span', 'Total ' + inlineStat(), 'history-tip-row history-tip-total');
       total.append(text('b', fmt(revision.estimatedTokens)));
       rows.push(total);
+      if (bucket.peak > revision.estimatedTokens) {
+        const peak = text('span', 'Highest in these revisions', 'history-tip-row');
+        peak.append(text('b', fmt(bucket.peak)));
+        rows.push(peak);
+      }
       tip.replaceChildren(...rows);
       tip.hidden = false;
       const plot = $('history-plot').getBoundingClientRect();

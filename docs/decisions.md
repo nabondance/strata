@@ -672,7 +672,7 @@ A revision without `lineAge` moved no line, even if it changed, renamed, or adde
 
 ### In the report
 
-The HTML report draws the age of the text in a collapsed **Instruction age** panel, as a stacked bar for each charted revision:
+The HTML report draws the age of the text in a collapsed **Instruction age** panel, as stacked bars grouped like the history chart's: a bar starts wherever the amount of instruction text changes, and past 100 such changes the most alike neighbors merge. Each bar shows its last revision:
 
 - There is one layer per period, oldest at the bottom and darkest in light mode (lightest in dark mode).
 - The period is the finest of week (from Monday), month, quarter, or year that gives at most eight layers. A history spanning more than eight years keeps one layer per year.
@@ -700,8 +700,10 @@ The offline HTML report compares any two revisions present in the report. Schema
 
 ### History chart and slider
 
-- The chart is capped at 100 bars. When needed it groups adjacent revisions and displays the last revision in each group, and a line under the chart says so with the SVG image's wording. A hover card, also shown for the focused bar, and each bar's accessible name give the revision numbers it covers, its date, and its tokens; the card splits them by category.
-- The value axis has three to five round gridlines (steps of 1, 2, 2.5, or 5 times a power of ten, as in the SVG image) labeled in compact form (20K). It covers every charted revision in the current view and measure, so it is redrawn with a provider tab. Between the end dates, up to four labels mark month, quarter, half-year, or year boundaries, the finest that fits, at least 12% of the width from each other and from the ends; on a narrow screen only one near the middle stays. Bars are revisions, not equal spans of time, so these labels are not evenly spaced.
+- A bar starts at each change: a revision whose drawn values (its tokens per category in the current view and measure) differ from the previous revision's. Revisions that draw the same values share a bar, so a long stretch with no configuration change never takes more than one.
+- The chart is capped at 100 bars. With more changes, neighboring bars merge, cheapest first: the cost of a merge is how far the merged bar, which shows the later bar's last revision, would be from the furthest revision either covers, summed over the categories. Small tweaks therefore merge before large moves, a step that stays up keeps its edge, a spike that falls back keeps its bar, and steady growth merges evenly instead of from one end. `timelineBuckets` in `src/timeline.ts`, which the report embeds, does this; it is a view rule and needs no schema change.
+- Each bar displays the last revision in its group. When a merged bar hides a higher total, a dashed line marks that total on the bar. A line under the chart, worded as in the SVG image by `timelineStepsNote`, says when bars group revisions, whether changes were merged, and what the dashed line means. A hover card, also shown for the focused bar, and each bar's accessible name give the revision numbers it covers, its date, and its tokens; the card splits them by category, counts the changes in a merged bar, and gives the highest total it hides.
+- The value axis has three to five round gridlines (steps of 1, 2, 2.5, or 5 times a power of ten, as in the SVG image) labeled in compact form (20K). It covers every charted revision in the current view and measure, so it is redrawn with a provider tab. Between the end dates, up to four labels mark month, quarter, half-year, or year boundaries, the finest that fits, at least 12% of the width from each other and from the ends; on a narrow screen only one near the middle stays. Bars are changes, not equal spans of time or equal numbers of revisions, so these labels are not evenly spaced.
 - The selected bar keeps its stack in full color: a faint column behind it, a cap above it, and a mark under the axis.
 - The chart starts at the first revision that has a tracked file in the current view, and the date under its left edge is that revision's. Otherwise a repository that adopted agent configuration late would spend most of its bars on nothing.
 - The slider covers the charted revisions, so it stays aligned with the bars. The baseline and target selectors list every revision that changed something, including those before the chart starts.
@@ -812,7 +814,7 @@ A shareable report aliases folder and file names one segment at a time, so its m
 
 ## Report masthead
 
-The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, grouping, and scale as the chart beneath it, and a thin line marks the step holding the selected revision. The layers use the chart's category colors and are decoration, hidden from assistive technology.
+The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, chart start, and scale as the chart beneath it but not its grouping: every charted revision takes the same width, and a step starts at each change, so the edge shows the history at full resolution. Past 2,000 changes the most alike neighbors merge, by the chart's rule, which is finer than a screen can show. A thin line marks the selected revision. The layers use the chart's category colors and are decoration, hidden from assistive technology.
 
 When no revision tracks a recognized file, the report keeps the masthead and replaces the panels, the provider tabs, and the measurement disclosure with one card. It says how many revisions were read, lists the main recognized paths, and explains that files elsewhere, such as a top-level `skills/` folder, are not read by the supported tools. A history whose configuration was removed later still draws every panel, each with its own empty message at the revisions that have none.
 
@@ -845,9 +847,9 @@ When no revision tracks a recognized file, the report keeps the masthead and rep
 What it draws:
 
 - Each category with stored-text tokens is a stepped layer stacked on the previous ones in category order, using the HTML report's colors. The layers carry no outline: the top edge of the stack is the total.
-- It follows the HTML timeline's rules: it starts at the first revision with a tracked file, holds at most 100 steps, and each step shows the last revision in its group.
+- It follows the HTML timeline's rules: it starts at the first revision with a tracked file, starts a step at each change, holds at most 100 steps by merging the most alike neighbors, and each step shows the last revision in its group. A dashed line marks a higher total hidden inside a merged step.
 - As in the HTML timeline, the vertical scale and legend cover every charted revision, so a peak or category inside a group is not dropped from them.
-- Notes state when revisions were grouped and how many leading revisions without tracked configuration were left out. Axis steps are whole numbers.
+- Notes state when revisions were grouped, whether changes were merged, and how many leading revisions without tracked configuration were left out. Axis steps are whole numbers.
 - A header gives the latest token total, tracked-file count, revision count, and the token change since the first charted revision.
 - The measurement label, a statement that this is stored configuration and not loaded session context or billing, and a shallow-clone warning when it applies are part of the image.
 
@@ -868,7 +870,7 @@ Because the image is meant for publication, the CLI does not restrict it to mode
 
 - It is 800 by 200 with a transparent background, and the layers fill it edge to edge. The tallest charted revision touches the top, so heights are relative and there is no axis to read a value from.
 - It has no visible text, grid, legend, or notes. So it shows neither the measurement label nor the stored-configuration statement, nor the grouping, late-start, and shallow-clone notes. Use the full image where a reader needs to interpret the numbers.
-- The bucketing, chart start, category order, and colors match the full image.
+- The chart start, category order, and colors match the full image. Like the HTML report's masthead, it does not group: each charted revision takes the same width and a step starts at each change, merging the most alike neighbors only past 2,000 changes.
 - Its accessible description names the measurement kind and the latest totals.
 - It contains no repository or branch name and no dates, so `--shareable` does not change it.
 - `--minimal` with another format is a usage error.
