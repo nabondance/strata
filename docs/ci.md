@@ -54,7 +54,7 @@ Download `strata-report` from the workflow run and open `report.html` in a brows
 Notes on the example:
 
 - Strata creates the output directory itself.
-- Each action is pinned to a commit SHA, as this repository's own workflows do. Review and update those pins like any other dependency.
+- Each action is pinned to a commit SHA, as this repository's workflows that can write and the Strata Action are. A tag such as `v7` can be moved to other code; a commit cannot. Review and update those pins like any other dependency (Dependabot can update them).
 - `persist-credentials: false` keeps the job token out of the checkout's Git configuration, since nothing in the job pushes.
 
 ### Checkout depth

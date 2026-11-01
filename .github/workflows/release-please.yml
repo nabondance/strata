@@ -112,6 +112,7 @@ jobs:
       # at the latest release. Tags created with GITHUB_TOKEN start no workflow,
       # and publish.yml only runs for vX.Y.Z tags in any case.
       - name: Move the major version tag
+        id: major
         if: steps.release.outcome == 'success'
         env:
           TAG: ${{ steps.release.outputs.tag }}
@@ -141,6 +142,17 @@ jobs:
               warn "Could not create $major at $TAG ($sha)."
           fi
           echo "$major points at $TAG ($sha)."
+          echo "at-release=true" >> "$GITHUB_OUTPUT"
+      # Runs the released Action by name, only once v0 points at the new
+      # release (not for an older line's release, or when moving v0 failed).
+      # Like the publish workflow, it has to be started explicitly.
+      - name: Start the published Action test
+        if: steps.release.outputs.created == 'true' && steps.major.outputs.at-release == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh workflow run published-action.yml --ref "$TAG" ||
+            echo "::warning::Could not start the published Action test: gh workflow run published-action.yml --ref $TAG"
       # The release PR's commits come from GITHUB_TOKEN, so its pull_request
       # workflows wait for approval as `action_required`. Copies started by hand
       # pass on the same commit but do not count toward the pull request's
