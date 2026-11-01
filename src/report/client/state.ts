@@ -111,6 +111,8 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
     let pathSearch = '';
     let inventoryRows = new Map();
     let chartBuckets = [];
+    // 'change' gives every bar the same width; 'time' makes each as wide as the time its configuration lasted.
+    let chartSpacing = 'change';
     let chartStart = 0;
     let treemapLabels = [];
     // What the line under the treemap says while no rectangle is hovered or focused.

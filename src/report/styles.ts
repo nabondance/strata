@@ -222,6 +222,8 @@ export const reportStyles = `    ${displayFontFace}
     .history-tip-date { color: var(--muted); font-variant-numeric: tabular-nums; margin-bottom: 3px; }
     .history-tip-row { display: flex; align-items: center; gap: 7px; color: var(--muted); }
     .history-tip-row b { margin-left: auto; padding-left: 12px; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .chart-spacing { margin: 0 0 10px; }
+    .history-plot .chart.by-time { gap: 0; }
     .history-plot .peak { position: absolute; left: 12%; right: 12%; height: 0; border-top: 2px dashed var(--muted); pointer-events: none; }
     .history-tip-total { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 2px; }
     @media (max-width: 520px) { .history-plot { padding-left: 34px; } .history-tick { left: 34px; } .history-dates span:not(.primary) { display: none; } }
