@@ -1,0 +1,61 @@
+name: Demo site
+
+on:
+  # Started by publish.yml once npm serves a new release, so the reports use it.
+  workflow_dispatch:
+  # Weekly, so the gallery follows the repositories' own history.
+  schedule:
+    - cron: "17 5 * * 1"
+  pull_request:
+    paths:
+      - scripts/demo-site.mjs
+      - .github/workflows/demo-site.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-site-${{ github.event_name == 'pull_request' && github.ref || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Builds the gallery at https://nabondance.github.io/strata with the npm release
+# named in package.json, the version a visitor gets with npx, and publishes it to
+# GitHub Pages. A pull request only builds it. scripts/demo-site.mjs lists the
+# repositories; each is cloned without a working tree.
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+      - name: Install the released Strata
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          npm install --prefix "$RUNNER_TEMP/strata" --no-fund --ignore-scripts "context-strata@$version"
+          npm audit signatures --prefix "$RUNNER_TEMP/strata"
+      - name: Build the site
+        run: node scripts/demo-site.mjs --strata "$RUNNER_TEMP/strata/node_modules/context-strata" --out "$RUNNER_TEMP/site" --work "$RUNNER_TEMP/clones" --self "$GITHUB_WORKSPACE"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

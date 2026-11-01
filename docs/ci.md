@@ -12,7 +12,7 @@ There are three ways to use it in CI:
 
 None of them runs unless you add a workflow to the repository you want to analyze.
 
-Strata's own repository runs the [pull-request delta](../.github/workflows/strata-pr-delta.yml) and the [README image](../.github/workflows/strata-image.yml) workflows on itself. The only difference from the examples below is that they build Strata from the checkout instead of running the published package.
+Strata's own repository runs the [pull-request delta](../.github/workflows/strata-pr-delta.yml) and the [README image](../.github/workflows/strata-image.yml) workflows on itself. The only difference from the examples below is that they build Strata from the checkout instead of running the published package. It also publishes a [demo gallery](https://nabondance.github.io/strata/) of reports on other public repositories with [demo-site.yml](../.github/workflows/demo-site.yml).
 
 ## Full history report as an artifact
 
