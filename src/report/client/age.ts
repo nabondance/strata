@@ -26,7 +26,8 @@ export const ageScript = `    // Instruction age follows the whole inventory, li
       $('age-panel').hidden = ageStart < 0;
       if (ageStart < 0) return;
       const chart = $('age-chart');
-      const buckets = timelineBuckets(ages.bytes.length, 100, ageStart);
+      // A bar starts wherever the amount of instruction text changes, as the history chart's do.
+      const buckets = timelineBuckets(ages.bytes.map((bytes) => [bytes]), 100, ageStart);
       $('age-start').textContent = revisions[ageStart].date.slice(0, 10);
       $('age-end').textContent = revisions.at(-1).date.slice(0, 10);
       chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';

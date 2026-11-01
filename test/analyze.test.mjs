@@ -454,7 +454,9 @@ test("tracks configuration across first-parent history without reading untracked
       ],
     };
     const longUi = exerciseReportUi(renderHtml(longHistory), longHistory);
-    assert.equal(longUi("chart").children.length, 100);
+    // Revisions that change nothing share their change's bar.
+    const longChanges = report.revisions.length;
+    assert.ok(longUi("chart").children.length <= longChanges);
     // A grouped bar names the revisions it covers.
     assert.ok(longUi("chart").children.some((bar) => /^Revisions \d+–\d+ · /.test(bar.getAttribute("aria-label"))));
     // The latest revision changed nothing, so "Previous change" reaches back past the unchanged ones.
@@ -501,7 +503,17 @@ test("tracks configuration across first-parent history without reading untracked
       ],
     };
     const lateUi = exerciseReportUi(renderHtml(lateStart), lateStart);
-    assert.equal(lateUi("chart").children.length, report.revisions.length);
+    // The chart starts at the first tracked revision; revisions that draw the same layers share a bar.
+    assert.equal(
+      lateUi("chart").children.length,
+      timelineBuckets(
+        expandRevisions(lateStart).map((revision) =>
+          categories.map((category) => revision.categoryTotals[category].estimatedTokens),
+        ),
+        100,
+        2,
+      ).length,
+    );
     assert.equal(lateUi("slider").min, 2);
     // The first revision is listed although nothing changed there; the second is not.
     assert.equal(
@@ -557,19 +569,33 @@ test("tracks configuration across first-parent history without reading untracked
     }
     assert.match(svg, new RegExp(`<text[^>]*>${report.revisions.at(-1).date.slice(0, 10)}</text>`));
     assert.doesNotMatch(svg, /steps;|chart starts/);
+    const longSteps = timelineBuckets(
+      expandRevisions(longHistory).map((revision) =>
+        categories.map((category) => revision.categoryTotals[category].estimatedTokens),
+      ),
+      100,
+      0,
+    ).length;
+    assert.ok(longSteps < 100);
     assert.match(
       renderSvg(longHistory),
-      /revisions shown as 100 steps; each step shows the last revision in its group\./,
+      new RegExp(
+        `revisions shown as ${longSteps} steps, one per change; each step shows the last revision in its group\\.`,
+      ),
     );
     assert.equal(
       renderSvg(longHistory)
         .match(/<polygon points="([^"]*)"/)[1]
         .split(" ").length,
-      400,
+      longSteps * 4,
     );
     assert.doesNotMatch(svg, /<polyline/);
     // A category or peak inside a group still sets the legend and scale, as in the HTML timeline.
-    const hidden = timelineBuckets(longHistory.revisions.length, 100).find((bucket) => bucket.start < bucket.end).start;
+    const hidden = timelineBuckets(
+      expandRevisions(longHistory).map((revision) =>
+        categories.map((category) => revision.categoryTotals[category].estimatedTokens),
+      ),
+    ).find((bucket) => bucket.start < bucket.end).start;
     const peaked = structuredClone(longHistory);
     peaked.revisions[hidden].categoryTotals.commands.estimatedTokens = 100000;
     peaked.revisions[hidden].estimatedTokens += 100000;
@@ -593,6 +619,19 @@ test("tracks configuration across first-parent history without reading untracked
     assert.match(lateSvg, /The chart starts at revision 3: the 2 earlier revisions have no tracked configuration\./);
     assert.ok(lateSvg.includes(`Since ${report.revisions[0].date.slice(0, 10)}`.toUpperCase()));
     assert.match(lateSvg, new RegExp(`>REVISIONS</text>\\n<text[^>]*>${lateStart.revisions.length}</text>`));
+    // The minimal image does not group: a step for each change, where the full image draws at most 100.
+    const peakedSteps = timelineBuckets(
+      expandRevisions(peaked).map((revision) =>
+        categories.map((category) => revision.categoryTotals[category].estimatedTokens),
+      ),
+      2000,
+    ).length;
+    assert.equal(
+      renderSvg(peaked, { minimal: true })
+        .match(/<polygon points="([^"]*)"/)[1]
+        .split(" ").length,
+      peakedSteps * 4,
+    );
     // The minimal image is the layers alone: the same shapes count, nothing else visible, no names or dates.
     const minimalSvg = renderSvg(report, { minimal: true });
     assert.match(minimalSvg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="800" height="200"/);
