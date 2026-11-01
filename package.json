@@ -33,7 +33,7 @@
     "skills"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/source-digest.mjs --write dist/source-digest.txt",
     "prepack": "pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "pnpm build && node dist/cli.js",

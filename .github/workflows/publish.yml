@@ -61,3 +61,31 @@ jobs:
       - run: npm install --global npm@11.5.1
       - name: Publish verified tarball with trusted publishing
         run: npm publish ./release/*.tgz --access public
+
+  # Runs the released Action by name once npm serves the tarball it installs,
+  # which can take minutes after publishing. Like this workflow, it has to be
+  # started explicitly, and only for the latest release, the one v0 points at.
+  test-published-action:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Start the published Action test
+        run: |
+          set -uo pipefail
+          latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+          if [ "$latest" != "$TAG" ]; then
+            echo "$TAG is not the latest release (${latest:-unknown}), so v0 does not point at it."
+            exit 0
+          fi
+          for attempt in $(seq 1 40); do
+            if npm pack "context-strata@${TAG#v}" --pack-destination "$RUNNER_TEMP" >/dev/null 2>&1; then break; fi
+            if [ "$attempt" = 40 ]; then echo "::warning::npm still does not serve context-strata@${TAG#v}; starting the test anyway."; fi
+            sleep 15
+          done
+          gh workflow run published-action.yml --ref "$TAG"

@@ -77,21 +77,66 @@ outputs:
   json-file:
     description: Path of the JSON delta (schema version 14), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
+  install:
+    description: "'npm' when Strata came from the published npm package, 'source' when it was built from the Action's source, as with `uses: ./` or a commit between releases."
+    value: ${{ steps.install.outputs.install }}
 runs:
   using: composite
   steps:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: "22"
-    # Installed with npm rather than pnpm/action-setup so the Action only
-    # depends on GitHub-owned actions and runs under a restrictive policy.
-    - name: Build Strata
+    # Strata comes from npm when the package for this Action's version was built
+    # from the same source: the published, signed tarball, with no build. Its
+    # dist/source-digest.txt records that source. Anywhere else, such as
+    # `uses: ./`, a branch, or a commit between releases, or when npm cannot
+    # serve the package yet, Strata is built from the Action's own source. A
+    # later call in the same job reuses either. pnpm is installed with npm
+    # rather than pnpm/action-setup so the Action only depends on GitHub-owned
+    # actions and runs under a restrictive policy.
+    - name: Install Strata
+      id: install
       shell: bash
-      working-directory: ${{ github.action_path }}
       run: |
-        npm install --global pnpm@10.29.3
-        pnpm install --frozen-lockfile
-        pnpm build
+        set -euo pipefail
+        source_dir="$GITHUB_ACTION_PATH"
+        version="$(node -p 'require(process.argv[1]).version' "$source_dir/package.json")"
+        digest="$(node "$source_dir/scripts/source-digest.mjs" "$source_dir")"
+        [[ "$digest" == sha256-* ]] || { echo "::error title=Strata::Could not read the Action's source digest."; exit 1; }
+        built_from() { [ "$(cat "$1/source-digest.txt" 2>/dev/null)" = "$digest" ]; }
+        prefix="$RUNNER_TEMP/strata-npm-$version"
+        package="$prefix/node_modules/context-strata"
+        if built_from "$package/dist"; then
+          dist="$package/dist" install=npm
+        elif built_from "$source_dir/dist"; then
+          dist="$source_dir/dist" install=source
+        else
+          if npm install --prefix "$prefix" --no-audit --no-fund --ignore-scripts --loglevel=error \
+            "context-strata@$version"; then
+            if built_from "$package/dist"; then
+              # Checks the registry signatures and provenance of the installed packages.
+              npm audit signatures --prefix "$prefix" ||
+                {
+                  rm -rf "$prefix" # so a later call cannot reuse it
+                  echo "::error title=Strata::context-strata@$version from npm failed its signature check."
+                  exit 1
+                }
+              dist="$package/dist" install=npm
+            else
+              echo "This Action's source differs from context-strata@$version on npm, so Strata is built from it."
+            fi
+          else
+            echo "::notice title=Strata::context-strata@$version could not be installed from npm, so Strata is built from the Action's source."
+          fi
+          if [ -z "${dist:-}" ]; then
+            npm install --global pnpm@10.29.3
+            (cd "$source_dir" && pnpm install --frozen-lockfile && pnpm build)
+            dist="$source_dir/dist" install=source
+          fi
+        fi
+        echo "Strata $version from $install: $dist"
+        echo "dist=$dist" >> "$GITHUB_OUTPUT"
+        echo "install=$install" >> "$GITHUB_OUTPUT"
     - name: Compare the commits
       id: compare
       shell: bash
@@ -111,6 +156,7 @@ runs:
         STRATA_LIMIT_UP_FRONT_TOKENS: ${{ inputs.limit-up-front-tokens }}
         STRATA_LIMIT_UP_FRONT_INCREASE: ${{ inputs.limit-up-front-increase }}
         STRATA_ON_LIMIT: ${{ inputs.on-limit }}
+        STRATA_DIST: ${{ steps.install.outputs.dist }}
       run: |
         fail() {
           # Workflow commands need %, CR, and LF escaped, or an input could end the message early.
@@ -214,7 +260,7 @@ runs:
         if [ "${#limits[@]}" -gt 0 ]; then args+=("${limits[@]}" --on-limit "$STRATA_ON_LIMIT" --limit-annotations); fi
         # Status 3 means a limit was passed under on-limit: fail; the summary is written either way.
         status=0
-        node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}" || status=$?
+        node "$STRATA_DIST/cli.js" "${args[@]}" || status=$?
         if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
         cat "$markdown" >> "$GITHUB_STEP_SUMMARY"
         # limit-result comes from Strata's own rule for which limits were checked.
@@ -231,5 +277,5 @@ runs:
           console.log(`limit-result=${result}`);
           console.log(`summary-file=${markdown}`);
           console.log(`json-file=${json}`);
-        ' "$GITHUB_ACTION_PATH/dist/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
+        ' "$STRATA_DIST/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
         exit "$status"

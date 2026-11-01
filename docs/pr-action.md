@@ -111,7 +111,7 @@ The examples pin the latest release; Release Please updates that version in thes
 - `nabondance/strata@v0` follows every 0.x release. A minor 0.x release can change the summary or the inputs.
 - To change versions only when you choose, pin a release or a commit SHA you have reviewed.
 
-The Action builds Strata from its own source at that version, with the locked dependencies, so it does not depend on npm.
+At a release, the Action installs that version of the `context-strata` npm package, the tarball the publish workflow built and signed, and checks its registry signatures and provenance with `npm audit signatures`. It uses the package only when it was built from the same source as the Action: the package records a digest of its sources, and the Action compares it with its own. Elsewhere, such as at a commit between releases, or when npm cannot serve the package yet, the Action builds Strata from its own source with the locked dependencies. A later call in the same job reuses the first install or build. The `install` output says which was used.
 
 ## Outputs
 
@@ -122,6 +122,7 @@ The Action builds Strata from its own source at that version, with the locked de
 | `limit-result` | `over` when at least one limit is passed, `within` when every limit checked is met, `none` when no limit was checked: none was set, or none applied to any agent |
 | `summary-file` | Path of the Markdown delta, the same text as the job summary                                                                                                     |
 | `json-file`    | Path of the [JSON delta](#local-use), for anything the other outputs leave out                                                                                   |
+| `install`      | `npm` when Strata came from the published npm package, `source` when the Action built it from its own source                                                     |
 
 The outputs are set whenever the summary is written. That includes runs where a limit fails the step, so a later step with `if: always()` can still read them. They are empty when the step skips a push that creates or deletes a branch or tag. If a job runs the Action more than once, each run writes its own files.
 
@@ -243,4 +244,4 @@ It also checks the outputs.
 
 Its first [run](https://github.com/nabondance/strata/actions/runs/37747127783) succeeded on 2026-10-08, before the Action had outputs. A [run](https://github.com/nabondance/strata/actions/runs/40950923444) on 2026-10-29 covered the fetch, the limits, and the outputs. Together with Strata's own pull requests, this validates the Action on GitHub's runner. It does not test every downstream repository or fork layout.
 
-The [published Action workflow](../.github/workflows/published-action.yml) runs the released Action by name, `nabondance/strata@v0`, as another repository would. The release workflow starts it on each new release once `v0` points there. It also runs weekly, by hand, and on pull requests that change it. It makes a small repository with no Strata source and compares a commit without agent configuration, then one that adds a `CLAUDE.md` and an `AGENTS.md`, with an up-front limit. It also runs on this repository from a default shallow checkout, so the released Action fetches the earlier commit itself, and checks that `v0` points at the release in `package.json`, the version the README pins.
+The [published Action workflow](../.github/workflows/published-action.yml) runs the released Action by name, `nabondance/strata@v0`, as another repository would, and so checks that a release takes Strata from npm. The publish workflow starts it once npm serves a new latest release, the one `v0` points at. It also runs weekly, by hand, and on pull requests that change it. It makes a small repository with no Strata source and compares a commit without agent configuration, then one that adds a `CLAUDE.md` and an `AGENTS.md`, with an up-front limit. It also runs on this repository from a default shallow checkout, so the released Action fetches the earlier commit itself, and checks that `v0` points at the release in `package.json`, the version the README pins.
