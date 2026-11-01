@@ -214,6 +214,7 @@ const page = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Strata: agent context through Git history</title>
+  <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(markSvg(64))}">
   <meta name="description" content="See how the agent configuration of well-known open-source repositories grew, commit by commit. Reports made with Strata.">
   <style>
     ${displayFontFace}
