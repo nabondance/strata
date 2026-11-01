@@ -107,10 +107,14 @@ jobs:
           [[ "$TOKENS" =~ ^[1-9][0-9]*$ ]]
           [[ "$DELTA" =~ ^-?[0-9]+$ ]]
           echo "This repository: $TOKENS tokens, $DELTA change."
-          # The README pins this checkout's version, and the release workflow
-          # moves v0 to each release, so the two tags should match.
+          # Release Please pins package.json's version in the README, and the
+          # release workflow moves v0 to each release, so the two should match.
           pinned="v$(jq -r .version package.json)"
-          tag() { git ls-remote origin "refs/tags/$1" | cut -f1; }
+          # The commit a tag points at; an annotated tag's own ID is listed first.
+          tag() {
+            git ls-remote origin "refs/tags/$1" "refs/tags/$1^{}" |
+              awk '{ sha = $1 } $2 ~ /\^\{\}$/ { peeled = $1 } END { print peeled ? peeled : sha }'
+          }
           pinned_sha="$(tag "$pinned")"
           if [ -z "$pinned_sha" ]; then
             echo "::notice title=Strata::$pinned is not tagged yet, so whether v0 points at it is not checked."
