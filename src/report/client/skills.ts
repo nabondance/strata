@@ -27,7 +27,7 @@ export const skillsScript = `    function renderSkills() {
       }
       for (const group of visible) {
         const row = document.createElement('tr');
-        row.append(text('td', group.root, 'path'), text('td', group.provider), text('td', group.manifestPath ? 'SKILL.md' : 'Missing', 'kind'), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), listingCell(group.listing), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
+        row.append(text('td', group.root, 'path'), text('td', group.provider), (group.manifestPath ? text('td', 'SKILL.md', 'path') : text('td', 'Missing', 'kind')), text('td', group.manifestPath ? fmt(group.manifestEstimatedTokens) : '—', 'num'), listingCell(group.listing), text('td', fmt(group.resourceCount), 'num'), text('td', fmt(group.resourceBytes), 'num'));
         skillBody.append(row);
       }
     }`;

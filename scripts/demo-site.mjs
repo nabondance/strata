@@ -70,6 +70,8 @@ const { brandColors, displayFontFace, displayFontStack, markSvg } = await import
   pathToFileURL(join(strataDir, "dist", "brand.js")).href
 );
 const { categoryColors } = await import(pathToFileURL(join(strataDir, "dist", "palette.js")).href);
+// A report leaves out what repeats the previous revision; the same Strata build restores it.
+const { fillRevisions } = await import(pathToFileURL(join(strataDir, "dist", "expand.js")).href);
 const version = JSON.parse(readFileSync(join(strataDir, "package.json"), "utf8")).version;
 
 const run = (command, args) =>
@@ -87,11 +89,6 @@ const day = (date) => date.slice(0, 10);
  * the latest, in at most `steps` steps; like the report, each step shows the last revision in its group.
  */
 function layers(revisions, steps = 160) {
-  let totals;
-  const filled = revisions.map((revision) => {
-    totals = revision.categoryTotals ?? totals;
-    return totals;
-  });
   const start = Math.max(
     0,
     revisions.findIndex((revision) => revision.estimatedTokens > 0),
@@ -100,7 +97,10 @@ function layers(revisions, steps = 160) {
   const count = Math.min(steps, span);
   const picks = Array.from({ length: count }, (_, step) => start + Math.floor(((step + 1) * span) / count) - 1);
   return Object.keys(categoryColors)
-    .map((category) => ({ category, values: picks.map((index) => filled[index][category]?.estimatedTokens ?? 0) }))
+    .map((category) => ({
+      category,
+      values: picks.map((index) => revisions[index].categoryTotals[category]?.estimatedTokens ?? 0),
+    }))
     .filter(({ values }) => values.some((value) => value > 0));
 }
 
@@ -149,12 +149,11 @@ for (const item of gallery) {
   run("node", [cli, "analyze", dir, "--output", join(out, `${item.slug}.html`), "--quiet"]);
   run("node", [cli, "analyze", dir, "--format", "json", "--output", jsonPath, "--quiet"]);
   const report = JSON.parse(readFileSync(jsonPath, "utf8"));
-  const revisions = report.revisions;
+  const revisions = fillRevisions(report.revisions);
   const first = revisions.find((revision) => revision.estimatedTokens > 0) ?? revisions[0];
   const latest = revisions.at(-1);
   const peak = revisions.reduce((max, revision) => (revision.estimatedTokens > max.estimatedTokens ? revision : max));
-  // A revision leaves out categoryTotals when they repeat the previous revision's.
-  const totals = revisions.findLast((revision) => revision.categoryTotals).categoryTotals;
+  const totals = latest.categoryTotals;
   const categories = Object.entries(totals)
     .filter(([, total]) => total.estimatedTokens > 0)
     .sort(([, a], [, b]) => b.estimatedTokens - a.estimatedTokens)
@@ -198,11 +197,11 @@ const card = (entry) => {
             <div><dt>Now</dt><dd>${number(entry.latest.estimatedTokens)}</dd></div>
             <div><dt>Peak</dt><dd>${number(entry.peak.estimatedTokens)}</dd></div>
             <div><dt>Files</dt><dd>${number(entry.latest.componentCount)}</dd></div>
-            <div><dt>Revisions</dt><dd>${number(entry.revisions)}</dd></div>
+            <div><dt title="First-parent commits on the default branch, with or without configuration">Revisions</dt><dd>${number(entry.revisions)}</dd></div>
           </dl>
           <div class="bar" aria-hidden="true">${bar}</div>
           <ul class="legend">${legend}</ul>
-          <p class="meta">${escapeHtml(entry.branch)} · since ${day(entry.first.date)} · latest ${day(entry.latest.date)}</p>
+          <p class="meta">${escapeHtml(entry.branch)} · configured ${day(entry.first.date)} → ${day(entry.latest.date)}</p>
           <p class="links"><a class="open" href="${entry.slug}.html">Open report</a><a href="https://github.com/${escapeHtml(entry.repo)}" rel="noopener">Repository</a></p>
         </div>
       </article>`;

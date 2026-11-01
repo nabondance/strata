@@ -21,8 +21,18 @@ function d3Bundle(): string {
   return embeddedD3;
 }
 
-/** The self-contained HTML report: styles, markup, and the script that draws each panel from the embedded data. */
-export function renderHtml(report: Report): string {
+/** The Strata release and the day that wrote a report, for its footer. */
+export interface ReportOrigin {
+  version: string;
+  /** `YYYY-MM-DD`. */
+  date: string;
+}
+
+/**
+ * The self-contained HTML report: styles, markup, and the script that draws each panel from the embedded data.
+ * `origin` names the release and day in the footer; without it the footer names neither.
+ */
+export function renderHtml(report: Report, origin?: ReportOrigin): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -36,7 +46,7 @@ ${reportStyles}
   </style>
 </head>
 <body>
-${reportBody(report)}
+${reportBody(report, origin)}
   <script>${d3Bundle()}</script>
   <script>
 ${clientScript(report)}

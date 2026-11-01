@@ -88,7 +88,7 @@ test("--precise uses a signed-in account through the provider CLI, with default 
       providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl }),
       onNotice: (line) => notices.push(line),
     });
-    assert.equal(report.schemaVersion, 21);
+    assert.equal(report.schemaVersion, 22);
     assert.deepEqual(summary(report), {
       claude: ["api-counted", "signed-in Anthropic account (ant auth login)", "api.anthropic.com"],
       gemini: ["api-counted", "signed-in Google Cloud account (gcloud, Vertex AI)", "aiplatform.googleapis.com"],
@@ -230,7 +230,12 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.equal(get("tokens").textContent, "10");
     assert.equal(get("tokens-label").textContent, "Claude API-counted tokens");
     assert.equal(get("compare-tokens-label").textContent, "Claude API-counted tokens");
-    assert.match(get("repo-meta").textContent, /Claude API-counted tokens under claude-opus-5-5$/);
+    assert.match(
+      get("repo-meta")
+        .children.map((part) => part.textContent)
+        .join(""),
+      /Claude API-counted tokens under claude-opus-5-5$/,
+    );
     assert.equal(get("counting-note").textContent, "This view: Claude's own count.");
     assert.equal(get("method").hidden, true);
     assert.equal(get("counting-rows").children[0].className, "active");

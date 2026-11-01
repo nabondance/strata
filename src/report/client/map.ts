@@ -60,7 +60,7 @@ export const mapScript = `    // The map draws the view's files; its import line
           // A folder of source-only files has no stored text, so it gives no token figure.
           const unmeasured = row.sourceOnly === row.files;
           parts.push(plural(row.files, 'file') + (unmeasured ? ', all source-only' : row.sourceOnly ? ' (' + fmt(row.sourceOnly) + ' source-only)' : ''));
-          if (!unmeasured) parts.push(fmt(row.tokens) + ' ' + rowTokens());
+          parts.push(unmeasured ? fmt(row.sourceBytes) + ' bytes' : fmt(row.tokens) + ' ' + rowTokens());
           parts.push(row.collapsed ? 'closed' : 'open');
           if (changedUnder[index]) parts.push(fmt(changedUnder[index]) + ' changed at this revision');
         } else {
@@ -104,7 +104,9 @@ export const mapScript = `    // The map draws the view's files; its import line
             bar.append(segment);
           }
         }
-        node.append(name, bar, text('span', row.sourceOnly < row.files ? fmt(row.tokens) : '—', 'map-size'));
+        // Rows with no stored text show their source size instead, as the legend's hollow mark says.
+        const size = row.sourceOnly < row.files ? text('span', fmt(row.tokens), 'map-size') : text('span', byteSize(row.sourceBytes), 'map-size bytes');
+        node.append(name, bar, size);
         rowIndex.set(node, index);
         nodes.push(node);
         details.push(detail);
@@ -132,6 +134,8 @@ export const mapScript = `    // The map draws the view's files; its import line
         for (const end of [edge.from, edge.to]) lines[end].push({ arc, arrow, other: end === edge.from ? edge.to : edge.from });
       }
       if (map.edges.length) root.append(gutter);
+      // Without import lines the gutter would only narrow the names.
+      root.classList.toggle('no-lines', !map.edges.length);
       mapDrawn = { map, components: revision.components, nodes, details, lines, rowIndex };
       const counts = [plural(map.folders, 'folder'), plural(revision.components.length, 'file')];
       if (map.edges.length || links.length) counts.push(plural(map.edges.length, 'import line'));

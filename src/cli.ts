@@ -496,7 +496,7 @@ async function analyze(args: string[]): Promise<void> {
         ? renderSvg(report, { minimal: values.minimal ?? false })
         : format === "badge"
           ? renderBadge(report)
-          : renderHtml(report);
+          : renderHtml(report, { version: strataVersion(), date: localDay(new Date()) });
   // With the report on stdout, everything meant for a person moves to stderr.
   const say = (line: string) => {
     if (!values.quiet) (toStdout ? process.stderr : process.stdout).write(`${line}\n`);
@@ -583,11 +583,22 @@ async function analyze(args: string[]): Promise<void> {
   if (toOpen) openReport(toOpen);
 }
 
+/** This Strata's release, from its package.json. */
+function strataVersion(): string {
+  return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+}
+
+/** A date as `YYYY-MM-DD` in the local time zone, the day a person running Strata would name. */
+function localDay(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** The last revision's inventory, replayed as `expandRevisions` does without building every revision's. */
 function latestComponents(report: Report): Component[] {
   const inventory = new Map<string, number>();
   for (const revision of report.revisions) {
-    for (const change of revision.changes) {
+    for (const change of revision.changes ?? []) {
       if (change.previousPath !== undefined) inventory.delete(change.previousPath);
       if (change.component === null) inventory.delete(change.path);
       else inventory.set(change.path, change.component);
@@ -766,10 +777,7 @@ async function main(args: string[]): Promise<void> {
       throw new UsageError(`Unknown command: ${rest.join(" ")}`);
     process.stdout.write(help[topic ?? "main"]);
   } else if (command === "--version" || command === "-V" || command === "-v") {
-    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-      version: string;
-    };
-    process.stdout.write(`${version}\n`);
+    process.stdout.write(`${strataVersion()}\n`);
   } else if (!isCommand(command)) {
     throw command.startsWith("-")
       ? unknownOption(command.split("=")[0]!)

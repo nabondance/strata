@@ -124,25 +124,27 @@ export type CategoryTotals = Record<
  * A revision as stored in a report: its totals and what it changed. Its file inventory is not
  * repeated; `expandRevisions` rebuilds it by replaying `changes` from the first revision.
  *
- * `firstParent` and `categoryTotals` are left out when they repeat the previous revision: an absent
- * `firstParent` is the previous revision's `id`, and absent `categoryTotals` equal the previous
- * revision's. The first revision always has both. `fillRevisions` restores them.
+ * Fields that repeat the previous revision are left out: an absent `firstParent` is the previous
+ * revision's `id`; absent totals (`componentCount`, `categoryTotals`, `estimatedTokens`,
+ * `skillListingTokens`, `skillListingUnresolved`, `providerTokenTotals`) equal the previous
+ * revision's; absent `changes` are none. The first and the last revision always have every field.
+ * `fillRevisions` restores them.
  */
 export interface Revision {
   id: string;
   date: string;
   firstParent?: string | null;
-  componentCount: number;
+  componentCount?: number;
   categoryTotals?: CategoryTotals;
-  estimatedTokens: number;
+  estimatedTokens?: number;
   /**
    * Listed tokens of the skill manifests present. Measured separately and mostly drawn from text
    * `estimatedTokens` already counts, so never add the two.
    */
-  skillListingTokens: number;
+  skillListingTokens?: number;
   /** Skill manifests present whose listing is unresolved, so `skillListingTokens` leaves them out. */
-  skillListingUnresolved: number;
-  changes: Change[];
+  skillListingUnresolved?: number;
+  changes?: Change[];
   providerTokenTotals?: Partial<Record<CountedProvider, number>>;
   /**
    * Present when the root `.gemini/settings.json` sets `context.fileName`: labels of the recognized
@@ -153,10 +155,15 @@ export interface Revision {
   lineAge?: LineAgeChange;
 }
 
-/** A revision with the `firstParent` and `categoryTotals` it carries forward restored by `fillRevisions`. */
+/** A revision with the fields it carries forward restored by `fillRevisions`. */
 export interface FilledRevision extends Revision {
   firstParent: string | null;
+  componentCount: number;
   categoryTotals: CategoryTotals;
+  estimatedTokens: number;
+  skillListingTokens: number;
+  skillListingUnresolved: number;
+  changes: Change[];
 }
 
 /** A revision together with its rebuilt inventory. Unchanged revisions share one inventory. */
@@ -176,7 +183,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 21;
+  schemaVersion: 22;
   repository: string;
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */

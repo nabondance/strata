@@ -2,11 +2,12 @@ import { brandUrl, markSvg } from "../brand.js";
 import type { Report } from "../model.js";
 import { textRecipients } from "../provider-count.js";
 import { providerName } from "../provider-counting.js";
+import type { ReportOrigin } from "../report.js";
 import { escapeHtml } from "./escape-html.js";
 import { tokenAdjective } from "./token-adjective.js";
 
 /** The page markup: the masthead and every panel, empty until the script fills them. */
-export function reportBody(report: Report): string {
+export function reportBody(report: Report, origin?: ReportOrigin): string {
   const adjective = tokenAdjective(report);
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
   const providerColumns = (report.providerMeasurements ?? [])
@@ -33,7 +34,7 @@ export function reportBody(report: Report): string {
         <div class="stat"><span>Selected revision</span><strong id="date"></strong></div>
         <div class="stat"><span id="tokens-label">${adjective} tokens</span><strong id="tokens"></strong></div>
         <div class="stat"><span>Tracked components</span><strong id="components"></strong></div>
-        <div class="stat"><span>Change since previous</span><strong id="delta"></strong></div>
+        <div class="stat"><span>Last change</span><strong id="delta"></strong><small class="stat-note" id="delta-when"></small></div>
       </div>
     </div>
     <div class="silhouette" id="silhouette" aria-hidden="true"></div>
@@ -143,6 +144,6 @@ export function reportBody(report: Report): string {
       ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
     </div>
-    <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>.</footer>
+    <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>${origin ? ` ${escapeHtml(origin.version)} on ${escapeHtml(origin.date)}` : ""}.</footer>
   </main>`;
 }

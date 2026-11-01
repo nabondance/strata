@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 import { compareRevisions } from "../dist/compare.js";
-import { expandRevisions } from "../dist/expand.js";
+import { expandRevisions, fillRevisions } from "../dist/expand.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../dist/instruction-age.js";
 import { viewRevision } from "../dist/provider-view.js";
 import {
@@ -202,6 +202,26 @@ export function exerciseReportUi(html, report) {
   assert.equal(mark.className, "silhouette-mark");
   assert.equal(mark.hidden, !silhouetteLayers.length);
   assert.equal(get("repo").textContent, report.repository);
+  // Last change is the token change at the latest revision that changed a file, the one Previous change compares.
+  let lastChanged = revisions.length - 1;
+  while (lastChanged >= 0 && !revisions[lastChanged].changes.length) lastChanged -= 1;
+  const lastDelta =
+    lastChanged < 0 ? 0 : revisions[lastChanged].estimatedTokens - (revisions[lastChanged - 1]?.estimatedTokens ?? 0);
+  assert.equal(get("delta").textContent, (lastDelta > 0 ? "+" : "") + new Intl.NumberFormat().format(lastDelta));
+  assert.equal(
+    get("delta-when").textContent,
+    lastChanged < 0
+      ? "none yet"
+      : lastChanged === revisions.length - 1
+        ? "at this revision"
+        : `on ${revisions[lastChanged].date.slice(0, 10)}`,
+  );
+  // A map row with no stored text shows its source size, the size its hollow mark stands for.
+  for (const row of get("config-map").children.filter((child) => child.className?.startsWith("map-row"))) {
+    const size = row.children.at(-1);
+    if (size.className === "map-size bytes") assert.match(size.textContent, /^[\d.,]+ (B|kB|MB)$/);
+    else assert.match(size.textContent, /^[\d,]+$/);
+  }
   // Long lists start with their first rows; the rest of this exercise runs with them expanded.
   assert.equal(get("files").children.length, Math.min(25, revisions.at(-1).components.length) || 1);
   assert.equal(get("files-more").hidden, revisions.at(-1).components.length <= 25);
@@ -380,7 +400,7 @@ export function exerciseReportUi(html, report) {
     if (!measured) return;
     assert.equal(
       get("tokens").textContent,
-      new Intl.NumberFormat().format(report.revisions[4].providerTokenTotals[provider] ?? 0),
+      new Intl.NumberFormat().format(fillRevisions(report.revisions)[4].providerTokenTotals[provider] ?? 0),
     );
     assert.match(get("tokens-label").textContent, new RegExp(`^${provider[0].toUpperCase()}${provider.slice(1)} `));
     assert.ok(get("counting-rows").children.some((row) => row.title.includes(measured.model)));

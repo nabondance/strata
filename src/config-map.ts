@@ -1,7 +1,7 @@
 import type { ImportLink } from "./import-links.js";
 import type { Component } from "./model.js";
 
-type Mapped = Pick<Component, "path" | "category" | "estimatedTokens">;
+type Mapped = Pick<Component, "path" | "category" | "estimatedTokens" | "bytes">;
 
 /** One line of the configuration map: a folder or a file, in display order. */
 export interface MapRow {
@@ -22,6 +22,8 @@ export interface MapRow {
   /** Files at or under this row, and how many of them are source-only. */
   files: number;
   sourceOnly: number;
+  /** Source bytes of the source-only files at or under this row, the size the map shows when it has no tokens. */
+  sourceBytes: number;
   /** Stored-text tokens of the file or of every file under the folder; null for a source-only file. */
   tokens: number | null;
   /** Tokens by category, largest first, then by file count. A source-only file lists its category with 0. */
@@ -99,6 +101,7 @@ export function configMap(
     files: number[];
     count: number;
     sourceOnly: number;
+    sourceBytes: number;
     tokens: number;
     categories: Map<Component["category"], { tokens: number; files: number }>;
   }
@@ -109,6 +112,7 @@ export function configMap(
     files: [],
     count: 0,
     sourceOnly: 0,
+    sourceBytes: 0,
     tokens: 0,
     categories: new Map(),
   });
@@ -119,7 +123,10 @@ export function configMap(
     let at = root;
     const add = (into: Folder) => {
       into.count += 1;
-      if (tokens === null) into.sourceOnly += 1;
+      if (tokens === null) {
+        into.sourceOnly += 1;
+        into.sourceBytes += component.bytes;
+      }
       into.tokens += tokens ?? 0;
       const share = into.categories.get(component.category) ?? { tokens: 0, files: 0 };
       share.tokens += tokens ?? 0;
@@ -225,6 +232,7 @@ export function configMap(
           component: entry,
           files: 1,
           sourceOnly: tokens === null ? 1 : 0,
+          sourceBytes: tokens === null ? component.bytes : 0,
           tokens,
           categories: [{ category: component.category, tokens: tokens ?? 0 }],
           unresolved: 0,
@@ -244,6 +252,7 @@ export function configMap(
         siblings: list.length,
         files: entry.at.count,
         sourceOnly: entry.at.sourceOnly,
+        sourceBytes: entry.at.sourceBytes,
         tokens: entry.at.tokens,
         categories: ranked(entry.at.categories),
         collapsed,

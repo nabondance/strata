@@ -1,61 +1,95 @@
 import type { CategoryTotals, FilledRevision, Report, Revision, RevisionSnapshot, SkillGroup } from "./model.js";
 
 /**
- * Restore what a report leaves out when it repeats the previous revision: an absent `firstParent`
- * is the previous revision's `id`, and absent `categoryTotals` are the previous revision's totals,
- * shared by reference. Fields that are present are kept, so filling a filled list changes nothing.
+ * Restore what a report leaves out when it repeats the previous revision. An absent `firstParent`
+ * is the previous revision's `id`; absent `categoryTotals` and `providerTokenTotals` are the
+ * previous revision's, shared by reference; an absent `componentCount`, `estimatedTokens`,
+ * `skillListingTokens`, or `skillListingUnresolved` is the previous revision's value; and absent
+ * `changes` are none. Fields that are present are kept, so filling a filled list changes nothing.
  *
  * The HTML report embeds this function's source beside `expandRevisions`, so it must stay
  * self-contained.
  */
 export function fillRevisions(revisions: readonly Revision[]): FilledRevision[] {
-  let categoryTotals: CategoryTotals | undefined;
-  let previousId: string | null = null;
+  let previous: FilledRevision | undefined;
   return revisions.map((revision) => {
-    categoryTotals = revision.categoryTotals ?? categoryTotals;
+    const categoryTotals = revision.categoryTotals ?? previous?.categoryTotals;
     if (!categoryTotals) throw new Error("The first revision of a report has no categoryTotals.");
-    const firstParent = revision.firstParent === undefined ? previousId : revision.firstParent;
-    previousId = revision.id;
-    return { ...revision, firstParent, categoryTotals };
+    const providerTokenTotals = revision.providerTokenTotals ?? previous?.providerTokenTotals;
+    const filled: FilledRevision = {
+      ...revision,
+      firstParent: revision.firstParent === undefined ? (previous?.id ?? null) : revision.firstParent,
+      componentCount: revision.componentCount ?? previous?.componentCount ?? 0,
+      categoryTotals,
+      estimatedTokens: revision.estimatedTokens ?? previous?.estimatedTokens ?? 0,
+      skillListingTokens: revision.skillListingTokens ?? previous?.skillListingTokens ?? 0,
+      skillListingUnresolved: revision.skillListingUnresolved ?? previous?.skillListingUnresolved ?? 0,
+      changes: revision.changes ?? [],
+      ...(providerTokenTotals ? { providerTokenTotals } : {}),
+    };
+    previous = filled;
+    return filled;
   });
 }
 
 /**
- * The inverse of `fillRevisions`, applied once when analysis assembles a report: leave out
- * `firstParent` when it is the previous revision's `id`, and `categoryTotals` when every figure
- * equals the previous revision's. The first revision keeps both. Most revisions of a long history
- * touch no recognized file, so this keeps a report's size closer to its number of changes than to
- * its number of revisions.
+ * The inverse of `fillRevisions`, applied once when analysis assembles a report: leave out each
+ * field `fillRevisions` carries forward when it repeats the previous revision, and `changes` when
+ * there are none. The first and the last revision keep every field, so a reader of the latest
+ * totals needs no filling. Most revisions of a long history touch no recognized file, so this keeps
+ * a report's size closer to its number of changes than to its number of revisions.
  */
 export function compactRevisions(revisions: readonly FilledRevision[]): Revision[] {
+  const last = revisions.length - 1;
   return revisions.map((revision, index) => {
     const previous = revisions[index - 1];
-    if (!previous) return revision;
+    if (!previous || index === last) return revision;
     // Rebuilt in the stored key order, so a compacted revision reads like a full one.
-    const { id, date, firstParent, componentCount, categoryTotals, ...rest } = revision;
+    const {
+      id,
+      date,
+      firstParent,
+      componentCount,
+      categoryTotals,
+      estimatedTokens,
+      skillListingTokens,
+      skillListingUnresolved,
+      changes,
+      providerTokenTotals,
+      ...rest
+    } = revision;
     return {
       id,
       date,
       ...(firstParent === previous.id ? {} : { firstParent }),
-      componentCount,
-      ...(sameCategoryTotals(categoryTotals, previous.categoryTotals) ? {} : { categoryTotals }),
+      ...(componentCount === previous.componentCount ? {} : { componentCount }),
+      ...(sameTotals(categoryTotals, previous.categoryTotals) ? {} : { categoryTotals }),
+      ...(estimatedTokens === previous.estimatedTokens ? {} : { estimatedTokens }),
+      ...(skillListingTokens === previous.skillListingTokens ? {} : { skillListingTokens }),
+      ...(skillListingUnresolved === previous.skillListingUnresolved ? {} : { skillListingUnresolved }),
+      ...(changes.length ? { changes } : {}),
+      ...(providerTokenTotals === undefined || sameFigures(providerTokenTotals, previous.providerTokenTotals)
+        ? {}
+        : { providerTokenTotals }),
       ...rest,
     };
   });
 }
 
-function sameCategoryTotals(a: CategoryTotals, b: CategoryTotals): boolean {
+function sameTotals(a: CategoryTotals, b: CategoryTotals): boolean {
   if (a === b) return true;
   const categories = Object.keys(a) as Array<keyof CategoryTotals>;
   if (categories.length !== Object.keys(b).length) return false;
   // Compare every figure a category carries, so a field added later is never dropped from a compacted report.
-  return categories.every((category) => {
-    const x = a[category] as Record<string, unknown> | undefined;
-    const y = b[category] as Record<string, unknown> | undefined;
-    if (x === undefined || y === undefined) return x === y;
-    const fields = Object.keys(x);
-    return fields.length === Object.keys(y).length && fields.every((field) => x[field] === y[field]);
-  });
+  return categories.every((category) => sameFigures(a[category], b[category]));
+}
+
+function sameFigures(a: object | undefined, b: object | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const fields = Object.keys(x);
+  return fields.length === Object.keys(y).length && fields.every((field) => x[field] === y[field]);
 }
 
 /**
@@ -63,7 +97,7 @@ function sameCategoryTotals(a: CategoryTotals, b: CategoryTotals): boolean {
  * drops its `previousPath`, then drops `path` when `component` is null or otherwise places that
  * entry of `report.components` at `path`. Entries are ordered by path, so sorting indexes sorts
  * an inventory. Revisions without changes share the previous revision's arrays. `fillRevisions`
- * first restores each revision's carried-forward `firstParent` and `categoryTotals`.
+ * first restores each revision's carried-forward fields.
  *
  * The HTML report embeds this function's source beside `fillRevisions`, the one function it may call.
  */

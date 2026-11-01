@@ -166,20 +166,26 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   const columns = chart.style.gridTemplateColumns.split(") ").map((column) => Number.parseFloat(column.split(", ")[1]));
   assert.equal(columns.length, buckets.length);
   const time = (index) => Date.parse(revisions[index].date);
-  const span = time(revisions.length - 1) - time(buckets[0].start);
-  const expectedWidth = ((time(buckets[1].start) - time(buckets[0].start)) / span) * 1000;
-  assert.ok(Math.abs(columns[0] - expectedWidth) < 0.01, `${columns[0]} vs ${expectedWidth}`);
-  assert.match(get("chart-steps").textContent, / Each bar is as wide as the time until the next one\.$/);
-  // The slider follows the bars by time: its position for a bar's last revision lies inside that bar's time span.
-  const timeEdges = timelineEdges(
-    buckets.length,
-    buckets.map((bucket, index) =>
-      Math.max(
-        0,
-        (index + 1 < buckets.length ? time(buckets[index + 1].start) : time(revisions.length - 1)) - time(bucket.start),
-      ),
+  const timeWidths = buckets.map((bucket, index) =>
+    Math.max(
+      0,
+      (index + 1 < buckets.length ? time(buckets[index + 1].start) : time(revisions.length - 1)) - time(bucket.start),
     ),
   );
+  // The last bar, with no next one to end at, is at least as wide as an average bar.
+  const elapsed = time(revisions.length - 1) - time(buckets[0].start);
+  timeWidths[timeWidths.length - 1] = Math.max(timeWidths.at(-1), elapsed / timeWidths.length);
+  const span = timeWidths.reduce((sum, width) => sum + width, 0);
+  const expectedWidth = (timeWidths[0] / span) * 1000;
+  assert.ok(Math.abs(columns[0] - expectedWidth) < 0.01, `${columns[0]} vs ${expectedWidth}`);
+  assert.ok(Math.abs(columns.at(-1) - (timeWidths.at(-1) / span) * 1000) < 0.01);
+  assert.ok(columns.at(-1) >= (elapsed / columns.length / span) * 1000 - 0.01);
+  assert.match(
+    get("chart-steps").textContent,
+    / Each bar is as wide as the time until the next one; the last is at least as wide as an average bar\.$/,
+  );
+  // The slider follows the bars by time: its position for a bar's last revision lies inside that bar's time span.
+  const timeEdges = timelineEdges(buckets.length, timeWidths);
   const probe = buckets[50];
   get("target").value = String(probe.end);
   get("target").listeners.change();

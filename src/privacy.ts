@@ -183,7 +183,7 @@ const collator = new Intl.Collator();
 export function redactReport(report: Report): Report {
   const paths = new PathAliases();
   for (const revision of report.revisions) {
-    for (const change of revision.changes) {
+    for (const change of revision.changes ?? []) {
       if (change.previousPath !== undefined) paths.add(change.previousPath);
       paths.add(change.path);
       const component = change.component === null ? undefined : report.components[change.component];
@@ -278,12 +278,17 @@ export function redactReport(report: Report): Report {
               ? (revisions.get(revision.firstParent) ?? outsideParents.get(revision.firstParent)!)
               : null,
           }),
-      changes: revision.changes.map((change) => ({
-        ...change,
-        path: paths.get(change.path),
-        ...(change.previousPath !== undefined ? { previousPath: paths.get(change.previousPath) } : {}),
-        component: change.component === null ? null : renumbered[change.component]!,
-      })),
+      // Absent changes are none, so they stay absent.
+      ...(revision.changes
+        ? {
+            changes: revision.changes.map((change) => ({
+              ...change,
+              path: paths.get(change.path),
+              ...(change.previousPath !== undefined ? { previousPath: paths.get(change.previousPath) } : {}),
+              component: change.component === null ? null : renumbered[change.component]!,
+            })),
+          }
+        : {}),
     })),
   };
 }
