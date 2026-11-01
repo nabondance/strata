@@ -144,7 +144,7 @@ To rebuild the inventory at a revision, start empty and apply every revision's c
 1. Drop `previousPath` when it is present.
 2. If `component` is `null`, drop `path`; otherwise set `path` to that component.
 
-`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything, carrying `categoryTotals` forward where a revision leaves them out.
+`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything, carrying each total forward where a revision leaves it out ([version 22](#version-22-every-repeated-total-carried-forward)).
 
 A shortened, illustrative JSON shape:
 
@@ -201,7 +201,7 @@ A shortened, illustrative JSON shape:
 }
 ```
 
-The second revision touched no recognized file, so it keeps only its `id` and `date`: every other field repeats the first revision's, and it has no changes. The last revision touched nothing either, but the last revision always keeps every field. Skill listing fields are left out of this example.
+The second revision touched no recognized file, so it keeps only its `id` and `date` (and would keep `geminiContextFiles`, had the settings named context files): every other field repeats the first revision's, and it has no changes. The last revision touched nothing either, but the last revision always keeps every field. Skill listing fields are left out of this example.
 
 ### Privacy
 
@@ -470,7 +470,7 @@ Version 21 left out `categoryTotals` and `firstParent`, but each revision still 
 - `changes` is absent when the revision changed nothing; absent means an empty list.
 - `firstParent` and `categoryTotals` follow the version 21 rules.
 
-The first and the last revision keep every field, so a reader of the latest totals, such as `jq '.revisions[-1].estimatedTokens'`, needs no filling; a reader of any other revision takes each absent field from the nearest revision before it that has it. A revision that changed nothing is reduced to its `id` and `date`. `geminiContextFiles` and `lineAge` are unchanged: their absence already has a meaning. `compactRevisions` and `fillRevisions` in `src/expand.ts` do both directions, as in version 21.
+The first and the last revision keep every field, so a reader of the latest totals, such as `jq '.revisions[-1].estimatedTokens'`, needs no filling; a reader of any other revision takes each absent field from the nearest revision before it that has it. A revision that changed nothing is reduced to its `id` and `date`, plus `geminiContextFiles` while the Gemini settings name context files. `geminiContextFiles` and `lineAge` are unchanged: their absence already has a meaning, so `geminiContextFiles` stays on every revision whose settings set it, changed or not. `compactRevisions` and `fillRevisions` in `src/expand.ts` do both directions, as in version 21.
 
 On two public repositories, analyzed with the estimate and Codex's local count:
 

@@ -184,6 +184,9 @@ test("the history chart labels its axes, says when bars group revisions, and sho
     get("chart-steps").textContent,
     / Each bar is as wide as the time until the next one; the last is at least as wide as an average bar\.$/,
   );
+  // The widened last bar adds width, not time: no calendar label falls after the latest revision.
+  const latestMonth = revisions.at(-1).date.slice(0, 7);
+  for (const label of get("timeline-dates").children) assert.ok(label.textContent <= latestMonth, label.textContent);
   // The slider follows the bars by time: its position for a bar's last revision lies inside that bar's time span.
   const timeEdges = timelineEdges(buckets.length, timeWidths);
   const probe = buckets[50];

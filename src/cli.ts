@@ -461,8 +461,8 @@ async function analyze(args: string[]): Promise<void> {
     process.stdout.write(dryRunLine);
     return;
   }
-  // The last revision with its carried-forward totals restored.
-  const latest = fillRevisions(analyzed.revisions).at(-1);
+  // The last revision keeps every field, so filling it alone gives its totals without filling the whole history.
+  const latest = fillRevisions(analyzed.revisions.slice(-1)).at(0);
   // The last revision's files and what each agent reads up front, built once for the notes and limits.
   const components = latestComponents(analyzed);
   const upFrontContexts = sessionProviders.flatMap((provider) => {

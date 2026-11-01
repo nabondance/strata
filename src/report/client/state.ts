@@ -6,7 +6,8 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
     const plural = (count, word) => fmt(count) + ' ' + word + (count === 1 ? '' : 's');
     // A source size short enough for the map's number column: 512 B, 4.2 kB, 38 kB, 1.6 MB.
     const byteSize = (n) => {
-      const [value, unit] = n < 1000 ? [n, 'B'] : n < 1e6 ? [n / 1e3, 'kB'] : [n / 1e6, 'MB'];
+      // A kB figure that would round to 1,000 moves up to MB.
+      const [value, unit] = n < 1000 ? [n, 'B'] : n < 999500 ? [n / 1e3, 'kB'] : [n / 1e6, 'MB'];
       return (unit === 'B' || value >= 10 ? fmt(Math.round(value)) : oneDecimal.format(value)) + ' ' + unit;
     };
     const signed = (n) => (n > 0 ? '+' : '') + fmt(n);

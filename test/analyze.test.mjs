@@ -974,7 +974,7 @@ test("leaves out totals, first parents, and empty changes that repeat the previo
       }
     }
     assert.equal(stored[0].firstParent, null);
-    // A revision that changes nothing keeps only its commit and date.
+    // A revision that changes nothing keeps only its commit and date (and geminiContextFiles, absent here).
     assert.deepEqual(Object.keys(stored[1]), ["id", "date"]);
     assert.deepEqual(Object.keys(stored[2]), ["id", "date"]);
     assert.deepEqual(present("firstParent"), [true, false, false, false, false, true]);
@@ -1005,6 +1005,19 @@ test("leaves out totals, first parents, and empty changes that repeat the previo
       [true, false, false, true, false, true],
     );
     assert.deepEqual(fillRevisions(compactCounted), counted);
+    // geminiContextFiles keeps its own meaning (absent means GEMINI.md only), so it stays on every revision that has it.
+    const gemini = filled.map((revision, index) =>
+      index >= 2 ? { ...revision, geminiContextFiles: ["agents-md"] } : revision,
+    );
+    const compactGemini = compactRevisions(gemini);
+    assert.deepEqual(
+      compactGemini.map((revision) => "geminiContextFiles" in revision),
+      [false, false, true, true, true, true],
+    );
+    assert.deepEqual(Object.keys(compactGemini[2]), ["id", "date", "geminiContextFiles"]);
+    assert.deepEqual(fillRevisions(compactGemini), gemini);
+    // A one-revision report is both first and last, so it keeps every field.
+    assert.deepEqual(compactRevisions([filled[3]]), [filled[3]]);
     const expanded = expandRevisions(report);
     expanded.forEach((revision, index) => {
       assert.deepEqual(revision.categoryTotals, summarize(revision.components).categoryTotals, `revision ${index}`);

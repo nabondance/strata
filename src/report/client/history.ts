@@ -115,7 +115,7 @@ export const historyScript = `    function renderLegend() {
       // Calendar boundaries between the end dates; CSS keeps only the middle one on a narrow screen.
       // By time, the labels sit at their dates: one evenly spaced date per 0.5% of the width stands in for the bars.
       const tickDates = byTime
-        ? Array.from({ length: 200 }, (_, index) => new Date(t0 + (index / 200) * span).toISOString())
+        ? Array.from({ length: 200 }, (_, index) => new Date(Math.min(t1, t0 + (index / 200) * span)).toISOString())
         : buckets.map((bucket) => viewRevisions[bucket.end].date);
       $('timeline-dates').replaceChildren(...timelineDateTicks(tickDates).map((tick) => {
         const label = text('span', tick.label, tick.primary ? 'primary' : '');
