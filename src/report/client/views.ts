@@ -2,11 +2,23 @@
 export const viewsScript = `    const allComponents = data.components;
     // A provider that only reads shared files, such as Codex with only .agents/skills, still gets a view.
     const providers = [...new Set(allComponents.flatMap((component) => [component.provider, ...(component.readers ?? [])]))].sort();
+    /**
+     * Whether a view holds every component at every revision, so its tab would repeat All files. A Gemini context file
+     * depends on the settings at each revision, and Cursor and Copilot read other tools' files only at revisions that
+     * track their own, so those never count as always held.
+     */
+    const viewHoldsAll = (view) => allComponents.every((component) =>
+      view === 'shared' || view === 'unknown'
+        ? component.provider === view
+        : !(view === 'gemini' && component.contextFile) &&
+          (component.provider === view || (view !== 'cursor' && view !== 'copilot' && !!component.readers?.includes(view))));
+    // A view that repeats All files is left out unless it has its own counts; with no other view left, so is the row.
     const viewTabs = [{ key: 'all', label: 'All files' },
       ...providers.filter((provider) => provider !== 'shared').map((provider) => ({
         key: provider, label: provider === 'unknown' ? 'Unknown' : provider[0].toUpperCase() + provider.slice(1) + ' + shared',
       })),
-      ...(providers.includes('shared') ? [{ key: 'shared', label: 'Shared only' }] : [])];
+      ...(providers.includes('shared') ? [{ key: 'shared', label: 'Shared only' }] : [])]
+      .filter((view) => view.key === 'all' || measures.has(view.key) || !viewHoldsAll(view.key));
     function setView(view, measure) {
       activeView = view;
       activeMeasure = measure;
@@ -60,6 +72,7 @@ export const viewsScript = `    const allComponents = data.components;
     }
     /** Adds the view tabs and category options, and wires the file filters. */
     function setupViews() {
+      $('provider-tabs').hidden = viewTabs.length < 2;
       for (const view of viewTabs) {
         const button = text('button', view.label, 'provider-tab');
         button.type = 'button';

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { timelineBuckets, timelineStepsNote } from "../dist/timeline.js";
+import {
+  timelineBuckets,
+  timelineEdges,
+  timelinePosition,
+  timelineRevision,
+  timelineStepsNote,
+} from "../dist/timeline.js";
 
 /** One value per revision, as a one-layer chart draws it. */
 const single = (values) => values.map((value) => [value]);
@@ -87,4 +93,33 @@ test("the grouped timeline note says how bars group revisions", () => {
     timelineStepsNote(1500, merged, false, (value) => `#${value}`),
     "#1500 revisions and #1500 changes shown as #100 steps, merging the most alike neighbors; each step shows the last revision in its group.",
   );
+});
+
+test("the slider position follows the bars, in equal or time-proportional widths", () => {
+  const buckets = [
+    { start: 2, end: 2 },
+    { start: 3, end: 6 },
+    { start: 7, end: 7 },
+  ];
+  assert.deepEqual(timelineEdges(3), [
+    [0, 1 / 3],
+    [1 / 3, 2 / 3],
+    [2 / 3, 1],
+  ]);
+  assert.deepEqual(timelineEdges(3, [1, 2, 1]), [
+    [0, 0.25],
+    [0.25, 0.75],
+    [0.75, 1],
+  ]);
+  const edges = timelineEdges(3, [1, 2, 1]);
+  // A revision sits at its share of its bar; one before the first bar is at the left end.
+  assert.equal(timelinePosition(buckets, edges, 2), 0.125);
+  assert.equal(timelinePosition(buckets, edges, 3), 0.25 + 0.5 * (0.5 / 4));
+  assert.equal(timelinePosition(buckets, edges, 0), 0);
+  // Every revision maps back to itself, and the ends select the first and last charted revisions.
+  for (let index = 2; index <= 7; index += 1)
+    assert.equal(timelineRevision(buckets, edges, timelinePosition(buckets, edges, index)), index);
+  assert.equal(timelineRevision(buckets, edges, 0), 2);
+  assert.equal(timelineRevision(buckets, edges, 1), 7);
+  assert.equal(timelineRevision([], [], 0.5), undefined);
 });

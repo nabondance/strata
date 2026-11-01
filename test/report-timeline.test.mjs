@@ -3,7 +3,13 @@ import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { expandRevisions } from "../dist/expand.js";
 import { renderHtml } from "../dist/report.js";
-import { timelineBuckets, timelineDateTicks, timelineScale, timelineStepsNote } from "../dist/timeline.js";
+import {
+  timelineBuckets,
+  timelineDateTicks,
+  timelineEdges,
+  timelineScale,
+  timelineStepsNote,
+} from "../dist/timeline.js";
 import { loadReportUi, previousChange, selectOptions } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
@@ -164,6 +170,26 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   const expectedWidth = ((time(buckets[1].start) - time(buckets[0].start)) / span) * 1000;
   assert.ok(Math.abs(columns[0] - expectedWidth) < 0.01, `${columns[0]} vs ${expectedWidth}`);
   assert.match(get("chart-steps").textContent, / Each bar is as wide as the time until the next one\.$/);
+  // The slider follows the bars by time: its position for a bar's last revision lies inside that bar's time span.
+  const timeEdges = timelineEdges(
+    buckets.length,
+    buckets.map((bucket, index) =>
+      Math.max(
+        0,
+        (index + 1 < buckets.length ? time(buckets[index + 1].start) : time(revisions.length - 1)) - time(bucket.start),
+      ),
+    ),
+  );
+  const probe = buckets[50];
+  get("target").value = String(probe.end);
+  get("target").listeners.change();
+  const position = Number(get("slider").value) / 10000;
+  assert.ok(position >= timeEdges[50][0] && position <= timeEdges[50][1], `${position} vs ${timeEdges[50]}`);
+  // Its arrow keys step one revision at a time; Page Up moves a bar.
+  get("slider").listeners.keydown({ key: "ArrowLeft", preventDefault() {} });
+  assert.equal(get("target").value, String(probe.end - 1));
+  get("slider").listeners.keydown({ key: "PageUp", preventDefault() {} });
+  assert.equal(get("target").value, String(probe.end));
   const bySpacing = get("chart-spacing").children.filter((child) => child.type === "button");
   assert.equal(bySpacing[1].getAttribute("aria-pressed"), "true");
   bySpacing[0].listeners.click();

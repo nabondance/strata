@@ -21,7 +21,7 @@ import { timelineBuckets } from "../dist/timeline.js";
 import { layoutTreemap } from "../dist/treemap.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
 import { apiPlan } from "./provider-plans.mjs";
-import { exerciseReportUi, loadReportUi } from "./report-ui.mjs";
+import { exerciseReportUi, loadReportUi, sliderValue } from "./report-ui.mjs";
 import { gitRepository, syntheticRepo } from "./synthetic-repo.mjs";
 
 test("tracks configuration across first-parent history without reading untracked files", async () => {
@@ -476,7 +476,7 @@ test("tracks configuration across first-parent history without reading untracked
     );
     // A target the selects do not list, because it changed nothing, is shown first while selected.
     const unchanged = report.revisions.length;
-    longUi("slider").value = String(unchanged);
+    longUi("slider").value = sliderValue(longHistory, unchanged);
     longUi("slider").listeners.change();
     assert.equal(longUi("target").value, String(unchanged));
     assert.equal(longUi("target").children[0].value, String(unchanged));
@@ -514,7 +514,9 @@ test("tracks configuration across first-parent history without reading untracked
         2,
       ).length,
     );
-    assert.equal(lateUi("slider").min, 2);
+    lateUi("slider").value = "0";
+    lateUi("slider").listeners.change();
+    assert.equal(lateUi("target").value, "2");
     // The first revision is listed although nothing changed there; the second is not.
     assert.equal(
       lateUi("baseline").children.length,

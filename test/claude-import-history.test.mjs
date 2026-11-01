@@ -11,7 +11,7 @@ import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { renderHtml } from "../dist/report.js";
 import { assertLineAgesMatchTrees } from "./line-age-oracle.mjs";
-import { loadReportUi } from "./report-ui.mjs";
+import { loadReportUi, sliderValue } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
 test("the imports table says where an import past the depth limit points", async () => {
@@ -323,7 +323,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     const expandedMap = configMap(revisions[7].components, lastLinks, { fallback: "expanded" });
     const fromRule = () => expandedMap.rows.findIndex((row) => row.path === "docs/from-rule.md");
     const searched = ui.get("path-search").value;
-    ui.get("slider").value = "0";
+    ui.get("slider").value = sliderValue(report, 0);
     ui.get("slider").listeners.input();
     onMap("click", mapRows()[fromRule()]);
     assert.ok(!revisions[0].components.some((component) => component.path === "docs/from-rule.md"));
@@ -332,7 +332,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
       configMap(revisions[0].components, importLinks(revisions[0].components), { fallback: "expanded" }).rows.length,
     );
     assert.equal(ui.get("path-search").value, searched);
-    ui.get("slider").value = "7";
+    ui.get("slider").value = sliderValue(report, 7);
     ui.get("slider").listeners.change();
     // Settling again at the same revision keeps the rows already drawn.
     const drawnRow = mapRows()[0];
@@ -355,14 +355,14 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     const quietRows = () => quietUi.get("config-map").children.filter((child) => child.className.startsWith("map-row"));
     const tags = () =>
       quietRows().flatMap((row) => row.children[0].children.filter((child) => child.className === "map-tag"));
-    quietUi.get("slider").value = String(unchanged.revisions.length - 3);
+    quietUi.get("slider").value = sliderValue(unchanged, unchanged.revisions.length - 3);
     quietUi.get("slider").listeners.change();
     assert.ok(tags().length > 0);
-    quietUi.get("slider").value = String(unchanged.revisions.length - 2);
+    quietUi.get("slider").value = sliderValue(unchanged, unchanged.revisions.length - 2);
     quietUi.get("slider").listeners.change();
     assert.equal(tags().length, 0);
     const quietRow = quietRows()[0];
-    quietUi.get("slider").value = String(unchanged.revisions.length - 1);
+    quietUi.get("slider").value = sliderValue(unchanged, unchanged.revisions.length - 1);
     quietUi.get("slider").listeners.change();
     assert.equal(quietRows()[0], quietRow);
 

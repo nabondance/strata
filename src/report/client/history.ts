@@ -53,7 +53,6 @@ export const historyScript = `    function renderLegend() {
       // A bar starts wherever the drawn layers change; the most alike neighbors merge when there are more than 100.
       const values = viewRevisions.map((revision) => categories.map((category) => revision.categoryTotals[category].estimatedTokens));
       const buckets = timelineBuckets(values, 100, chartStart);
-      slider.min = chartStart;
       renderChartSpacing();
       // By time, a bar lasts from its first revision to the next bar's, and the last one to the latest revision.
       // Dates need not increase (clock skew, a rebase), so a bar never gets a negative width.
@@ -63,6 +62,8 @@ export const historyScript = `    function renderLegend() {
       const byTime = chartSpacing === 'time' && t1 > t0;
       const widths = buckets.map((bucket, index) => Math.max(0, (index + 1 < buckets.length ? time(buckets[index + 1].start) : t1) - time(bucket.start)));
       chart.classList.toggle('by-time', byTime);
+      // Where each bar sits across the chart, so the slider can follow the bars in either spacing.
+      chartEdges = timelineEdges(buckets.length, byTime ? widths : undefined);
       chart.style.gridTemplateColumns = byTime
         ? widths.map((width) => 'minmax(1px, ' + (width / (t1 - t0) * 1000).toFixed(3) + 'fr)').join(' ')
         : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
@@ -146,13 +147,34 @@ export const historyScript = `    function renderLegend() {
     }
 
     const slider = $('slider');
+    // The slider runs along the chart's width rather than through the revisions, so its thumb stays over the bar it
+    // selects whether the bars are spaced by change or by time. Within a bar, its revisions share the bar's width.
+    const sliderSteps = 10000;
+    /** The slider position of a revision, and the revision at a slider position, by the bars' edges. */
+    const sliderPosition = (index) => Math.round(timelinePosition(chartBuckets, chartEdges, index) * sliderSteps);
+    const sliderRevision = (position) => timelineRevision(chartBuckets, chartEdges, position / sliderSteps) ?? selected;
 
     /** Wires the slider, the chart's arrow keys and hover card, and the revision selects. */
     function setupHistory() {
-      slider.max = revisions.length - 1;
+      slider.min = 0;
+      slider.max = sliderSteps;
       // While the slider is dragged, the file and comparison tables wait until it settles; the rest follows it live.
-      slider.addEventListener('input', () => render(Number(slider.value), true));
-      slider.addEventListener('change', () => render(Number(slider.value)));
+      slider.addEventListener('input', () => render(sliderRevision(Number(slider.value)), true));
+      slider.addEventListener('change', () => render(sliderRevision(Number(slider.value))));
+      // Its arrow keys still step one revision at a time; Page Up and Page Down move a bar.
+      slider.addEventListener('keydown', (event) => {
+        const at = chartBuckets.findIndex((bucket) => bucket.start <= selected && selected <= bucket.end);
+        const first = chartBuckets[0]?.start ?? 0;
+        const last = chartBuckets.at(-1)?.end ?? 0;
+        const next = {
+          ArrowLeft: selected - 1, ArrowDown: selected - 1, ArrowRight: selected + 1, ArrowUp: selected + 1,
+          PageDown: chartBuckets[Math.max(0, at - 1)]?.end, PageUp: chartBuckets[Math.min(chartBuckets.length - 1, at + 1)]?.end,
+          Home: first, End: last,
+        }[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        render(Math.max(first, Math.min(last, next)));
+      });
       // The bars are one tab stop; arrow keys, Home, and End move the selection between them.
       $('chart').addEventListener('keydown', (event) => {
         const at = chartBuckets.findIndex((bucket) => bucket.button === event.target);
