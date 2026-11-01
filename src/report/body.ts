@@ -52,6 +52,7 @@ export function reportBody(report: Report): string {
     <section class="panel">
       <div class="panel-head"><h2>Stored instruction history</h2><div class="revision" id="revision"></div></div>
       <div class="legend" id="legend"></div>
+      <div class="measure-switch chart-spacing" id="chart-spacing" role="group" aria-label="Space the bars by"></div>
       <div class="history-plot" id="history-plot">
         <div class="history-ticks" id="chart-ticks" aria-hidden="true"></div>
         <div class="chart-scroll"><div class="chart" id="chart"></div></div>

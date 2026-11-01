@@ -54,7 +54,18 @@ export const historyScript = `    function renderLegend() {
       const values = viewRevisions.map((revision) => categories.map((category) => revision.categoryTotals[category].estimatedTokens));
       const buckets = timelineBuckets(values, 100, chartStart);
       slider.min = chartStart;
-      chart.style.gridTemplateColumns = 'repeat(' + buckets.length + ', minmax(0, 1fr))';
+      renderChartSpacing();
+      // By time, a bar lasts from its first revision to the next bar's, and the last one to the latest revision.
+      // Dates need not increase (clock skew, a rebase), so a bar never gets a negative width.
+      const time = (index) => Date.parse(viewRevisions[index].date);
+      const t0 = time(buckets[0]?.start ?? chartStart);
+      const t1 = time(viewRevisions.length - 1);
+      const byTime = chartSpacing === 'time' && t1 > t0;
+      const widths = buckets.map((bucket, index) => Math.max(0, (index + 1 < buckets.length ? time(buckets[index + 1].start) : t1) - time(bucket.start)));
+      chart.classList.toggle('by-time', byTime);
+      chart.style.gridTemplateColumns = byTime
+        ? widths.map((width) => 'minmax(1px, ' + (width / (t1 - t0) * 1000).toFixed(3) + 'fr)').join(' ')
+        : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
       // The scale covers every charted revision, not only the last of each step, and changes with the view and measure.
       const scale = timelineScale(max);
@@ -97,18 +108,41 @@ export const historyScript = `    function renderLegend() {
         chartBuckets.push({ ...bucket, button });
       }
       // Calendar boundaries between the end dates; CSS keeps only the middle one on a narrow screen.
-      $('timeline-dates').replaceChildren(...timelineDateTicks(buckets.map((bucket) => viewRevisions[bucket.end].date)).map((tick) => {
+      // By time, the labels sit at their dates: one evenly spaced date per 0.5% of the width stands in for the bars.
+      const tickDates = byTime
+        ? Array.from({ length: 200 }, (_, index) => new Date(t0 + (index / 200) * (t1 - t0)).toISOString())
+        : buckets.map((bucket) => viewRevisions[bucket.end].date);
+      $('timeline-dates').replaceChildren(...timelineDateTicks(tickDates).map((tick) => {
         const label = text('span', tick.label, tick.primary ? 'primary' : '');
-        label.style.left = (tick.at / buckets.length * 100).toFixed(2) + '%';
+        label.style.left = (tick.at / tickDates.length * 100).toFixed(2) + '%';
         return label;
       }));
       const charted = viewRevisions.length - chartStart;
       const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt);
-      $('chart-steps').hidden = !note;
-      $('chart-steps').textContent = note;
+      const spacingNote = byTime ? 'Each bar is as wide as the time until the next one.' : '';
+      $('chart-steps').hidden = !note && !spacingNote;
+      $('chart-steps').textContent = [note, spacingNote].filter(Boolean).join(' ');
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
       renderSilhouette(values, chartStart, max);
+    }
+
+    /** The switch between bars of equal width and bars as wide as the time they cover. */
+    function renderChartSpacing() {
+      const container = $('chart-spacing');
+      container.replaceChildren(text('span', 'Space bars by'));
+      for (const [key, label] of [['change', 'Change'], ['time', 'Time']]) {
+        const button = text('button', label);
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(chartSpacing === key));
+        button.addEventListener('click', () => {
+          if (chartSpacing === key) return;
+          chartSpacing = key;
+          renderChart();
+          render(selected);
+        });
+        container.append(button);
+      }
     }
 
     const slider = $('slider');

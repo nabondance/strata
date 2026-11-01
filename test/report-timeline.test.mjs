@@ -144,6 +144,32 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   chart.listeners.focusout();
   assert.equal(tip.hidden, true);
 
+  // By time, each bar is as wide as the time until the next one, with no gap; Change goes back to equal widths.
+  const spacing = get("chart-spacing").children.filter(
+    (child) => child.tagName === "BUTTON" || child.type === "button",
+  );
+  assert.deepEqual(
+    spacing.map((button) => [button.textContent, button.getAttribute("aria-pressed")]),
+    [
+      ["Change", "true"],
+      ["Time", "false"],
+    ],
+  );
+  spacing[1].listeners.click();
+  assert.equal(chart.classes.has("by-time"), true);
+  const columns = chart.style.gridTemplateColumns.split(") ").map((column) => Number.parseFloat(column.split(", ")[1]));
+  assert.equal(columns.length, buckets.length);
+  const time = (index) => Date.parse(revisions[index].date);
+  const span = time(revisions.length - 1) - time(buckets[0].start);
+  const expectedWidth = ((time(buckets[1].start) - time(buckets[0].start)) / span) * 1000;
+  assert.ok(Math.abs(columns[0] - expectedWidth) < 0.01, `${columns[0]} vs ${expectedWidth}`);
+  assert.match(get("chart-steps").textContent, / Each bar is as wide as the time until the next one\.$/);
+  const bySpacing = get("chart-spacing").children.filter((child) => child.type === "button");
+  assert.equal(bySpacing[1].getAttribute("aria-pressed"), "true");
+  bySpacing[0].listeners.click();
+  assert.equal(chart.classes.has("by-time"), false);
+  assert.equal(chart.style.gridTemplateColumns, "repeat(100, minmax(0, 1fr))");
+
   // A provider tab redraws the axis on that view's scale.
   const before = get("chart-ticks").children;
   get("provider-tabs")
