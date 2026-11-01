@@ -132,7 +132,7 @@ Since schema version 9, a report stores each distinct file version once and each
 
 - A top-level `components` table holds one entry per distinct path-and-blob pair across the whole history, ordered by path.
 - A revision carries its `componentCount`, `categoryTotals`, `estimatedTokens`, and `changes`. It does not repeat its inventory, and `skillGroups` is no longer stored.
-- Since schema version 21, a revision leaves out `categoryTotals` and `firstParent` when they repeat the previous revision ([version 21](#version-21-carried-forward-totals-import-targets-and-symlinks)).
+- Since schema version 21, a revision leaves out `categoryTotals` and `firstParent` when they repeat the previous revision ([version 21](#version-21-carried-forward-totals-import-targets-and-symlinks)); since version 22, also its other totals, and `changes` when there are none ([version 22](#version-22-every-repeated-total-carried-forward)).
 - Every change has a `component` field: the index in `components` of the file version now at `path`, or `null` for a removal.
 
 On one local repository with 181 revisions, this cut the HTML report from 57.5 MB to 1.5 MB.
@@ -144,13 +144,13 @@ To rebuild the inventory at a revision, start empty and apply every revision's c
 1. Drop `previousPath` when it is present.
 2. If `component` is `null`, drop `path`; otherwise set `path` to that component.
 
-`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything, carrying `categoryTotals` forward where a revision leaves them out.
+`src/expand.ts` implements this rule, and the HTML report embeds the same function. A fixture test checks the replayed inventory of every revision against a direct listing of that commit's tree. Skill bundles are derived from the rebuilt inventory by grouping components on `skill.root`. The stored totals let a consumer chart the history without replaying anything, carrying each total forward where a revision leaves it out ([version 22](#version-22-every-repeated-total-carried-forward)).
 
 A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 21,
+  "schemaVersion": 22,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -186,15 +186,22 @@ A shortened, illustrative JSON shape:
     "lineAge": { "added": 7 }
   }, {
     "id": "<next full Git commit ID>",
+    "date": "<author ISO timestamp>"
+  }, {
+    "id": "<latest full Git commit ID>",
     "date": "<author ISO timestamp>",
+    "firstParent": "<next full Git commit ID>",
     "componentCount": 1,
+    "categoryTotals": {
+      "instructions": { "count": 1, "bytes": 8, "estimatedTokens": 2, "sourceOnlyCount": 0 }
+    },
     "estimatedTokens": 2,
     "changes": []
   }]
 }
 ```
 
-The second revision touched no recognized file, so it leaves out `firstParent` (the first revision's `id`) and `categoryTotals` (the first revision's).
+The second revision touched no recognized file, so it keeps only its `id` and `date` (and would keep `geminiContextFiles`, had the settings named context files): every other field repeats the first revision's, and it has no changes. The last revision touched nothing either, but the last revision always keeps every field. Skill listing fields are left out of this example.
 
 ### Privacy
 
@@ -207,7 +214,7 @@ The second revision touched no recognized file, so it leaves out `firstParent` (
 
 ### Shareable reports
 
-`--shareable` produces schema version 21 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 22 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
@@ -256,6 +263,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 19      | `lineAgeMethod` and `lineAge`; a narrower `shallow`                                                                                                                                                                                            |
 | 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                                                                     |
 | 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths; shareable paths aliased per segment; `ignore` |
+| 22      | every revision total, and empty `changes`, left out when they repeat the previous revision; the last revision keeps every field                                                                                                                |
 
 #### Version 8: provider counts
 
@@ -452,6 +460,26 @@ Version 21 also adds `--ignore` and the optional top-level `ignore` field. A mon
 - Submodule file counts leave out files whose path in the parent repository matches.
 
 `ignore` holds the patterns as given, in order (with literal segments aliased in a shareable report), and is present only when at least one was given, so a reader knows the totals cover part of the repository; the HTML header shows `ignoring N patterns` with the list in its title, and the CLI summary prints them on one line. The `strata diff` JSON has the same field from version 14, and its Markdown adds a line naming the patterns. Nothing else in the shape changes: a report without `--ignore` is the same as before.
+
+#### Version 22: every repeated total carried forward
+
+Version 21 left out `categoryTotals` and `firstParent`, but each revision still stored its scalar totals and an empty `changes` list. On a long history that touched configuration late, those repeated figures were most of the report: `getsentry/sentry` has 105,493 revisions, 105,252 of them without changes, and they held 24 of the 25 MB of revisions. Version 22 leaves out every field `fillRevisions` can carry forward:
+
+- `componentCount`, `estimatedTokens`, `skillListingTokens`, and `skillListingUnresolved` are absent when they equal the previous revision's value.
+- `providerTokenTotals` is absent when every count in it equals the previous revision's. A report without provider counts still has it on no revision.
+- `changes` is absent when the revision changed nothing; absent means an empty list.
+- `firstParent` and `categoryTotals` follow the version 21 rules.
+
+The first and the last revision keep every field, so a reader of the latest totals, such as `jq '.revisions[-1].estimatedTokens'`, needs no filling; a reader of any other revision takes each absent field from the nearest revision before it that has it. A revision that changed nothing is reduced to its `id` and `date`, plus `geminiContextFiles` while the Gemini settings name context files. `geminiContextFiles` and `lineAge` are unchanged: their absence already has a meaning, so `geminiContextFiles` stays on every revision whose settings set it, changed or not. `compactRevisions` and `fillRevisions` in `src/expand.ts` do both directions, as in version 21.
+
+On two public repositories, analyzed with the estimate and Codex's local count:
+
+| Repository       | Revisions | JSON 21 → 22             | HTML 21 → 22            | HTML gzip 21 → 22 |
+| ---------------- | --------: | ------------------------ | ----------------------- | ----------------- |
+| getsentry/sentry |   105,493 | 31.7 MB → 12.5 MB (−61%) | 23.5 MB → 9.7 MB (−59%) | 3.6 MB → 3.5 MB   |
+| microsoft/vscode |    85,998 | 27.0 MB → 11.4 MB (−58%) | 19.9 MB → 8.6 MB (−57%) | 3.0 MB → 2.9 MB   |
+
+Compression already removed most of the repetition, so a served report transfers about as many bytes as before; the gain is in the file on disk and in the JSON a browser or a script has to parse.
 
 ## MCP servers
 
@@ -704,7 +732,7 @@ The offline HTML report compares any two revisions present in the report. Schema
 - The chart is capped at 100 bars. With more changes, neighboring bars merge, cheapest first: the cost of a merge is how far the merged bar, which shows the later bar's last revision, would be from the furthest revision either covers, summed over the categories. Small tweaks therefore merge before large moves, a step that stays up keeps its edge, a spike that falls back keeps its bar, and steady growth merges evenly instead of from one end. `timelineBuckets` in `src/timeline.ts`, which the report embeds, does this; it is a view rule and needs no schema change.
 - Each bar displays the last revision in its group. When a merged bar hides a higher total, a dashed line marks that total on the bar. A line under the chart, worded as in the SVG image by `timelineStepsNote`, says when bars group revisions, whether changes were merged, and what the dashed line means. A hover card, also shown for the focused bar, and each bar's accessible name give the revision numbers it covers, its date, and its tokens; the card splits them by category, counts the changes in a merged bar, and gives the highest total it hides.
 - The value axis has three to five round gridlines (steps of 1, 2, 2.5, or 5 times a power of ten, as in the SVG image) labeled in compact form (20K). It covers every charted revision in the current view and measure, so it is redrawn with a provider tab. Between the end dates, up to four labels mark month, quarter, half-year, or year boundaries, the finest that fits, at least 12% of the width from each other and from the ends; on a narrow screen only one near the middle stays. Bars are changes, not equal spans of time or equal numbers of revisions, so these labels are not evenly spaced.
-- A "Space bars by" switch sets the bar widths. **Change**, the default, gives every bar the same width, so each change is as easy to see and select as any other. **Time** makes each bar as wide as the time from its first revision to the next bar's (the last one to the latest revision), with no gap between bars, so the chart reads as an area over calendar time and its date labels sit at their dates. Bars keep a 1-pixel minimum, a revision dated before the previous one (clock skew, a rebase) adds no width, and the note under the chart says when bars are spaced by time. The slider runs along the chart's width rather than through the revisions, so in either spacing its thumb stays over the bar it selects; within a bar, the bar's revisions share its width. Its arrow keys still step one revision at a time, Page Up and Page Down move a bar, and it announces the selected revision and date. `timelineEdges`, `timelinePosition`, and `timelineRevision` in `src/timeline.ts`, which the report embeds, map between revisions and positions. The masthead and the SVG image do not follow the switch.
+- A "Space bars by" switch sets the bar widths. **Change**, the default, gives every bar the same width, so each change is as easy to see and select as any other. **Time** makes each bar as wide as the time from its first revision to the next bar's (the last one to the latest revision, but at least as wide as an average bar, so the bar selected on opening is never a hairline when the latest change came shortly before the latest revision), with no gap between bars, so the chart reads as an area over calendar time and its date labels sit at their dates. Bars keep a 1-pixel minimum, a revision dated before the previous one (clock skew, a rebase) adds no width, and the note under the chart says when bars are spaced by time. The slider runs along the chart's width rather than through the revisions, so in either spacing its thumb stays over the bar it selects; within a bar, the bar's revisions share its width. Its arrow keys still step one revision at a time, Page Up and Page Down move a bar, and it announces the selected revision and date. `timelineEdges`, `timelinePosition`, and `timelineRevision` in `src/timeline.ts`, which the report embeds, map between revisions and positions. The masthead and the SVG image do not follow the switch.
 - The selected bar keeps its stack in full color: a faint column behind it, a cap above it, and a mark under the axis.
 - The chart starts at the first revision that has a tracked file in the current view, and the date under its left edge is that revision's. Otherwise a repository that adopted agent configuration late would spend most of its bars on nothing.
 - The slider covers the charted revisions, so it stays aligned with the bars. The baseline and target selectors list every revision that changed something, including those before the chart starts.
@@ -817,11 +845,12 @@ A shareable report aliases folder and file names one segment at a time, so its m
 
 ## Report masthead
 
-The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. Its lower edge repeats the timeline as stepped category layers, following the same view, chart start, and scale as the chart beneath it but not its grouping: every charted revision takes the same width, and a step starts at each change, so the edge shows the history at full resolution. Past 2,000 changes the most alike neighbors merge, by the chart's rule, which is finer than a screen can show. A thin line marks the selected revision. The layers use the chart's category colors and are decoration, hidden from assistive technology.
+The HTML report's masthead names the analyzed repository and holds the figures for the selected revision. **Last change** is the token change at the latest revision at or before the selected one that changed a tracked file in the view, the revision Compare's **Previous change** uses, with its date beneath; most commits of a long history change no tracked file, so the literal previous revision's change would read 0 on nearly every opening. Its lower edge repeats the timeline as stepped category layers, following the same view, chart start, and scale as the chart beneath it but not its grouping: every charted revision takes the same width, and a step starts at each change, so the edge shows the history at full resolution. Past 2,000 changes the most alike neighbors merge, by the chart's rule, which is finer than a screen can show. A thin line marks the selected revision. The layers use the chart's category colors and are decoration, hidden from assistive technology.
 
 When no revision tracks a recognized file, the report keeps the masthead and replaces the panels, the provider tabs, and the measurement disclosure with one card. It says how many revisions were read, lists the main recognized paths, and explains that files elsewhere, such as a top-level `skills/` folder, are not read by the supported tools. A history whose configuration was removed later still draws every panel, each with its own empty message at the revisions that have none.
 
 - The headline face, Archivo under the SIL Open Font License, and the page icon are inlined as `data:` URLs. The Content-Security-Policy therefore allows fonts and images from `data:` only; the report still loads nothing from the network.
+- The footer names the Strata release and the local date that wrote the report; the JSON does not store either. A report rendered without them, as tests do, leaves both out.
 - The Strata name in the masthead and footer links to the package's npm page. It is the report's only outbound link, is followed only on click, opens without a referrer, and is the same in every report, so it carries nothing about the analyzed repository.
 
 [docs/brand](brand/README.md) describes the logo, colors, and type.

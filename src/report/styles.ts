@@ -20,11 +20,13 @@ export const reportStyles = `    ${displayFontFace}
     .brand:hover .wordmark, .brand:focus-visible .wordmark { color: var(--ochre); }
     .wordmark { font-family: ${displayFontStack}; font-size: 24px; font-weight: 800; letter-spacing: .03em; line-height: 1; }
     h1 { font-family: ${displayFontStack}; font-size: clamp(44px, 7vw, 84px); font-weight: 800; line-height: .92; overflow-wrap: anywhere; margin: 26px 0 10px; }
+    .repo-meta .nowrap { white-space: nowrap; }
     .repo-meta { color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; letter-spacing: .04em; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
     #repo-ignore { cursor: help; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 16px; border-top: 1px solid #4a554f; margin-top: 26px; }
     .stat { padding: 14px 0 20px; min-width: 0; }
     .stat span { display: block; color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+    .stat-note { display: block; margin-top: 4px; color: #a9b0a4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stat strong { font-family: ${displayFontStack}; font-size: clamp(25px, 3vw, 34px); font-weight: 800; letter-spacing: .01em; font-variant-numeric: tabular-nums lining-nums; }
     header .positive { color: var(--ochre); }
     header .negative { color: #8fbdb7; }
@@ -77,7 +79,13 @@ export const reportStyles = `    ${displayFontFace}
     .bar:focus-visible::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -7px; height: 5px; background: var(--clay); }
     .stack { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; min-height: 2px; }
     .segment { display: block; width: 100%; }
-    input[type=range] { width: 100%; accent-color: var(--clay); margin-top: 17px; }
+    /* The thumb follows the bars, so it rarely reaches the track's end; one track color leaves no unfilled stub past it. */
+    input[type=range] { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 18px; margin: 17px 0 0; background: transparent; cursor: pointer; }
+    input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--clay); }
+    input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--clay); }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -6px; border: 3px solid var(--sheet); border-radius: 50%; background: var(--clay); box-shadow: 0 0 0 1px var(--clay); }
+    input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border: 3px solid var(--sheet); border-radius: 50%; background: var(--clay); box-shadow: 0 0 0 1px var(--clay); }
+    input[type=range]:focus-visible { outline: 2px solid var(--clay); outline-offset: 4px; }
     .timeline-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     /* Instruction age: one hue, oldest text darkest in light mode and lightest in dark mode, a surface gap between layers.
        The newest end keeps 3:1 contrast with the panel, so every layer stays visible, and the two ends are
@@ -130,6 +138,7 @@ export const reportStyles = `    ${displayFontFace}
     .map-key { display: inline-block; flex: none; width: 9px; height: 14px; border: 2px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
     .map-key.dashed { border-style: dashed; border-left: 0; }
     .config-map { --gutter: 150px; position: relative; padding-right: var(--gutter); border-top: 1px solid var(--grid); }
+    .config-map.no-lines { padding-right: 0; }
     .map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 1fr) 8ch; align-items: center; gap: 12px; height: 30px; padding-right: 10px; border-bottom: 1px solid var(--grid); cursor: pointer; font-size: 13px; }
     .map-row:hover, .map-row.linked { background: var(--hover); }
     .map-row:focus-visible { outline: 2px solid var(--clay); outline-offset: -2px; }
@@ -144,6 +153,7 @@ export const reportStyles = `    ${displayFontFace}
     .map-bar.source-only { background: none; }
     .map-bar.source-only i { width: 10px; border: 2px solid; }
     .map-size { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .map-size.bytes { font-style: italic; }
     .map-gutter { position: absolute; top: 0; right: 0; width: var(--gutter); pointer-events: none; }
     .map-arc { position: absolute; left: 0; border: 1.5px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; opacity: .5; }
     .map-arc.dashed { border-style: dashed; border-left: 0; }
@@ -195,7 +205,7 @@ export const reportStyles = `    ${displayFontFace}
     footer a { color: inherit; }
     footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 25px; padding-top: 16px; font-size: 12px; line-height: 1.55; }
     @media (max-width: 800px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(n+3) { border-top: 1px solid #4a554f; } .grid { grid-template-columns: minmax(0, 1fr); } }
-    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .config-map { --gutter: 64px; } .map-row { grid-template-columns: minmax(0, 1fr) 36px 7ch; gap: 8px; } /* Names need the room; the detail line and accessible name still give each tag. */ .map-tag { display: none; } }
+    @media (max-width: 520px) { .masthead { padding: 0 18px; } main { padding: 20px 18px 50px; } .stat strong { font-size: 24px; } .silhouette { height: 76px; } .panel { padding: 18px; } .panel h2 { font-size: 21px; } details.panel > summary { flex-wrap: wrap; } details.panel > summary .summary-count { order: 1; flex-basis: 100%; } .treemap { height: 320px; } .treemap-leaf { padding: 6px; } .config-map { --gutter: 44px; } .map-row { grid-template-columns: minmax(0, 1fr) 36px 7ch; gap: 8px; } /* Names need the room; the detail line and accessible name still give each tag. */ .map-tag { display: none; } }
     .empty-state h2 { text-transform: none; font-size: 28px; line-height: 1.15; overflow-wrap: anywhere; }
     .empty-state p { max-width: 70ch; font-size: 14px; line-height: 1.55; }
     .empty-state ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0 0 14px; padding: 0; }

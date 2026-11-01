@@ -12,7 +12,7 @@ const outline = (map) =>
 test("lays files out as a folder tree with shared rows for single-folder chains", () => {
   const components = [
     file(".claude/skills/review/SKILL.md", 40, { category: "skills" }),
-    file(".claude/skills/review/notes.txt", null, { category: "skills" }),
+    file(".claude/skills/review/notes.txt", null, { category: "skills", bytes: 1234 }),
     file("AGENTS.md", 10),
     file("CLAUDE.md", 5),
     file("docs/a.md", 0),
@@ -35,8 +35,12 @@ test("lays files out as a folder tree with shared rows for single-folder chains"
     [map.rows[0].files, map.rows[0].sourceOnly, map.rows[0].tokens, map.rows[0].categories],
     [2, 1, 40, [{ category: "skills", tokens: 40 }]],
   );
-  // A source-only file has no tokens; a zero-token file has zero.
+  // A source-only file has no tokens; a zero-token file has zero. Its bytes are what the map shows instead.
   assert.equal(map.rows[1].tokens, null);
+  assert.deepEqual(
+    map.rows.map((row) => row.sourceBytes),
+    [1234, 1234, 0, 0, 0, 0, 0],
+  );
   assert.equal(map.rows[4].tokens, 0);
   assert.equal(map.totalTokens, 55);
   assert.deepEqual(

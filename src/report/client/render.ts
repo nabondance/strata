@@ -2,8 +2,10 @@
 export const renderScript = `    function render(index, dragging) {
       selected = index;
       const revision = viewRevisions[index];
-      const previous = viewRevisions[index - 1];
-      const delta = revision.estimatedTokens - (previous?.estimatedTokens ?? 0);
+      // Most commits of a long history touch no tracked file, so the masthead shows the latest change at or before
+      // this revision, the one Compare's "Previous change" uses, rather than a literal previous revision's zero.
+      const changed = latestChange(index);
+      const delta = changed < 0 ? 0 : viewRevisions[changed].estimatedTokens - (viewRevisions[changed - 1]?.estimatedTokens ?? 0);
       slider.value = sliderPosition(index);
       slider.setAttribute('aria-valuetext', 'Revision ' + fmt(index + 1) + ' of ' + fmt(viewRevisions.length) + ', ' + revision.date.slice(0, 10));
       renderLegend();
@@ -22,6 +24,8 @@ export const renderScript = `    function render(index, dragging) {
       $('components').textContent = fmt(revision.components.length);
       $('delta').textContent = (delta > 0 ? '+' : '') + fmt(delta);
       $('delta').className = delta > 0 ? 'positive' : delta < 0 ? 'negative' : '';
+      $('delta-when').textContent = changed < 0 ? 'none yet' : changed === index ? 'at this revision' : 'on ' + viewRevisions[changed].date.slice(0, 10);
+      $('delta-when').title = changed < 0 ? '' : 'Revision ' + fmt(changed + 1) + ' compared with ' + (changed ? 'revision ' + fmt(changed) : 'the empty history before it');
       $('revision').textContent = (index + 1) + ' / ' + revisions.length + ' · ' + revision.id.slice(0, 10);
 
       renderAge();

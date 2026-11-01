@@ -119,7 +119,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerReport.schemaVersion, 21);
+    assert.equal(providerReport.schemaVersion, 22);
     assert.equal(providerReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -225,7 +225,7 @@ test("tracks configuration across first-parent history without reading untracked
       () => compareGitCommits(repo, "no-such-branch", merge),
       /Base "no-such-branch" does not name a commit/,
     );
-    assert.equal(report.schemaVersion, 21);
+    assert.equal(report.schemaVersion, 22);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -933,8 +933,8 @@ test("tracks configuration across first-parent history without reading untracked
   }
 });
 
-// Schema 21 leaves out what repeats the previous revision; `fillRevisions` restores it exactly.
-test("leaves out category totals and first parents that repeat the previous revision", async () => {
+// Schema 22 leaves out what repeats the previous revision; `fillRevisions` restores it exactly.
+test("leaves out totals, first parents, and empty changes that repeat the previous revision", async () => {
   const { repo, put, commit, cleanup } = syntheticRepo("strata-carried-");
   try {
     put("CLAUDE.md", "Root instructions.\n");
@@ -953,24 +953,37 @@ test("leaves out category totals and first parents that repeat the previous revi
     ids.push(commit("empty", { flags: ["--allow-empty"] }));
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 21);
+    assert.equal(report.schemaVersion, 22);
     const stored = report.revisions;
     assert.equal(stored.length, 6);
-    // The first revision always carries both fields.
-    assert.equal(stored[0].firstParent, null);
-    assert.ok(stored[0].categoryTotals);
-    for (const revision of stored.slice(1)) assert.ok(!("firstParent" in revision), revision.id);
-    assert.deepEqual(
-      stored.map((revision) => "categoryTotals" in revision),
-      [true, false, false, true, false, false],
-    );
-    assert.equal(stored[4].changes.length, 1);
-    // Per-revision totals the README and the skill rely on stay on every revision.
-    for (const revision of stored) {
-      for (const field of ["id", "date", "componentCount", "estimatedTokens", "skillListingTokens", "changes"]) {
+    const present = (field) => stored.map((revision) => field in revision);
+    // The first and the last revision carry every field, so the latest totals need no filling.
+    for (const revision of [stored[0], stored.at(-1)]) {
+      for (const field of [
+        "id",
+        "date",
+        "firstParent",
+        "componentCount",
+        "categoryTotals",
+        "estimatedTokens",
+        "skillListingTokens",
+        "skillListingUnresolved",
+        "changes",
+      ]) {
         assert.ok(field in revision, `${revision.id} ${field}`);
       }
     }
+    assert.equal(stored[0].firstParent, null);
+    // A revision that changes nothing keeps only its commit and date (and geminiContextFiles, absent here).
+    assert.deepEqual(Object.keys(stored[1]), ["id", "date"]);
+    assert.deepEqual(Object.keys(stored[2]), ["id", "date"]);
+    assert.deepEqual(present("firstParent"), [true, false, false, false, false, true]);
+    assert.deepEqual(present("categoryTotals"), [true, false, false, true, false, true]);
+    assert.deepEqual(present("estimatedTokens"), [true, false, false, true, false, true]);
+    assert.deepEqual(present("componentCount"), [true, false, false, false, false, true]);
+    assert.deepEqual(present("changes"), [true, false, false, true, true, true]);
+    assert.equal(stored[4].changes.length, 1);
+    assert.deepEqual(stored[5].changes, []);
 
     // Filling restores every revision's totals and parent, which the JSON round trip keeps.
     const filled = fillRevisions(JSON.parse(JSON.stringify(report)).revisions);
@@ -981,6 +994,30 @@ test("leaves out category totals and first parents that repeat the previous revi
       filled.map((revision) => revision.firstParent),
       [null, ...ids.slice(0, -1)],
     );
+    // Provider totals repeat the same way, compared figure by figure.
+    const counted = filled.map((revision, index) => ({
+      ...revision,
+      providerTokenTotals: { codex: index < 3 ? 5 : 7 },
+    }));
+    const compactCounted = compactRevisions(counted);
+    assert.deepEqual(
+      compactCounted.map((revision) => "providerTokenTotals" in revision),
+      [true, false, false, true, false, true],
+    );
+    assert.deepEqual(fillRevisions(compactCounted), counted);
+    // geminiContextFiles keeps its own meaning (absent means GEMINI.md only), so it stays on every revision that has it.
+    const gemini = filled.map((revision, index) =>
+      index >= 2 ? { ...revision, geminiContextFiles: ["agents-md"] } : revision,
+    );
+    const compactGemini = compactRevisions(gemini);
+    assert.deepEqual(
+      compactGemini.map((revision) => "geminiContextFiles" in revision),
+      [false, false, true, true, true, true],
+    );
+    assert.deepEqual(Object.keys(compactGemini[2]), ["id", "date", "geminiContextFiles"]);
+    assert.deepEqual(fillRevisions(compactGemini), gemini);
+    // A one-revision report is both first and last, so it keeps every field.
+    assert.deepEqual(compactRevisions([filled[3]]), [filled[3]]);
     const expanded = expandRevisions(report);
     expanded.forEach((revision, index) => {
       assert.deepEqual(revision.categoryTotals, summarize(revision.components).categoryTotals, `revision ${index}`);
@@ -1000,12 +1037,12 @@ test("leaves out category totals and first parents that repeat the previous revi
       fillRevisions(shareable.revisions).map((revision) => revision.firstParent),
       [null, ...shareable.revisions.slice(0, -1).map((revision) => revision.id)],
     );
-    // The last revision has no stored totals, so the legend it draws on startup reads filled ones.
+    // The legend the report draws on startup reads the filled totals.
     const legendCategories = categories.filter((category) => filled.at(-1).categoryTotals[category].count);
     for (const subject of [report, shareable]) {
       const html = renderHtml(subject);
-      assert.equal(html.match(/"categoryTotals":/g).length, 2);
-      assert.equal(html.match(/"firstParent":/g).length, 1);
+      assert.equal(html.match(/"categoryTotals":/g).length, 3);
+      assert.equal(html.match(/"firstParent":/g).length, 2);
       const ui = loadReportUi(html);
       assert.deepEqual(
         ui.get("legend").children.map((label) => [label.textContent, label.children.at(-1).textContent]),
@@ -1017,6 +1054,12 @@ test("leaves out category totals and first parents that repeat the previous revi
       );
     }
     assert.match(renderSvg(report), /<polygon/);
+    // The footer names the release and day that wrote the report, when the caller gives them.
+    assert.match(renderHtml(report), /Strata<\/a>\.<\/footer>/);
+    assert.match(
+      renderHtml(report, { version: "1.2.3", date: "2026-01-02" }),
+      /Strata<\/a> 1\.2\.3 on 2026-01-02\.<\/footer>/,
+    );
   } finally {
     cleanup();
   }

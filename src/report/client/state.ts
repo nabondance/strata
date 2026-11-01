@@ -2,7 +2,14 @@
 export const stateScript = `    const $ = (id) => document.getElementById(id);
     const numberFormat = new Intl.NumberFormat();
     const fmt = (n) => numberFormat.format(n);
+    const oneDecimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
     const plural = (count, word) => fmt(count) + ' ' + word + (count === 1 ? '' : 's');
+    // A source size short enough for the map's number column: 512 B, 4.2 kB, 38 kB, 1.6 MB.
+    const byteSize = (n) => {
+      // A kB figure that would round to 1,000 moves up to MB.
+      const [value, unit] = n < 1000 ? [n, 'B'] : n < 999500 ? [n / 1e3, 'kB'] : [n / 1e6, 'MB'];
+      return (unit === 'B' || value >= 10 ? fmt(Math.round(value)) : oneDecimal.format(value)) + ' ' + unit;
+    };
     const signed = (n) => (n > 0 ? '+' : '') + fmt(n);
     const tone = (n) => n > 0 ? 'positive' : n < 0 ? 'negative' : '';
     const text = (tag, value, className) => { const node = document.createElement(tag); node.textContent = value; if (className) node.className = className; return node; };
@@ -88,7 +95,12 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
       const label = measureLabel();
       $('tokens-label').textContent = label.stat;
       $('compare-tokens-label').textContent = label.compare;
-      $('repo-meta').textContent = data.branch + ' · ' + fmt(revisions.length) + ' revisions · ' + revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10) + ' · ' + label.meta;
+      // Browsers may break a line at a date's hyphen, so the date range keeps to one line.
+      $('repo-meta').replaceChildren(
+        text('span', data.branch + ' · ' + fmt(revisions.length) + ' revisions · '),
+        text('span', revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10), 'nowrap'),
+        text('span', ' · ' + label.meta),
+      );
     }
     function renderMeasureSwitch() {
       const container = $('measure-switch');

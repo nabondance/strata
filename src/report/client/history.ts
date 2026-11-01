@@ -61,11 +61,15 @@ export const historyScript = `    function renderLegend() {
       const t1 = time(viewRevisions.length - 1);
       const byTime = chartSpacing === 'time' && t1 > t0;
       const widths = buckets.map((bucket, index) => Math.max(0, (index + 1 < buckets.length ? time(buckets[index + 1].start) : t1) - time(bucket.start)));
+      // The last bar has no next one to end at, and the latest change is often days or minutes before the latest
+      // revision, which would leave the selected bar a hairline. It is at least as wide as an average bar.
+      if (widths.length) widths[widths.length - 1] = Math.max(widths[widths.length - 1], (t1 - t0) / widths.length);
+      const span = widths.reduce((sum, width) => sum + width, 0);
       chart.classList.toggle('by-time', byTime);
       // Where each bar sits across the chart, so the slider can follow the bars in either spacing.
       chartEdges = timelineEdges(buckets.length, byTime ? widths : undefined);
       chart.style.gridTemplateColumns = byTime
-        ? widths.map((width) => 'minmax(1px, ' + (width / (t1 - t0) * 1000).toFixed(3) + 'fr)').join(' ')
+        ? widths.map((width) => 'minmax(1px, ' + (width / span * 1000).toFixed(3) + 'fr)').join(' ')
         : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
       // The scale covers every charted revision, not only the last of each step, and changes with the view and measure.
@@ -111,7 +115,7 @@ export const historyScript = `    function renderLegend() {
       // Calendar boundaries between the end dates; CSS keeps only the middle one on a narrow screen.
       // By time, the labels sit at their dates: one evenly spaced date per 0.5% of the width stands in for the bars.
       const tickDates = byTime
-        ? Array.from({ length: 200 }, (_, index) => new Date(t0 + (index / 200) * (t1 - t0)).toISOString())
+        ? Array.from({ length: 200 }, (_, index) => new Date(Math.min(t1, t0 + (index / 200) * span)).toISOString())
         : buckets.map((bucket) => viewRevisions[bucket.end].date);
       $('timeline-dates').replaceChildren(...timelineDateTicks(tickDates).map((tick) => {
         const label = text('span', tick.label, tick.primary ? 'primary' : '');
@@ -120,7 +124,7 @@ export const historyScript = `    function renderLegend() {
       }));
       const charted = viewRevisions.length - chartStart;
       const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt);
-      const spacingNote = byTime ? 'Each bar is as wide as the time until the next one.' : '';
+      const spacingNote = byTime ? 'Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.' : '';
       $('chart-steps').hidden = !note && !spacingNote;
       $('chart-steps').textContent = [note, spacingNote].filter(Boolean).join(' ');
       $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);

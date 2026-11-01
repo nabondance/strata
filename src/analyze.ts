@@ -396,7 +396,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 21,
+    schemaVersion: 22,
     repository: basename(root),
     branch,
     shallow,

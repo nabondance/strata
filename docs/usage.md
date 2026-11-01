@@ -34,7 +34,7 @@ The summary's `At session start:` line gives each agent's up-front and on-demand
 ```sh
 strata analyze /path/to/repository --open
 strata analyze /path/to/repository --format json --output report.json
-strata analyze --format json --output - | jq '.revisions[] | [.date, .estimatedTokens]'
+strata analyze --format json --output - | jq -c 'foreach .revisions[] as $r (0; $r.estimatedTokens // .; [$r.date, .])'
 ```
 
 ### Leaving paths out
@@ -325,11 +325,11 @@ The skill-bundle and tracked-components tables are collapsed under their heading
 ## The JSON report
 
 - **Components.** JSON reports store each distinct file version once, in a top-level `components` list.
-- **Revisions.** Every revision carries its `estimatedTokens`, `componentCount`, and `changes`. Each change points at the component now at that path.
-- **Carried-forward fields.** A revision leaves out `categoryTotals` when they equal the previous revision's, and `firstParent` when it is the previous revision's `id`. The first revision always has both. To read a revision's category totals, take the nearest one at or before it, for example `jq '[.revisions[].categoryTotals | select(.)] | last'` for the latest.
+- **Revisions.** Each revision has its commit `id` and `date`, its totals (`estimatedTokens`, `componentCount`, `categoryTotals`), and its `changes`. Each change points at the component now at that path.
+- **Carried-forward fields.** A revision leaves out every total that equals the previous revision's, `firstParent` when it is the previous revision's `id`, and `changes` when there are none, so a revision that changed nothing holds only `id` and `date` (and `geminiContextFiles`, while Gemini settings name context files). The first and the last revision keep every field, so `jq '.revisions[-1].estimatedTokens'` reads the latest total. To read another revision's total, take the nearest one at or before it, as the `foreach` example above does.
 - **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. Together with the carried-forward fields, this keeps reports small on long histories.
 
-The bundled interpretation skill explains schema version 21 and these rules, and also:
+The bundled interpretation skill explains schema version 22 and these rules, and also:
 
 - up-front context, Claude imports, MCP servers, and instruction age;
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;

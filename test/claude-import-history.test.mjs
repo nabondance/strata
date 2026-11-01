@@ -106,7 +106,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
 
     const report = await analyzeRepository(repo);
     assertLineAgesMatchTrees(repo, report);
-    assert.equal(report.schemaVersion, 21);
+    assert.equal(report.schemaVersion, 22);
     const revisions = expandRevisions(report);
     assert.equal(revisions.length, 8);
 
