@@ -130,6 +130,57 @@ export function timelineBuckets(values: readonly (readonly number[])[], maxBars 
 }
 
 /**
+ * Each bar's left and right edge as a share of the chart's width: equal widths, or widths in proportion to `widths`
+ * (the time each bar lasts, say). The last edge is always 1.
+ * The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelineEdges(count: number, widths?: readonly number[]): [number, number][] {
+  const total = widths ? widths.reduce((sum, width) => sum + width, 0) : count;
+  let edge = 0;
+  return Array.from({ length: count }, (_, index) => {
+    const from = edge;
+    edge += total > 0 ? (widths ? (widths[index] as number) : 1) / total : 1 / count;
+    return [from, index === count - 1 ? 1 : edge];
+  });
+}
+
+/**
+ * Where a revision sits across the chart, from 0 to 1: inside its bar, at its share of the bar's revisions, so a
+ * slider that runs along the chart stays over the bar it selects. A revision before the first bar is at 0.
+ * The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelinePosition(
+  buckets: readonly { start: number; end: number }[],
+  edges: readonly [number, number][],
+  index: number,
+): number {
+  const at = buckets.findIndex((bucket) => bucket.start <= index && index <= bucket.end);
+  if (at < 0) return 0;
+  const bucket = buckets[at] as { start: number; end: number };
+  const [from, to] = edges[at] as [number, number];
+  return from + ((to - from) * (index - bucket.start + 0.5)) / (bucket.end - bucket.start + 1);
+}
+
+/**
+ * The revision at a position across the chart, from 0 to 1: the bar under it, then the revision at that share of
+ * the bar's revisions. Undefined when there are no bars.
+ * The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelineRevision(
+  buckets: readonly { start: number; end: number }[],
+  edges: readonly [number, number][],
+  position: number,
+): number | undefined {
+  if (!buckets.length) return undefined;
+  let at = edges.findIndex(([, to]) => position < to);
+  if (at < 0) at = buckets.length - 1;
+  const bucket = buckets[at] as { start: number; end: number };
+  const [from, to] = edges[at] as [number, number];
+  const share = to > from ? Math.max(0, (position - from) / (to - from)) : 0;
+  return Math.min(bucket.end, bucket.start + Math.floor(share * (bucket.end - bucket.start + 1)));
+}
+
+/**
  * The line under a grouped timeline, shared by the HTML report and the SVG image; empty when every charted revision
  * has its own bar. `higher` says whether some bar hides a higher total, which a dashed line marks.
  * The HTML report embeds this function's source, so it must stay self-contained.

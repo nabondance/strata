@@ -4,7 +4,31 @@ import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
 import { instructionAgePeriods, instructionAges, sharePercent } from "../dist/instruction-age.js";
 import { viewRevision } from "../dist/provider-view.js";
-import { timelineBuckets, timelineScale, timelineStepsNote } from "../dist/timeline.js";
+import {
+  timelineBuckets,
+  timelineEdges,
+  timelinePosition,
+  timelineScale,
+  timelineStepsNote,
+} from "../dist/timeline.js";
+
+/**
+ * The slider value that selects a revision in the All files view with bars spaced by change: the slider runs along
+ * the chart's width, not through the revisions.
+ */
+export function sliderValue(report, index) {
+  const revisions = expandRevisions(report);
+  const start = Math.max(
+    0,
+    revisions.findIndex((revision) => revision.components.length),
+  );
+  const buckets = timelineBuckets(
+    revisions.map((revision) => Object.values(revision.categoryTotals).map((total) => total.estimatedTokens)),
+    100,
+    start,
+  );
+  return String(Math.round(timelinePosition(buckets, timelineEdges(buckets.length), index) * 10000));
+}
 
 /** Run the report's script against a minimal fake DOM and return its elements by ID. */
 export function loadReportUi(html) {
@@ -218,7 +242,8 @@ export function exerciseReportUi(html, report) {
     get("compare-categories").children.length,
     expected.byCategory.filter((group) => group.deltaFiles || group.deltaTokens).length || 1,
   );
-  assert.equal(get("slider").value, 3);
+  assert.equal(String(get("slider").value), sliderValue(report, 3));
+  assert.match(get("slider").getAttribute("aria-valuetext"), /^Revision 4 of [\d,]+, \d{4}-\d{2}-\d{2}$/);
   // Instruction age: one bar per change in the amount of text, a legend entry per period present, and the text kept from the baseline.
   const ages = instructionAges(report);
   const ageStart = ages.bytes.findIndex((amount) => amount > 0);
@@ -299,7 +324,14 @@ export function exerciseReportUi(html, report) {
     revisions.findIndex((revision) => revision.components.length),
   );
   assert.equal(get("chart").children.length, chartBuckets.length);
-  assert.equal(get("slider").min, chartStart);
+  assert.equal(get("slider").max, 10000);
+  // The slider's left end selects the first charted revision.
+  get("slider").value = "0";
+  get("slider").listeners.change();
+  assert.equal(get("target").value, String(chartStart));
+  get("slider").value = sliderValue(report, 3);
+  get("slider").listeners.change();
+  assert.equal(get("target").value, "3");
   get("provider-filter").value = "claude";
   get("provider-filter").listeners.change();
   const claudeFiles = revisions[3].components.filter((component) => component.provider === "claude").length;
@@ -397,7 +429,7 @@ export function exerciseReportUi(html, report) {
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(revisions[4].estimatedTokens));
   // Dragging the slider updates the summary at once and the file table once it settles.
   assert.notEqual(revisions[2].components, revisions[4].components);
-  get("slider").value = "2";
+  get("slider").value = sliderValue(report, 2);
   get("slider").listeners.input();
   assert.equal(get("tokens").textContent, new Intl.NumberFormat().format(revisions[2].estimatedTokens));
   assert.equal(get("files").children.length, revisions[4].components.length);
@@ -410,7 +442,7 @@ export function exerciseReportUi(html, report) {
     compareRevisions(revisions[2], revisions[2]).components.length || 1,
   );
   assert.notEqual(get("compare-components").children.length, comparedRows);
-  get("slider").value = "3";
+  get("slider").value = sliderValue(report, 3);
   get("slider").listeners.input();
   get("slider").listeners.change();
   assert.equal(get("files").children.length, revisions[3].components.length);

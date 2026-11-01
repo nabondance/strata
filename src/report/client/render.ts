@@ -4,7 +4,8 @@ export const renderScript = `    function render(index, dragging) {
       const revision = viewRevisions[index];
       const previous = viewRevisions[index - 1];
       const delta = revision.estimatedTokens - (previous?.estimatedTokens ?? 0);
-      slider.value = index;
+      slider.value = sliderPosition(index);
+      slider.setAttribute('aria-valuetext', 'Revision ' + fmt(index + 1) + ' of ' + fmt(viewRevisions.length) + ', ' + revision.date.slice(0, 10));
       renderLegend();
       selectTarget(index);
       for (const bucket of chartBuckets) {
