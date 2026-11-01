@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square" alt="license">
   <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
+  <a href="https://nabondance.github.io/strata/"><img src="https://img.shields.io/badge/demo-live%20reports-b5573a?style=flat-square" alt="Live demo reports"></a>
   <a href="https://github.com/marketplace/actions/strata-agent-context-check"><img src="https://img.shields.io/badge/marketplace-GitHub%20Action-blue?style=flat-square&logo=github" alt="GitHub Action on the Marketplace"></a>
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
   <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
@@ -45,7 +46,7 @@ Report: /tmp/strata-report-k3Xb9Q/report.html
 
 ![The Strata report: stored instruction tokens per revision, stacked by category](docs/images/report-timeline.png)
 
-The images on this page are Strata's report on its own repository.
+The images on this page are Strata's report on its own repository. To click through real reports first, open the [demo gallery](https://nabondance.github.io/strata/): Strata on VS Code, Sentry, n8n, pydantic-ai, Codex, Gemini CLI, and more.
 
 ## How it works
 
@@ -196,6 +197,7 @@ This repository uses Strata on itself:
 
 - It runs the same workflow on its own pull requests ([strata-pr-delta.yml](.github/workflows/strata-pr-delta.yml)).
 - On every push to `main`, it renders the image above and the `agent context` badge at the top of this page ([strata-image.yml](.github/workflows/strata-image.yml)).
+- At each release and every week, it rebuilds the [demo gallery](https://nabondance.github.io/strata/) on GitHub Pages: reports on several open-source repositories, made with the released package ([demo-site.yml](.github/workflows/demo-site.yml)).
 
 [Running Strata in CI](docs/ci.md) explains how to publish the full report or keep a README image up to date.
 

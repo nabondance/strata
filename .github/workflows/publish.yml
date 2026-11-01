@@ -65,6 +65,7 @@ jobs:
   # Runs the released Action by name once npm serves the tarball it installs,
   # which can take minutes after publishing. Like this workflow, it has to be
   # started explicitly, and only for the latest release, once v0 points at it.
+  # Also rebuilds the demo site with the new release.
   test-published-action:
     needs: publish
     runs-on: ubuntu-latest
@@ -89,6 +90,8 @@ jobs:
             if [ "$attempt" = 40 ]; then echo "::warning::npm still does not serve context-strata@${TAG#v}; starting the test anyway."; fi
             sleep 15
           done
+          # The demo site installs the release named in main's package.json from npm.
+          gh workflow run demo-site.yml --ref main
           # The release workflow moves v0 and only warns when it cannot.
           release="$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)"
           major="$(gh api "repos/$GH_REPO/commits/${TAG%%.*}" --jq .sha)"
