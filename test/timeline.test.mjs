@@ -167,6 +167,10 @@ test("bars spaced by time read dates on a clock that never goes back", () => {
   );
   assert.equal(skewed.elapsed, 4 * day);
   assert.equal(skewed.outOfOrder, true);
+  // On the first change, a wrong clock starts the chart at the earliest date, so later changes keep their bars.
+  const first = timelineTimeBars(future, [2000, 1, 2, 3, 4].map(at), Date.parse(at(4)));
+  assert.equal(first.buckets.length, 4);
+  assert.ok(first.widths.every((width) => width > 0));
   // A rebased change between two on the same day does not split that day.
   const day3 = timelineTimeBars(changes, [0, 10.1, 9, 10.2].map(at), Date.parse(at(11)));
   assert.equal(day3.buckets.length, 2);

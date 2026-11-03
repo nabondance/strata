@@ -168,10 +168,13 @@ export function timelineTimeBars(
   const limit = end + 30 * 86_400_000;
   const times: number[] = [];
   const clock: number[] = [];
+  // A wrong clock on the first change would leave nothing to start the chart from, so it starts at the earliest date.
+  let earliest = end;
+  for (const date of dates) earliest = Math.min(earliest, Date.parse(date));
   let latest = Number.NEGATIVE_INFINITY;
   for (const date of dates) {
     const time = Date.parse(date);
-    times.push(time > limit ? (clock.length ? latest : end) : time);
+    times.push(time > limit ? (clock.length ? latest : earliest) : time);
     latest = Math.max(latest, times.at(-1) as number);
     clock.push(latest);
   }
