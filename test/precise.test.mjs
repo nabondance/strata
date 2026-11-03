@@ -587,6 +587,59 @@ test("a rate limit that does not lift falls back after three minutes, and says a
   }
 });
 
+test("a rate limit with retry-after 0 still runs out of patience", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude only.\n" });
+  try {
+    const waits = [];
+    const notices = [];
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: async () => rateLimited("0") }),
+        sleep: async (milliseconds) => {
+          waits.push(milliseconds);
+        },
+      },
+      onNotice: (line) => notices.push(line),
+    });
+    assert.ok(
+      waits.every((wait) => wait === 1000),
+      "each pause lasts at least a second",
+    );
+    assert.equal(waits.length, 180);
+    assert.equal(report.providerMeasurements[0].accuracy, "estimate");
+    assert.ok(notices.some((line) => line.endsWith("No count was saved; run again in a few minutes.")));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("once one request fails, the others stop instead of waiting out rate limits", async () => {
+  const repo = fixture(manyRules(20));
+  try {
+    const server = countServer();
+    let files = 0;
+    const waits = [];
+    const broken = async (url, init) => {
+      if (requestText(JSON.parse(init.body)) === "a") return server.fetchImpl(url, init);
+      files += 1;
+      return files === 1 ? new Response("{}", { status: 400 }) : rateLimited("30");
+    };
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: broken }),
+        sleep: async (milliseconds) => {
+          waits.push(milliseconds);
+        },
+      },
+      onNotice: () => {},
+    });
+    assert.ok(waits.length <= 1, `${waits.length} pauses`);
+    assert.match(report.providerMeasurements[0].fallbacks[0], /HTTP 400/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("counts are cached between runs, so unchanged file versions are not sent again", async () => {
   const repo = fixture();
   const cacheDirectory = mkdtempSync(join(tmpdir(), "strata-cache-"));

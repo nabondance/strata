@@ -170,7 +170,9 @@ const retryStatuses = new Set([408, 429, 500, 502, 503, 504, 529]);
 const maxAttempts = 6;
 const maxWaitMilliseconds = 60_000;
 /** How long rate limits are waited out while no count comes back, before the method fails. */
-export const rateLimitPatienceMilliseconds = 180_000;
+const rateLimitPatienceMilliseconds = 180_000;
+/** Each rate-limit pause lasts at least this long, so `retry-after: 0` still uses up the patience. */
+const minimumPauseMilliseconds = 1000;
 const defaultSleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 /** The server's `retry-after` in milliseconds when it gives one, otherwise exponential backoff with jitter. */
@@ -195,6 +197,7 @@ export class RequestPacer {
   #pause: Promise<void> | undefined;
   #active = 0;
   #queued: (() => void)[] = [];
+  #stopped = false;
   /** Pauses and time waited since the last count came back. */
   #pauses = 0;
   #waited = 0;
@@ -223,9 +226,11 @@ export class RequestPacer {
   /** Waits for any pause to end and for a free slot, then takes the slot. */
   async acquire(): Promise<void> {
     await this.ready();
+    if (this.#stopped) throw new Error("counting stopped after another request failed");
     while (this.#active >= this.concurrency) {
       await new Promise<void>((resolve) => this.#queued.push(resolve));
       await this.ready();
+      if (this.#stopped) throw new Error("counting stopped after another request failed");
     }
     this.#active += 1;
   }
@@ -236,6 +241,12 @@ export class RequestPacer {
     for (const resolve of this.#queued.splice(0)) resolve();
   }
 
+  /** Once one request has failed the method, the others stop instead of waiting out rate limits. */
+  stop(): void {
+    this.#stopped = true;
+  }
+
+  /** A count came back. */
   succeeded(): void {
     this.#pauses = 0;
     this.#waited = 0;
@@ -246,10 +257,11 @@ export class RequestPacer {
    * Waits out a rate limit: starts a pause, or joins the one in progress. Resolves to false when
    * patience has run out and the request should fail.
    */
-  async rateLimited(response: Response | undefined, onPause?: (waitMilliseconds: number) => void): Promise<boolean> {
+  async rateLimited(response: Response, onPause?: (waitMilliseconds: number) => void): Promise<boolean> {
+    if (this.#stopped) return false;
     if (!this.#pause) {
       if (this.#waited >= rateLimitPatienceMilliseconds) return false;
-      const wait = retryWait(response, this.#pauses);
+      const wait = Math.max(minimumPauseMilliseconds, retryWait(response, this.#pauses));
       this.#pauses += 1;
       this.#waited += wait;
       this.#window = Math.max(1, this.#window / 2);
@@ -370,14 +382,11 @@ export async function countRemoteText(
     } finally {
       pacer.release();
     }
-    if (failure === 429) {
+    if (failure === 429 && response) {
+      // Reading the reason drains the body, so the connection can be reused during the pause.
+      const reason = await errorReason(response, method.kind);
       const waited = pacer.waitedSeconds;
-      if (response && (await pacer.rateLimited(response, (wait) => options.onRetry?.(429, wait)))) {
-        // Drain the body so the connection can be reused.
-        await response.arrayBuffer().catch(() => undefined);
-        continue;
-      }
-      const reason = response ? await errorReason(response, method.kind) : null;
+      if (await pacer.rateLimited(response, (wait) => options.onRetry?.(429, wait))) continue;
       throw Object.assign(
         new Error(
           `${provider} token count requests were rate limited (HTTP 429${reason ? `, ${reason}` : ""}) for ${waited} s with no count returned`,
@@ -401,7 +410,6 @@ export async function countRemoteText(
     options.onRetry?.(failure, wait);
     await sleep(wait);
   }
-  pacer.succeeded();
   let result: unknown;
   try {
     result = await response.json();
@@ -416,5 +424,6 @@ export async function countRemoteText(
   if (typeof tokens !== "number" || !Number.isSafeInteger(tokens) || tokens < 0) {
     throw new Error(`${provider} token count response did not contain a valid token count`);
   }
+  pacer.succeeded();
   return tokens;
 }

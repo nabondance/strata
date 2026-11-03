@@ -161,14 +161,16 @@ async function countWithMethod(
   const toRead = [...wanted.keys()];
   if (remote) {
     const name = providerName[provider];
-    let retried = false;
+    // One notice per kind of trouble: rate limits, and everything else.
+    const noticed = new Set<string>();
     const remoteOptions = {
       ...(plan.fetchImpl ? { fetchImpl: plan.fetchImpl } : {}),
       ...(plan.sleep ? { sleep: plan.sleep } : {}),
       pacer: new RequestPacer(providerRequestConcurrency, plan.sleep),
       onRetry: (status: number | "connection", wait: number) => {
-        if (retried) return;
-        retried = true;
+        const kind = status === 429 ? "rate limit" : "other";
+        if (noticed.has(kind)) return;
+        noticed.add(kind);
         const first = `first wait ${Math.ceil(wait / 1000)} s`;
         onNotice?.(
           status === 429
@@ -295,7 +297,8 @@ async function countWithMethod(
     } catch (error) {
       failed ??= failure(current, error);
     } finally {
-      // Requests already in flight finish before the next method starts.
+      // Requests already in flight finish before the next method starts, without waiting out rate limits.
+      if (failed) remoteOptions?.pacer?.stop();
       await Promise.allSettled(running);
       if (failed?.rateLimited) failed.rateLimited = progress();
     }
@@ -306,9 +309,9 @@ async function countWithMethod(
 /** What to do after a rate limit stopped a method: wait, and run again from the cache. */
 function rateLimitHint(provider: CountedProvider, { cached, counted, left }: NonNullable<CountFailure["rateLimited"]>) {
   const name = providerName[provider];
-  if (!cached)
-    return `  ${name} counting stopped at the endpoint's rate limit, not because of a file. Run again in a few minutes.`;
-  return `  ${name} counting stopped at the endpoint's rate limit, not because of a file. ${plural(counted, "count")} came back first and ${counted === 1 ? "is" : "are"} saved in the local cache; run again in a few minutes and only the ${plural(left, "file version")} still uncounted will be sent.`;
+  const stopped = `  ${name} counting stopped at the endpoint's rate limit, not because of a file.`;
+  if (!cached || !counted) return `${stopped} No count was saved; run again in a few minutes.`;
+  return `${stopped} ${plural(counted, "count")} came back first and ${counted === 1 ? "is" : "are"} saved in the local cache; run again in a few minutes and only the ${plural(left, "file version")} still uncounted will be sent.`;
 }
 
 /** What a dry run reports for one provider: the method it would use and what would leave the machine. */
