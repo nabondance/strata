@@ -129,6 +129,53 @@ export function timelineBuckets(values: readonly (readonly number[])[], maxBars 
   return groups.filter((_, index) => alive[index]).map(strip);
 }
 
+export interface TimelineTimeBars {
+  buckets: TimelineBucket[];
+  /** Each bar's width in time, in the units of `starts` and `end`. */
+  widths: number[];
+}
+
+/**
+ * Bars spaced by time, from one bucket per change: changes on the same day share a bar, and every other change keeps
+ * its own, with no cap on the number of bars. `starts` gives each bucket's first revision's time and `days` its day
+ * (`YYYY-MM-DD`). A merged bar shows its last revision, the one that stood once the day was over, and keeps the
+ * highest total inside it. Each bar is as wide as the time from its first revision to the next bar's, and the last
+ * one to `end`, the latest revision's time. Dates need not increase (clock skew, a rebase), so a bar never gets a
+ * negative width. The last bar has no next one to end at, and the latest change is often days or minutes before the
+ * latest revision, which would leave the selected bar a hairline, so it is at least as wide as an average bar.
+ * The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelineTimeBars(
+  buckets: readonly TimelineBucket[],
+  starts: readonly number[],
+  days: readonly string[],
+  end: number,
+): TimelineTimeBars {
+  const merged: TimelineBucket[] = [];
+  const first: number[] = [];
+  for (let index = 0; index < buckets.length; index += 1) {
+    const bucket = buckets[index] as TimelineBucket;
+    const group = merged.at(-1);
+    if (group && days[index] === days[first.at(-1) as number]) {
+      group.end = bucket.end;
+      group.peak = Math.max(group.peak, bucket.peak);
+      group.changes += bucket.changes;
+      continue;
+    }
+    merged.push({ ...bucket });
+    first.push(index);
+  }
+  const widths = first.map((index, at) =>
+    Math.max(
+      0,
+      (at + 1 < first.length ? (starts[first[at + 1] as number] as number) : end) - (starts[index] as number),
+    ),
+  );
+  const last = widths.length - 1;
+  if (last >= 0) widths[last] = Math.max(widths[last] as number, (end - (starts[0] as number)) / widths.length);
+  return { buckets: merged, widths };
+}
+
 /**
  * Each bar's left and right edge as a share of the chart's width: equal widths, or widths in proportion to `widths`
  * (the time each bar lasts, say). The last edge is always 1.
@@ -182,7 +229,8 @@ export function timelineRevision(
 
 /**
  * The line under a grouped timeline, shared by the HTML report and the SVG image; empty when every charted revision
- * has its own bar. `higher` says whether some bar hides a higher total, which a dashed line marks.
+ * has its own bar. `higher` says whether some bar hides a higher total, which a dashed line marks. `byDay` says the
+ * bars merge changes made on the same day rather than the most alike neighbors.
  * The HTML report embeds this function's source, so it must stay self-contained.
  */
 export function timelineStepsNote(
@@ -190,13 +238,14 @@ export function timelineStepsNote(
   buckets: readonly TimelineBucket[],
   higher: boolean,
   format: (value: number) => string = (value) => new Intl.NumberFormat("en-US").format(value),
+  byDay = false,
 ): string {
   if (buckets.length >= revisions) return "";
   const changes = buckets.reduce((total, bucket) => total + bucket.changes, 0);
   if (changes <= buckets.length) {
     return `${format(revisions)} revisions shown as ${format(buckets.length)} steps, one per change; each step shows the last revision in its group.`;
   }
-  return `${format(revisions)} revisions and ${format(changes)} changes shown as ${format(buckets.length)} steps, merging the most alike neighbors; each step shows the last revision in its group.${higher ? " A dashed line marks a higher total inside a step." : ""}`;
+  return `${format(revisions)} revisions and ${format(changes)} changes shown as ${format(buckets.length)} steps, merging ${byDay ? "changes made on the same day" : "the most alike neighbors"}; each step shows the last revision in its group.${higher ? " A dashed line marks a higher total inside a step." : ""}`;
 }
 
 export interface TimelineScale {

@@ -6,6 +6,7 @@ import {
   timelinePosition,
   timelineRevision,
   timelineStepsNote,
+  timelineTimeBars,
 } from "../dist/timeline.js";
 
 /** One value per revision, as a one-layer chart draws it. */
@@ -93,6 +94,41 @@ test("the grouped timeline note says how bars group revisions", () => {
     timelineStepsNote(1500, merged, false, (value) => `#${value}`),
     "#1500 revisions and #1500 changes shown as #100 steps, merging the most alike neighbors; each step shows the last revision in its group.",
   );
+  assert.equal(
+    timelineStepsNote(1500, merged, false, undefined, true),
+    "1,500 revisions and 1,500 changes shown as 100 steps, merging changes made on the same day; each step shows the last revision in its group.",
+  );
+});
+
+test("bars spaced by time merge only changes made on the same day", () => {
+  const hour = 60 * 60 * 1000;
+  const day = 24 * hour;
+  const changes = timelineBuckets(single([10, 50, 20, 30, 40, 45]));
+  assert.equal(changes.length, 6);
+  // Two changes on day 0, one on day 1, two on day 5, and one on day 6, a minute before the latest revision.
+  const starts = [0, 2 * hour, day, 5 * day, 5 * day + hour, 6 * day];
+  const days = ["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-06", "2024-01-06", "2024-01-07"];
+  const { buckets, widths } = timelineTimeBars(changes, starts, days, 6 * day + 60 * 1000);
+  assert.deepEqual(buckets, [
+    { start: 0, end: 1, peak: 50, changes: 2 },
+    { start: 2, end: 2, peak: 20, changes: 1 },
+    { start: 3, end: 4, peak: 40, changes: 2 },
+    { start: 5, end: 5, peak: 45, changes: 1 },
+  ]);
+  // Each bar lasts until the next one starts; the last is at least as wide as an average bar.
+  assert.deepEqual(widths.slice(0, 3), [day, 4 * day, day]);
+  assert.equal(widths[3], (6 * day + 60 * 1000) / 4);
+  // Changes on different days keep their own bars, however many there are, and a date out of order adds no width.
+  const many = timelineBuckets(single(Array.from({ length: 500 }, (_, index) => index)), 500);
+  const spread = timelineTimeBars(
+    many,
+    many.map((_, index) => (index === 10 ? 0 : index * day)),
+    many.map((_, index) => `day ${index}`),
+    500 * day,
+  );
+  assert.equal(spread.buckets.length, 500);
+  assert.equal(spread.widths[9], 0);
+  assert.deepEqual(timelineTimeBars([], [], [], 0), { buckets: [], widths: [] });
 });
 
 test("the slider position follows the bars, in equal or time-proportional widths", () => {

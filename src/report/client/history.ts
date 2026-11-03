@@ -50,24 +50,23 @@ export const historyScript = `    function renderLegend() {
       chartBuckets = [];
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
-      // A bar starts wherever the drawn layers change; the most alike neighbors merge when there are more than 100.
+      // A bar starts wherever the drawn layers change. Spaced by change, the most alike neighbors merge when there are
+      // more than 100; spaced by time, only changes made on the same day merge, since each bar takes its own width.
       const values = viewRevisions.map((revision) => categories.map((category) => revision.categoryTotals[category].estimatedTokens));
-      const buckets = timelineBuckets(values, 100, chartStart);
       renderChartSpacing();
-      // By time, a bar lasts from its first revision to the next bar's, and the last one to the latest revision.
-      // Dates need not increase (clock skew, a rebase), so a bar never gets a negative width.
       const time = (index) => Date.parse(viewRevisions[index].date);
-      const t0 = time(buckets[0]?.start ?? chartStart);
+      const t0 = time(chartStart);
       const t1 = time(viewRevisions.length - 1);
       const byTime = chartSpacing === 'time' && t1 > t0;
-      const widths = buckets.map((bucket, index) => Math.max(0, (index + 1 < buckets.length ? time(buckets[index + 1].start) : t1) - time(bucket.start)));
-      // The last bar has no next one to end at, and the latest change is often days or minutes before the latest
-      // revision, which would leave the selected bar a hairline. It is at least as wide as an average bar.
-      if (widths.length) widths[widths.length - 1] = Math.max(widths[widths.length - 1], (t1 - t0) / widths.length);
-      const span = widths.reduce((sum, width) => sum + width, 0);
+      let buckets = timelineBuckets(values, byTime ? values.length : 100, chartStart);
+      let widths;
+      if (byTime) {
+        ({ buckets, widths } = timelineTimeBars(buckets, buckets.map((bucket) => time(bucket.start)), buckets.map((bucket) => viewRevisions[bucket.start].date.slice(0, 10)), t1));
+      }
+      const span = widths ? widths.reduce((sum, width) => sum + width, 0) : 0;
       chart.classList.toggle('by-time', byTime);
       // Where each bar sits across the chart, so the slider can follow the bars in either spacing.
-      chartEdges = timelineEdges(buckets.length, byTime ? widths : undefined);
+      chartEdges = timelineEdges(buckets.length, widths);
       chart.style.gridTemplateColumns = byTime
         ? widths.map((width) => 'minmax(1px, ' + (width / span * 1000).toFixed(3) + 'fr)').join(' ')
         : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
@@ -123,7 +122,7 @@ export const historyScript = `    function renderLegend() {
         return label;
       }));
       const charted = viewRevisions.length - chartStart;
-      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt);
+      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, byTime);
       const spacingNote = byTime ? 'Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.' : '';
       $('chart-steps').hidden = !note && !spacingNote;
       $('chart-steps').textContent = [note, spacingNote].filter(Boolean).join(' ');
