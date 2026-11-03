@@ -121,7 +121,14 @@ test("bars spaced by time merge only changes made on the same day", () => {
   assert.equal(bars.elapsed, 6 * day + minute);
   // Each bar lasts until the next one starts; the last is at least as wide as an average bar.
   assert.deepEqual(bars.widths, [day, 4 * day, day, (6 * day + minute) / 4]);
-  assert.deepEqual(timelineTimeBars([], [], 0), { buckets: [], widths: [], period: "day", elapsed: 0 });
+  assert.equal(bars.outOfOrder, false);
+  assert.deepEqual(timelineTimeBars([], [], 0), {
+    buckets: [],
+    widths: [],
+    period: "day",
+    outOfOrder: false,
+    elapsed: 0,
+  });
 });
 
 test("bars spaced by time read dates on a clock that never goes back", () => {
@@ -140,6 +147,26 @@ test("bars spaced by time read dates on a clock that never goes back", () => {
   assert.ok(bars.widths.every((width) => width > 0));
   // The widths add up to the time covered, so a date placed across the chart lines up with the bars.
   assert.equal(bars.elapsed, 12 * day);
+  assert.equal(bars.outOfOrder, true);
+  assert.equal(
+    timelineStepsNote(4, bars.buckets, false, undefined, bars.period, bars.outOfOrder),
+    "4 revisions and 4 changes shown as 3 steps, merging changes made on the same day or dated out of order; each step shows the last revision in its group.",
+  );
+  // A date years ahead of the latest revision is a wrong clock: it joins the bar before it rather than pulling
+  // every later change into its own bar.
+  const future = timelineBuckets(single([1, 2, 3, 4, 5]));
+  const skewed = timelineTimeBars(future, [0, 1, 2000, 2, 3].map(at), Date.parse(at(4)));
+  assert.deepEqual(
+    skewed.buckets.map((bucket) => [bucket.start, bucket.end]),
+    [
+      [0, 0],
+      [1, 2],
+      [3, 3],
+      [4, 4],
+    ],
+  );
+  assert.equal(skewed.elapsed, 4 * day);
+  assert.equal(skewed.outOfOrder, true);
   // A rebased change between two on the same day does not split that day.
   const day3 = timelineTimeBars(changes, [0, 10.1, 9, 10.2].map(at), Date.parse(at(11)));
   assert.equal(day3.buckets.length, 2);

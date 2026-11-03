@@ -259,7 +259,10 @@ test("spaced by time, changes made on the same day share a bar and the rest keep
   // before it rather than leaving that bar with no width.
   const columns = chart.style.gridTemplateColumns.split(") ");
   assert.ok(columns.every((column) => column.startsWith("minmax(0, ") && Number.parseFloat(column.slice(10)) > 0));
-  assert.match(get("chart-steps").textContent, /shown as \d+ steps, merging changes made on the same day;/);
+  assert.match(
+    get("chart-steps").textContent,
+    /shown as \d+ steps, merging changes made on the same day or dated out of order;/,
+  );
   // A day's bar shows its last revision, counts its changes, and marks a higher total inside it.
   const merged = bars.buckets.findIndex((bucket) => bucket.peak > revisions[bucket.end].estimatedTokens);
   assert.ok(merged >= 0);

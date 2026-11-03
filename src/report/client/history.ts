@@ -123,7 +123,7 @@ export const historyScript = `    function renderLegend() {
         return label;
       }));
       const charted = viewRevisions.length - chartStart;
-      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, bars?.period);
+      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, bars?.period, bars?.outOfOrder);
       const spacingNote = byTime ? 'Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.' : '';
       $('chart-steps').hidden = !note && !spacingNote;
       $('chart-steps').textContent = [note, spacingNote].filter(Boolean).join(' ');
