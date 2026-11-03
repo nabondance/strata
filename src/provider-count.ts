@@ -160,13 +160,17 @@ export const cacheableModel = (model: string) => !/(?:^|-)latest$/.test(model);
 export interface RemoteCountOptions {
   fetchImpl?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
-  /** Called before each wait for a retry. */
+  /** Called before each wait for a retry; for rate limits, once per shared pause. */
   onRetry?: (status: number | "connection", waitMilliseconds: number) => void;
+  /** Shared by the requests of one method, so a rate limit slows them all down, retries included. */
+  pacer?: RequestPacer;
 }
 
 const retryStatuses = new Set([408, 429, 500, 502, 503, 504, 529]);
 const maxAttempts = 6;
 const maxWaitMilliseconds = 60_000;
+/** How long rate limits are waited out while no count comes back, before the method fails. */
+export const rateLimitPatienceMilliseconds = 180_000;
 const defaultSleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 /** The server's `retry-after` in milliseconds when it gives one, otherwise exponential backoff with jitter. */
@@ -178,6 +182,87 @@ function retryWait(response: Response | undefined, attempt: number): number {
   return Math.min(wait, maxWaitMilliseconds);
 }
 
+/**
+ * Paces the requests of one counting method. A rate limit (HTTP 429) pauses every request for one
+ * wait and halves how many may run at once; each count that comes back lets a little more run again,
+ * up to the maximum. Rate limits fail the method only after `rateLimitPatienceMilliseconds` of
+ * waiting with no count returned, so a slow but steady endpoint is waited out rather than abandoned.
+ */
+export class RequestPacer {
+  readonly #maximum: number;
+  readonly #sleep: (milliseconds: number) => Promise<void>;
+  #window: number;
+  #pause: Promise<void> | undefined;
+  #active = 0;
+  #queued: (() => void)[] = [];
+  /** Pauses and time waited since the last count came back. */
+  #pauses = 0;
+  #waited = 0;
+
+  constructor(maximum: number, sleep: (milliseconds: number) => Promise<void> = defaultSleep) {
+    this.#maximum = maximum;
+    this.#window = maximum;
+    this.#sleep = sleep;
+  }
+
+  /** How many requests may be in flight now. */
+  get concurrency(): number {
+    return Math.max(1, Math.floor(this.#window));
+  }
+
+  /** Seconds waited on rate limits since the last count came back. */
+  get waitedSeconds(): number {
+    return Math.round(this.#waited / 1000);
+  }
+
+  /** Resolves when no pause is in progress. */
+  async ready(): Promise<void> {
+    while (this.#pause) await this.#pause;
+  }
+
+  /** Waits for any pause to end and for a free slot, then takes the slot. */
+  async acquire(): Promise<void> {
+    await this.ready();
+    while (this.#active >= this.concurrency) {
+      await new Promise<void>((resolve) => this.#queued.push(resolve));
+      await this.ready();
+    }
+    this.#active += 1;
+  }
+
+  /** Frees a slot. Every queued request checks again, since the window may have grown. */
+  release(): void {
+    this.#active -= 1;
+    for (const resolve of this.#queued.splice(0)) resolve();
+  }
+
+  succeeded(): void {
+    this.#pauses = 0;
+    this.#waited = 0;
+    this.#window = Math.min(this.#maximum, this.#window + 1 / this.#window);
+  }
+
+  /**
+   * Waits out a rate limit: starts a pause, or joins the one in progress. Resolves to false when
+   * patience has run out and the request should fail.
+   */
+  async rateLimited(response: Response | undefined, onPause?: (waitMilliseconds: number) => void): Promise<boolean> {
+    if (!this.#pause) {
+      if (this.#waited >= rateLimitPatienceMilliseconds) return false;
+      const wait = retryWait(response, this.#pauses);
+      this.#pauses += 1;
+      this.#waited += wait;
+      this.#window = Math.max(1, this.#window / 2);
+      onPause?.(wait);
+      this.#pause = this.#sleep(wait).finally(() => {
+        this.#pause = undefined;
+      });
+    }
+    await this.ready();
+    return true;
+  }
+}
+
 /** What to do about the error reasons people can fix themselves, per kind of endpoint. */
 const reasonHints: Record<string, string> = {
   BILLING_DISABLED: "enable billing on the Google Cloud project",
@@ -185,6 +270,8 @@ const reasonHints: Record<string, string> = {
   not_found_error: "the model was not found; check the model name",
   authentication_error: "the credential was rejected",
   permission_error: "the credential is not allowed to use this model",
+  rate_limit_error: "the account's rate limit for this endpoint",
+  RESOURCE_EXHAUSTED: "the project's quota or rate limit for this endpoint",
 };
 const vertexHints: Record<string, string> = {
   BILLING_DISABLED: "enable billing on the Google Cloud project; Vertex AI requires it even for token counts",
@@ -234,6 +321,7 @@ export async function countRemoteText(
   options: RemoteCountOptions = {},
 ): Promise<number> {
   const { fetchImpl = fetch, sleep = defaultSleep } = options;
+  const pacer = options.pacer ?? new RequestPacer(1, sleep);
   const headers: Record<string, string> = { "content-type": "application/json" };
   let url: string;
   let body: unknown;
@@ -263,7 +351,9 @@ export async function countRemoteText(
     body = { contents: [{ role: "user", parts: [{ text }] }] };
   }
   let response: Response | undefined;
-  for (let attempt = 0; ; attempt += 1) {
+  // Rate limits are paced by `pacer` and do not use up attempts.
+  for (let attempt = 0; ; ) {
+    await pacer.acquire();
     let failure: number | "connection";
     try {
       response = await fetchImpl(url, {
@@ -277,10 +367,28 @@ export async function countRemoteText(
     } catch {
       response = undefined;
       failure = "connection";
+    } finally {
+      pacer.release();
     }
+    if (failure === 429) {
+      const waited = pacer.waitedSeconds;
+      if (response && (await pacer.rateLimited(response, (wait) => options.onRetry?.(429, wait)))) {
+        // Drain the body so the connection can be reused.
+        await response.arrayBuffer().catch(() => undefined);
+        continue;
+      }
+      const reason = response ? await errorReason(response, method.kind) : null;
+      throw Object.assign(
+        new Error(
+          `${provider} token count requests were rate limited (HTTP 429${reason ? `, ${reason}` : ""}) for ${waited} s with no count returned`,
+        ),
+        { rateLimited: true },
+      );
+    }
+    attempt += 1;
     const retryable = failure === "connection" || retryStatuses.has(failure);
-    if (!retryable || attempt + 1 >= maxAttempts) {
-      const attempts = attempt + 1 > 1 ? ` after ${attempt + 1} attempts` : "";
+    if (!retryable || attempt >= maxAttempts) {
+      const attempts = attempt > 1 ? ` after ${attempt} attempts` : "";
       if (failure === "connection") throw new Error(`${provider} token count request failed to connect${attempts}`);
       const reason = response ? await errorReason(response, method.kind) : null;
       throw new Error(
@@ -289,10 +397,11 @@ export async function countRemoteText(
     }
     // Drain the body so the connection can be reused while waiting.
     await response?.arrayBuffer().catch(() => undefined);
-    const wait = retryWait(response, attempt);
+    const wait = retryWait(response, attempt - 1);
     options.onRetry?.(failure, wait);
     await sleep(wait);
   }
+  pacer.succeeded();
   let result: unknown;
   try {
     result = await response.json();

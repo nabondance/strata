@@ -17,6 +17,7 @@ import {
   type ProviderTextCount,
   type RemoteMethod,
   type RemoteProvider,
+  RequestPacer,
 } from "./provider-count.js";
 
 export const countedOrder = ["claude", "gemini", "codex"] as const satisfies readonly CountedProvider[];
@@ -117,8 +118,15 @@ export class TextCheck implements ContentUse {
   }
 }
 
-/** A method's failure, with whether it had already sent instruction text, so a report can still disclose it. */
-type CountFailure = Error & { reason?: string; sentText?: boolean };
+/**
+ * A method's failure, with whether it had already sent instruction text, so a report can still
+ * disclose it. A rate-limited failure also says how many counts came back and were cached first.
+ */
+type CountFailure = Error & {
+  reason?: string;
+  sentText?: boolean;
+  rateLimited?: { cached: boolean; counted: number; left: number };
+};
 
 /** Git object IDs in an error would survive `--shareable`, so recorded reasons leave them out. */
 const withoutObjectIds = (reason: string) => reason.replace(/\b[0-9a-f]{40}(?:[0-9a-f]{24})?\b/g, "<object>");
@@ -157,11 +165,15 @@ async function countWithMethod(
     const remoteOptions = {
       ...(plan.fetchImpl ? { fetchImpl: plan.fetchImpl } : {}),
       ...(plan.sleep ? { sleep: plan.sleep } : {}),
+      pacer: new RequestPacer(providerRequestConcurrency, plan.sleep),
       onRetry: (status: number | "connection", wait: number) => {
         if (retried) return;
         retried = true;
+        const first = `first wait ${Math.ceil(wait / 1000)} s`;
         onNotice?.(
-          `${name} count endpoint ${status === "connection" ? "could not be reached" : `returned HTTP ${status}`}; retrying with backoff (first wait ${Math.ceil(wait / 1000)} s).`,
+          status === 429
+            ? `${name} count endpoint is rate limiting requests (HTTP 429); sending fewer at once and retrying (${first}).`
+            : `${name} count endpoint ${status === "connection" ? "could not be reached" : `returned HTTP ${status}`}; retrying with backoff (${first}).`,
         );
       },
     };
@@ -187,7 +199,10 @@ async function countWithMethod(
           raw = await countRemoteText(provider as RemoteProvider, remote, wrapperProbe, remoteOptions);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
-          throw Object.assign(new Error(`Could not measure the ${name} message wrapper: ${reason}`), { reason });
+          throw Object.assign(new Error(`Could not measure the ${name} message wrapper: ${reason}`), {
+            reason,
+            ...((error as { rateLimited?: boolean } | null)?.rateLimited ? { rateLimited: progress() } : {}),
+          });
         }
         cache?.set(`${cacheKey}wrapper`, raw);
       }
@@ -235,8 +250,15 @@ async function countWithMethod(
   function failure(blob: string, error: unknown): CountFailure {
     const reason = error instanceof Error ? error.message : String(error);
     return Object.assign(new Error(`Could not count ${provider} instructions at ${wanted.get(blob)}: ${reason}`), {
+      ...((error as { rateLimited?: boolean } | null)?.rateLimited ? { rateLimited: progress() } : {}),
       reason,
     });
+  }
+
+  /** How far this method got: what it counted, and what is left for a later run. */
+  function progress(): NonNullable<CountFailure["rateLimited"]> {
+    const left = toRead.filter((blob) => !counts.has(blob)).length;
+    return { cached: Boolean(cache), counted: toRead.length - left, left };
   }
 
   async function requestAll(remote: RemoteMethod, remoteOptions: Parameters<typeof countRemoteText>[3]) {
@@ -275,9 +297,18 @@ async function countWithMethod(
     } finally {
       // Requests already in flight finish before the next method starts.
       await Promise.allSettled(running);
+      if (failed?.rateLimited) failed.rateLimited = progress();
     }
     if (failed) throw Object.assign(failed, { sentText });
   }
+}
+
+/** What to do after a rate limit stopped a method: wait, and run again from the cache. */
+function rateLimitHint(provider: CountedProvider, { cached, counted, left }: NonNullable<CountFailure["rateLimited"]>) {
+  const name = providerName[provider];
+  if (!cached)
+    return `  ${name} counting stopped at the endpoint's rate limit, not because of a file. Run again in a few minutes.`;
+  return `  ${name} counting stopped at the endpoint's rate limit, not because of a file. ${plural(counted, "count")} came back first and ${counted === 1 ? "is" : "are"} saved in the local cache; run again in a few minutes and only the ${plural(left, "file version")} still uncounted will be sent.`;
 }
 
 /** What a dry run reports for one provider: the method it would use and what would leave the machine. */
@@ -398,6 +429,8 @@ export async function countProviderBlobs(
         const reason = withoutObjectIds((last as CountFailure).reason ?? last.message);
         fallbacks.push(`${labels.credential ?? labels.method} failed: ${reason}`);
         if (method !== methods.at(-1)) onNotice?.(`${last.message}; trying the next method.`);
+        const limited = (last as CountFailure).rateLimited;
+        if (limited) onNotice?.(rateLimitHint(provider, limited));
       }
     }
     if (last) throw last;

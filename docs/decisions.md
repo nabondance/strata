@@ -88,7 +88,11 @@ Each provider's metadata in the report records:
 
 A count endpoint counts a request, not a file, so each count includes the tokens of a one-message wrapper. On 2026-10-15 the wrapper was 8 tokens for `claude-opus-5-5` and 1 for `gemini-3.8-flash` through the Gemini API. Strata measures the wrapper once per model by counting the one-letter text `a`, which is one token in any byte-level tokenizer (a tokenizer that can split any text down to single bytes). It then subtracts that count minus one from every file's count, never going below zero. This assumes the wrapper does not merge with the file's first or last characters. The value is recorded as `wrapperTokens`, so a reader can add it back.
 
-Requests that fail with a rate limit (429), overload (529), timeout (408), or server error, and requests that fail to connect, are retried with backoff, up to six attempts in all, honoring `retry-after` up to 60 seconds. Only a method that still fails falls back to the next one.
+Requests that fail with an overload (529), timeout (408), or server error, and requests that fail to connect, are retried with backoff, up to six attempts in all, honoring `retry-after` up to 60 seconds.
+
+A rate limit (429) is handled across all of a method's requests rather than one at a time, because it means the account is sending too fast, not that a request failed. Up to 8 requests run at once. A 429 pauses every request for one wait (`retry-after` up to 60 seconds, or a doubling backoff) and halves how many may run at once; each count that comes back lets a little more run again. A rate limit fails the method only after three minutes of waiting with no count returned. Strata then says how many counts came back and were cached, so a later run sends only the rest.
+
+Only a method that still fails falls back to the next one.
 
 Remote counts are cached between runs:
 
