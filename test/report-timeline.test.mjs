@@ -172,8 +172,7 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   );
   const { buckets: timeBuckets, widths: timeWidths } = timelineTimeBars(
     changes,
-    changes.map((bucket) => time(bucket.start)),
-    changes.map((bucket) => revisions[bucket.start].date.slice(0, 10)),
+    changes.map((bucket) => revisions[bucket.start].date),
     time(revisions.length - 1),
   );
   assert.equal(timeBuckets.length, 160);
@@ -226,6 +225,58 @@ test("the history chart labels its axes, says when bars group revisions, and sho
     get("chart-ticks").children.map((tick) => tick.children[0].textContent),
     before.map((tick) => tick.children[0].textContent),
   );
+});
+
+test("spaced by time, changes made on the same day share a bar and the rest keep their own", async () => {
+  const report = await longHistory();
+  // Pairs of padded revisions share a day, the higher one first, and one is dated a day before the revision it follows (a rebase).
+  const hour = 60 * 60 * 1000;
+  report.revisions = report.revisions.map((revision, index) => {
+    if (index < 3) return revision;
+    const padded = index - 3;
+    const shift = padded === 41 ? -5 * day : Math.floor((padded + 1) / 2) * 4 * day + ((padded + 1) % 2) * hour;
+    return { ...revision, date: new Date(Date.parse("2024-03-01T12:00:00Z") + shift).toISOString() };
+  });
+  const revisions = expandRevisions(report);
+  const { get } = loadReportUi(renderHtml(report));
+  const chart = get("chart");
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Time")
+    .listeners.click();
+  const changes = timelineBuckets(
+    revisions.map((revision) => Object.values(revision.categoryTotals).map((total) => total.estimatedTokens)),
+    revisions.length,
+  );
+  const bars = timelineTimeBars(
+    changes,
+    changes.map((bucket) => revisions[bucket.start].date),
+    Date.parse(revisions.at(-1).date),
+  );
+  assert.equal(bars.period, "day");
+  assert.ok(bars.buckets.length > 80 && bars.buckets.length < changes.length, `${bars.buckets.length}`);
+  assert.equal(chart.children.length, bars.buckets.length);
+  // Bars have no minimum width, so their columns match the edges the slider uses.
+  assert.ok(chart.style.gridTemplateColumns.split(") ").every((column) => column.startsWith("minmax(0, ")));
+  assert.match(get("chart-steps").textContent, /shown as \d+ steps, merging changes made on the same day;/);
+  // A day's bar shows its last revision, counts its changes, and marks a higher total inside it.
+  const merged = bars.buckets.findIndex((bucket) => bucket.peak > revisions[bucket.end].estimatedTokens);
+  assert.ok(merged >= 0);
+  const bar = chart.children[merged];
+  assert.ok(bar.children.some((child) => child.className === "peak"));
+  chart.listeners.pointermove({ target: bar, clientX: 300 });
+  assert.equal(get("chart-tip").children[2].textContent, `${bars.buckets[merged].changes} changes in these revisions`);
+  // Page Up and Page Down move a bar at a time; only the selected bar is a tab stop.
+  get("target").value = String(bars.buckets[merged].end);
+  get("target").listeners.change();
+  get("slider").listeners.keydown({ key: "PageUp", preventDefault() {} });
+  assert.equal(get("target").value, String(bars.buckets[merged + 1].end));
+  get("slider").listeners.keydown({ key: "PageDown", preventDefault() {} });
+  get("slider").listeners.keydown({ key: "PageDown", preventDefault() {} });
+  assert.equal(get("target").value, String(bars.buckets[merged - 1].end));
+  const stops = chart.children.filter((child) => child.tabIndex === 0);
+  assert.deepEqual(stops, [chart.children[merged - 1]]);
+  assert.equal(chart.children[merged - 1].classes.has("selected"), true);
+  assert.equal(chart.children.filter((child) => child.classes.has("selected")).length, 1);
 });
 
 test("the comparison selects list changed revisions by month and default to the previous change", async () => {

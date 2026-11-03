@@ -95,40 +95,75 @@ test("the grouped timeline note says how bars group revisions", () => {
     "#1500 revisions and #1500 changes shown as #100 steps, merging the most alike neighbors; each step shows the last revision in its group.",
   );
   assert.equal(
-    timelineStepsNote(1500, merged, false, undefined, true),
+    timelineStepsNote(1500, merged, false, undefined, "day"),
     "1,500 revisions and 1,500 changes shown as 100 steps, merging changes made on the same day; each step shows the last revision in its group.",
   );
 });
 
 test("bars spaced by time merge only changes made on the same day", () => {
-  const hour = 60 * 60 * 1000;
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
   const day = 24 * hour;
+  const at = (time) => new Date(Date.parse("2024-01-01T00:00:00Z") + time).toISOString();
   const changes = timelineBuckets(single([10, 50, 20, 30, 40, 45]));
   assert.equal(changes.length, 6);
   // Two changes on day 0, one on day 1, two on day 5, and one on day 6, a minute before the latest revision.
   const starts = [0, 2 * hour, day, 5 * day, 5 * day + hour, 6 * day];
-  const days = ["2024-01-01", "2024-01-01", "2024-01-02", "2024-01-06", "2024-01-06", "2024-01-07"];
-  const { buckets, widths } = timelineTimeBars(changes, starts, days, 6 * day + 60 * 1000);
-  assert.deepEqual(buckets, [
+  const end = Date.parse(at(6 * day + minute));
+  const bars = timelineTimeBars(changes, starts.map(at), end);
+  assert.deepEqual(bars.buckets, [
     { start: 0, end: 1, peak: 50, changes: 2 },
     { start: 2, end: 2, peak: 20, changes: 1 },
     { start: 3, end: 4, peak: 40, changes: 2 },
     { start: 5, end: 5, peak: 45, changes: 1 },
   ]);
+  assert.equal(bars.period, "day");
+  assert.equal(bars.elapsed, 6 * day + minute);
   // Each bar lasts until the next one starts; the last is at least as wide as an average bar.
-  assert.deepEqual(widths.slice(0, 3), [day, 4 * day, day]);
-  assert.equal(widths[3], (6 * day + 60 * 1000) / 4);
-  // Changes on different days keep their own bars, however many there are, and a date out of order adds no width.
-  const many = timelineBuckets(single(Array.from({ length: 500 }, (_, index) => index)), 500);
-  const spread = timelineTimeBars(
-    many,
-    many.map((_, index) => (index === 10 ? 0 : index * day)),
-    many.map((_, index) => `day ${index}`),
-    500 * day,
+  assert.deepEqual(bars.widths, [day, 4 * day, day, (6 * day + minute) / 4]);
+  assert.deepEqual(timelineTimeBars([], [], 0), { buckets: [], widths: [], period: "day", elapsed: 0 });
+});
+
+test("bars spaced by time read dates on a clock that never goes back", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const at = (days) => new Date(Date.parse("2024-01-01T00:00:00Z") + days * day).toISOString();
+  // A rebase dated the third change before the second: it starts when the second did and adds no width.
+  const changes = timelineBuckets(single([1, 2, 3, 4]));
+  const bars = timelineTimeBars(changes, [0, 10, 5, 12].map(at), Date.parse(at(12)));
+  assert.equal(bars.buckets.length, 4);
+  assert.deepEqual(bars.widths.slice(0, 3), [10 * day, 0, 2 * day]);
+  // The widths add up to the time covered, so a date placed across the chart lines up with the bars.
+  assert.equal(bars.elapsed, 12 * day);
+  assert.equal(
+    bars.widths.slice(0, 3).reduce((sum, width) => sum + width, 0),
+    12 * day,
   );
-  assert.equal(spread.buckets.length, 500);
-  assert.equal(spread.widths[9], 0);
-  assert.deepEqual(timelineTimeBars([], [], [], 0), { buckets: [], widths: [] });
+  // A latest revision dated before the latest change ends the chart at that change.
+  assert.equal(timelineTimeBars(changes, [0, 10, 5, 12].map(at), Date.parse(at(8))).elapsed, 12 * day);
+});
+
+test("bars spaced by time group by week, month, or year when there are too many days", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const changes = timelineBuckets(single(Array.from({ length: 1000 }, (_, index) => index)), 1000);
+  const dates = changes.map((_, index) => new Date(Date.parse("2024-01-01T00:00:00Z") + index * day).toISOString());
+  const end = Date.parse(dates.at(-1));
+  // Under the limit, every day keeps its own bar.
+  assert.equal(timelineTimeBars(changes, dates, end, 1000).buckets.length, 1000);
+  // 1,000 days are 143 weeks starting on Monday 2024-01-01; a week's bar shows its last day.
+  const weeks = timelineTimeBars(changes, dates, end);
+  assert.equal(weeks.period, "week");
+  assert.equal(weeks.buckets.length, 143);
+  assert.deepEqual(weeks.buckets[0], { start: 0, end: 6, peak: 6, changes: 7 });
+  const months = timelineTimeBars(changes, dates, end, 100);
+  assert.equal(months.period, "month");
+  assert.equal(months.buckets.length, 33);
+  const years = timelineTimeBars(changes, dates, end, 2);
+  assert.equal(years.period, "year");
+  assert.equal(years.buckets.length, 3);
+  assert.equal(
+    timelineStepsNote(1000, weeks.buckets, false, undefined, weeks.period),
+    "1,000 revisions and 1,000 changes shown as 143 steps, merging changes made in the same week; each step shows the last revision in its group.",
+  );
 });
 
 test("the slider position follows the bars, in equal or time-proportional widths", () => {

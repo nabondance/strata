@@ -51,7 +51,7 @@ export const historyScript = `    function renderLegend() {
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
       // A bar starts wherever the drawn layers change. Spaced by change, the most alike neighbors merge when there are
-      // more than 100; spaced by time, only changes made on the same day merge, since each bar takes its own width.
+      // more than 100; spaced by time, each bar takes its own width, so only changes made on the same day merge.
       const values = viewRevisions.map((revision) => categories.map((category) => revision.categoryTotals[category].estimatedTokens));
       renderChartSpacing();
       const time = (index) => Date.parse(viewRevisions[index].date);
@@ -59,16 +59,17 @@ export const historyScript = `    function renderLegend() {
       const t1 = time(viewRevisions.length - 1);
       const byTime = chartSpacing === 'time' && t1 > t0;
       let buckets = timelineBuckets(values, byTime ? values.length : 100, chartStart);
-      let widths;
-      if (byTime) {
-        ({ buckets, widths } = timelineTimeBars(buckets, buckets.map((bucket) => time(bucket.start)), buckets.map((bucket) => viewRevisions[bucket.start].date.slice(0, 10)), t1));
-      }
+      const bars = byTime ? timelineTimeBars(buckets, buckets.map((bucket) => viewRevisions[bucket.start].date), t1) : undefined;
+      if (bars) buckets = bars.buckets;
+      const widths = bars?.widths;
       const span = widths ? widths.reduce((sum, width) => sum + width, 0) : 0;
       chart.classList.toggle('by-time', byTime);
       // Where each bar sits across the chart, so the slider can follow the bars in either spacing.
       chartEdges = timelineEdges(buckets.length, widths);
       chart.style.gridTemplateColumns = byTime
-        ? widths.map((width) => 'minmax(1px, ' + (width / span * 1000).toFixed(3) + 'fr)').join(' ')
+        // No minimum width: a bar shorter than a pixel stays where its time puts it, so the bars, the slider, and the
+        // date labels line up.
+        ? widths.map((width) => 'minmax(0, ' + (width / span * 1000).toFixed(3) + 'fr)').join(' ')
         : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
       // The scale covers every charted revision, not only the last of each step, and changes with the view and measure.
@@ -114,7 +115,7 @@ export const historyScript = `    function renderLegend() {
       // Calendar boundaries between the end dates; CSS keeps only the middle one on a narrow screen.
       // By time, the labels sit at their dates: one evenly spaced date per 0.5% of the width stands in for the bars.
       const tickDates = byTime
-        ? Array.from({ length: 200 }, (_, index) => new Date(Math.min(t1, t0 + (index / 200) * span)).toISOString())
+        ? Array.from({ length: 200 }, (_, index) => new Date(t0 + Math.min(bars.elapsed, (index / 200) * span)).toISOString())
         : buckets.map((bucket) => viewRevisions[bucket.end].date);
       $('timeline-dates').replaceChildren(...timelineDateTicks(tickDates).map((tick) => {
         const label = text('span', tick.label, tick.primary ? 'primary' : '');
@@ -122,7 +123,7 @@ export const historyScript = `    function renderLegend() {
         return label;
       }));
       const charted = viewRevisions.length - chartStart;
-      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, byTime);
+      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, bars?.period);
       const spacingNote = byTime ? 'Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.' : '';
       $('chart-steps').hidden = !note && !spacingNote;
       $('chart-steps').textContent = [note, spacingNote].filter(Boolean).join(' ');
