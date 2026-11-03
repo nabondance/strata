@@ -462,7 +462,179 @@ test("rate limits are retried with the server's wait instead of falling back", a
     assert.equal(report.providerMeasurements[0].accuracy, "api-counted");
     assert.equal(report.providerMeasurements[0].fallbacks, undefined);
     assert.equal(files().length, 1);
-    assert.equal(notices.filter((line) => /HTTP 429; retrying/.test(line)).length, 1, "one notice per provider");
+    assert.equal(
+      notices.filter((line) => /rate limiting requests \(HTTP 429\); sending fewer at once/.test(line)).length,
+      1,
+      "one notice per provider",
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/** Many Claude rule files, so counting them takes more requests than one burst. */
+const manyRules = (count) =>
+  Object.fromEntries([
+    ["CLAUDE.md", "Claude instructions.\n"],
+    ...Array.from({ length: count }, (_, index) => [`.claude/rules/rule-${index}.md`, `Rule ${index}.\n`]),
+  ]);
+
+const rateLimited = (retryAfter) =>
+  new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "slow down" } }), {
+    status: 429,
+    headers: { "content-type": "application/json", ...(retryAfter ? { "retry-after": retryAfter } : {}) },
+  });
+
+test("a rate limit slows every request down instead of failing the method", async () => {
+  const repo = fixture(manyRules(30));
+  try {
+    const { files, fetchImpl } = countServer();
+    // A token bucket: 4 requests at once, refilled at 2 per second of waiting.
+    let tokens = 4;
+    let inFlight = 0;
+    let limitedYet = false;
+    let peakAfterLimit = 0;
+    let refused = 0;
+    const limited = async (url, init) => {
+      inFlight += 1;
+      if (limitedYet) peakAfterLimit = Math.max(peakAfterLimit, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      if (tokens < 1) {
+        limitedYet = true;
+        refused += 1;
+        return rateLimited("1");
+      }
+      tokens -= 1;
+      return fetchImpl(url, init);
+    };
+    const notices = [];
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: limited }),
+        sleep: async (milliseconds) => {
+          tokens = Math.min(4, tokens + (milliseconds / 1000) * 2);
+        },
+      },
+      onNotice: (line) => notices.push(line),
+    });
+    const [claude] = report.providerMeasurements;
+    assert.equal(claude.accuracy, "api-counted");
+    assert.equal(claude.fallbacks, undefined);
+    assert.equal(files().length, 31, "every file was counted once; refused requests never reached the counter");
+    assert.ok(refused > 0, "the bucket did run out");
+    assert.ok(peakAfterLimit < 8, `fewer requests ran at once after the limit (peak ${peakAfterLimit})`);
+    assert.ok(notices.some((line) => /rate limiting requests \(HTTP 429\)/.test(line)));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("a rate limit that does not lift falls back after three minutes, and says a rerun continues from the cache", async () => {
+  const repo = fixture(manyRules(20));
+  const cacheDirectory = mkdtempSync(join(tmpdir(), "strata-cache-"));
+  try {
+    const cachePath = join(cacheDirectory, "provider-counts.json");
+    const server = countServer();
+    let answered = 0;
+    const waits = [];
+    // The probe and three files are counted, then the limit never lifts.
+    const stuck = async (url, init) => {
+      if (answered >= 4) return rateLimited("30");
+      answered += 1;
+      return server.fetchImpl(url, init);
+    };
+    const cache = fileCountCache(cachePath);
+    const notices = [];
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: stuck, cache }),
+        sleep: async (milliseconds) => {
+          waits.push(milliseconds);
+        },
+      },
+      onNotice: (line) => notices.push(line),
+    });
+    cache.save();
+    // One shared pause at a time, until three minutes pass with no count. A count that lands just
+    // after the first pause starts resets that clock, so there may be one pause more.
+    assert.ok(waits.every((wait) => wait === 30_000));
+    assert.ok(waits.length === 6 || waits.length === 7, `${waits.length} pauses`);
+    const [claude] = report.providerMeasurements;
+    assert.equal(claude.accuracy, "estimate");
+    assert.match(
+      claude.fallbacks[0],
+      /failed: claude token count requests were rate limited \(HTTP 429, rate_limit_error: the account's rate limit for this endpoint\) for 180 s with no count returned$/,
+    );
+    assert.ok(
+      notices.includes(
+        "  Claude counting stopped at the endpoint's rate limit, not because of a file. 3 counts came back first and are saved in the local cache; run again in a few minutes and only the 18 file versions still uncounted will be sent.",
+      ),
+      notices.join("\n"),
+    );
+
+    const rerun = countServer();
+    const again = fileCountCache(cachePath);
+    const second = await analyzeRepository(repo, {
+      providerPlan: resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: rerun.fetchImpl, cache: again }),
+      onNotice: () => {},
+    });
+    assert.equal(rerun.requests.length, 18, "only the uncounted files; the probe is cached");
+    assert.equal(second.providerMeasurements[0].accuracy, "api-counted");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(cacheDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a rate limit with retry-after 0 still runs out of patience", async () => {
+  const repo = fixture({ "CLAUDE.md": "Claude only.\n" });
+  try {
+    const waits = [];
+    const notices = [];
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: async () => rateLimited("0") }),
+        sleep: async (milliseconds) => {
+          waits.push(milliseconds);
+        },
+      },
+      onNotice: (line) => notices.push(line),
+    });
+    assert.ok(
+      waits.every((wait) => wait === 1000),
+      "each pause lasts at least a second",
+    );
+    assert.equal(waits.length, 180);
+    assert.equal(report.providerMeasurements[0].accuracy, "estimate");
+    assert.ok(notices.some((line) => line.endsWith("No count was saved; run again in a few minutes.")));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("once one request fails, the others stop instead of waiting out rate limits", async () => {
+  const repo = fixture(manyRules(20));
+  try {
+    const server = countServer();
+    let files = 0;
+    const waits = [];
+    const broken = async (url, init) => {
+      if (requestText(JSON.parse(init.body)) === "a") return server.fetchImpl(url, init);
+      files += 1;
+      return files === 1 ? new Response("{}", { status: 400 }) : rateLimited("30");
+    };
+    const report = await analyzeRepository(repo, {
+      providerPlan: {
+        ...resolvePrecisePlan({ env: noKeys, run: signedIn, fetchImpl: broken }),
+        sleep: async (milliseconds) => {
+          waits.push(milliseconds);
+        },
+      },
+      onNotice: () => {},
+    });
+    assert.ok(waits.length <= 1, `${waits.length} pauses`);
+    assert.match(report.providerMeasurements[0].fallbacks[0], /HTTP 400/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
