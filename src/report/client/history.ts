@@ -69,7 +69,7 @@ export const historyScript = `    function renderLegend() {
       chart.style.gridTemplateColumns = byTime
         // No minimum width: a bar shorter than a pixel stays where its time puts it, so the bars, the slider, and the
         // date labels line up.
-        ? widths.map((width) => 'minmax(0, ' + (width / span * 1000).toFixed(3) + 'fr)').join(' ')
+        ? widths.map((width) => 'minmax(0, ' + (width / span * 1000).toFixed(6) + 'fr)').join(' ')
         : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
       const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
       // The scale covers every charted revision, not only the last of each step, and changes with the view and measure.

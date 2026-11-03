@@ -127,17 +127,22 @@ test("bars spaced by time merge only changes made on the same day", () => {
 test("bars spaced by time read dates on a clock that never goes back", () => {
   const day = 24 * 60 * 60 * 1000;
   const at = (days) => new Date(Date.parse("2024-01-01T00:00:00Z") + days * day).toISOString();
-  // A rebase dated the third change before the second: it starts when the second did and adds no width.
+  // A rebase dated the third change before the second: it joins the second's bar, which shows it, so no bar is
+  // left without a width.
   const changes = timelineBuckets(single([1, 2, 3, 4]));
   const bars = timelineTimeBars(changes, [0, 10, 5, 12].map(at), Date.parse(at(12)));
-  assert.equal(bars.buckets.length, 4);
-  assert.deepEqual(bars.widths.slice(0, 3), [10 * day, 0, 2 * day]);
+  assert.deepEqual(bars.buckets, [
+    { start: 0, end: 0, peak: 1, changes: 1 },
+    { start: 1, end: 2, peak: 3, changes: 2 },
+    { start: 3, end: 3, peak: 4, changes: 1 },
+  ]);
+  assert.deepEqual(bars.widths.slice(0, 2), [10 * day, 2 * day]);
+  assert.ok(bars.widths.every((width) => width > 0));
   // The widths add up to the time covered, so a date placed across the chart lines up with the bars.
   assert.equal(bars.elapsed, 12 * day);
-  assert.equal(
-    bars.widths.slice(0, 3).reduce((sum, width) => sum + width, 0),
-    12 * day,
-  );
+  // A rebased change between two on the same day does not split that day.
+  const day3 = timelineTimeBars(changes, [0, 10.1, 9, 10.2].map(at), Date.parse(at(11)));
+  assert.equal(day3.buckets.length, 2);
   // A latest revision dated before the latest change ends the chart at that change.
   assert.equal(timelineTimeBars(changes, [0, 10, 5, 12].map(at), Date.parse(at(8))).elapsed, 12 * day);
 });

@@ -146,8 +146,8 @@ export interface TimelineTimeBars {
  * its last revision, the one that stood once the period was over, and keeps the highest total inside it.
  * Each bar is as wide as the time from its first revision to the next bar's, and the last one to `end`, the latest
  * revision's time. Dates need not increase (clock skew, a rebase), so times are read on a clock that never goes back:
- * a revision dated before an earlier one starts when that one did, the widths add up to the time the chart covers,
- * and dates placed across it line up with the bars. The last bar has no next one to end at, and the latest change is
+ * a change dated no later than the open bar's start joins that bar, every bar has a width, the widths add up to the
+ * time the chart covers, and dates placed across it line up with the bars. The last bar has no next one to end at, and the latest change is
  * often days or minutes before the latest revision, which would leave the selected bar a hairline, so it is at least
  * as wide as an average bar.
  * The HTML report embeds this function's source, so it must stay self-contained.
@@ -181,7 +181,9 @@ export function timelineTimeBars(
       const bucket = buckets[index] as TimelineBucket;
       const at = key(dates[index] as string);
       const group = merged.at(-1);
-      if (group && at === open) {
+      // A change dated no later than the open bar's start does not move time on, so it joins that bar rather than
+      // leaving the bar before it with no width.
+      if (group && (at === open || Date.parse(dates[index] as string) <= (clock[first.at(-1) as number] as number))) {
         group.end = bucket.end;
         group.peak = Math.max(group.peak, bucket.peak);
         group.changes += bucket.changes;

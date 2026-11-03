@@ -255,8 +255,10 @@ test("spaced by time, changes made on the same day share a bar and the rest keep
   assert.equal(bars.period, "day");
   assert.ok(bars.buckets.length > 80 && bars.buckets.length < changes.length, `${bars.buckets.length}`);
   assert.equal(chart.children.length, bars.buckets.length);
-  // Bars have no minimum width, so their columns match the edges the slider uses.
-  assert.ok(chart.style.gridTemplateColumns.split(") ").every((column) => column.startsWith("minmax(0, ")));
+  // Bars have no minimum width, so their columns match the edges the slider uses; the rebased revision joins the bar
+  // before it rather than leaving that bar with no width.
+  const columns = chart.style.gridTemplateColumns.split(") ");
+  assert.ok(columns.every((column) => column.startsWith("minmax(0, ") && Number.parseFloat(column.slice(10)) > 0));
   assert.match(get("chart-steps").textContent, /shown as \d+ steps, merging changes made on the same day;/);
   // A day's bar shows its last revision, counts its changes, and marks a higher total inside it.
   const merged = bars.buckets.findIndex((bucket) => bucket.peak > revisions[bucket.end].estimatedTokens);
