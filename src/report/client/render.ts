@@ -10,14 +10,17 @@ export const renderScript = `    function render(index, dragging) {
       slider.setAttribute('aria-valuetext', 'Revision ' + fmt(index + 1) + ' of ' + fmt(viewRevisions.length) + ', ' + revision.date.slice(0, 10));
       renderLegend();
       selectTarget(index);
+      // Spaced by time there can be hundreds of bars, so only those whose selection changes are touched.
       for (const bucket of chartBuckets) {
         const isSelected = bucket.start <= index && index <= bucket.end;
+        if (bucket.selected === isSelected) continue;
+        bucket.selected = isSelected;
         bucket.button.classList.toggle('selected', isSelected);
         bucket.button.tabIndex = isSelected ? 0 : -1;
         bucket.button.setAttribute('aria-current', String(isSelected));
       }
       // A revision before the chart's first bar still leaves the chart reachable by Tab.
-      if (chartBuckets.length && !chartBuckets.some((bucket) => bucket.button.tabIndex === 0)) chartBuckets[0].button.tabIndex = 0;
+      if (chartBuckets.length) chartBuckets[0].button.tabIndex = chartBuckets[0].selected || !chartBuckets.some((bucket) => bucket.selected) ? 0 : -1;
       markSilhouette();
       $('date').textContent = revision.date.slice(0, 10);
       $('tokens').textContent = fmt(revision.estimatedTokens);

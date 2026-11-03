@@ -9,6 +9,7 @@ import {
   timelineEdges,
   timelineScale,
   timelineStepsNote,
+  timelineTimeBars,
 } from "../dist/timeline.js";
 import { loadReportUi, previousChange, selectOptions } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
@@ -163,33 +164,42 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   );
   spacing[1].listeners.click();
   assert.equal(chart.classes.has("by-time"), true);
-  const columns = chart.style.gridTemplateColumns.split(") ").map((column) => Number.parseFloat(column.split(", ")[1]));
-  assert.equal(columns.length, buckets.length);
+  // By time there is no cap: the 160 changes fall on different days, so each keeps its own bar.
   const time = (index) => Date.parse(revisions[index].date);
-  const timeWidths = buckets.map((bucket, index) =>
-    Math.max(
-      0,
-      (index + 1 < buckets.length ? time(buckets[index + 1].start) : time(revisions.length - 1)) - time(bucket.start),
-    ),
+  const changes = timelineBuckets(
+    revisions.map((revision) => Object.values(revision.categoryTotals).map((total) => total.estimatedTokens)),
+    revisions.length,
   );
-  // The last bar, with no next one to end at, is at least as wide as an average bar.
-  const elapsed = time(revisions.length - 1) - time(buckets[0].start);
-  timeWidths[timeWidths.length - 1] = Math.max(timeWidths.at(-1), elapsed / timeWidths.length);
+  const { buckets: timeBuckets, widths: timeWidths } = timelineTimeBars(
+    changes,
+    changes.map((bucket) => revisions[bucket.start].date),
+    time(revisions.length - 1),
+  );
+  assert.equal(timeBuckets.length, 160);
+  assert.equal(chart.children.length, 160);
+  const columns = chart.style.gridTemplateColumns.split(") ").map((column) => Number.parseFloat(column.split(", ")[1]));
+  assert.equal(columns.length, 160);
+  // Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.
+  const elapsed = time(revisions.length - 1) - time(timeBuckets[0].start);
+  assert.equal(
+    timeWidths.at(-1),
+    Math.max(time(revisions.length - 1) - time(timeBuckets.at(-1).start), elapsed / timeWidths.length),
+  );
   const span = timeWidths.reduce((sum, width) => sum + width, 0);
   const expectedWidth = (timeWidths[0] / span) * 1000;
   assert.ok(Math.abs(columns[0] - expectedWidth) < 0.01, `${columns[0]} vs ${expectedWidth}`);
   assert.ok(Math.abs(columns.at(-1) - (timeWidths.at(-1) / span) * 1000) < 0.01);
   assert.ok(columns.at(-1) >= (elapsed / columns.length / span) * 1000 - 0.01);
-  assert.match(
+  assert.equal(
     get("chart-steps").textContent,
-    / Each bar is as wide as the time until the next one; the last is at least as wide as an average bar\.$/,
+    "161 revisions shown as 160 steps, one per change; each step shows the last revision in its group. Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.",
   );
   // The widened last bar adds width, not time: no calendar label falls after the latest revision.
   const latestMonth = revisions.at(-1).date.slice(0, 7);
   for (const label of get("timeline-dates").children) assert.ok(label.textContent <= latestMonth, label.textContent);
   // The slider follows the bars by time: its position for a bar's last revision lies inside that bar's time span.
-  const timeEdges = timelineEdges(buckets.length, timeWidths);
-  const probe = buckets[50];
+  const timeEdges = timelineEdges(timeBuckets.length, timeWidths);
+  const probe = timeBuckets[50];
   get("target").value = String(probe.end);
   get("target").listeners.change();
   const position = Number(get("slider").value) / 10000;
@@ -215,6 +225,63 @@ test("the history chart labels its axes, says when bars group revisions, and sho
     get("chart-ticks").children.map((tick) => tick.children[0].textContent),
     before.map((tick) => tick.children[0].textContent),
   );
+});
+
+test("spaced by time, changes made on the same day share a bar and the rest keep their own", async () => {
+  const report = await longHistory();
+  // Pairs of padded revisions share a day, the higher one first, and one is dated a day before the revision it follows (a rebase).
+  const hour = 60 * 60 * 1000;
+  report.revisions = report.revisions.map((revision, index) => {
+    if (index < 3) return revision;
+    const padded = index - 3;
+    const shift = padded === 41 ? -5 * day : Math.floor((padded + 1) / 2) * 4 * day + ((padded + 1) % 2) * hour;
+    return { ...revision, date: new Date(Date.parse("2024-03-01T12:00:00Z") + shift).toISOString() };
+  });
+  const revisions = expandRevisions(report);
+  const { get } = loadReportUi(renderHtml(report));
+  const chart = get("chart");
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Time")
+    .listeners.click();
+  const changes = timelineBuckets(
+    revisions.map((revision) => Object.values(revision.categoryTotals).map((total) => total.estimatedTokens)),
+    revisions.length,
+  );
+  const bars = timelineTimeBars(
+    changes,
+    changes.map((bucket) => revisions[bucket.start].date),
+    Date.parse(revisions.at(-1).date),
+  );
+  assert.equal(bars.period, "day");
+  assert.ok(bars.buckets.length > 80 && bars.buckets.length < changes.length, `${bars.buckets.length}`);
+  assert.equal(chart.children.length, bars.buckets.length);
+  // Bars have no minimum width, so their columns match the edges the slider uses; the rebased revision joins the bar
+  // before it rather than leaving that bar with no width.
+  const columns = chart.style.gridTemplateColumns.split(") ");
+  assert.ok(columns.every((column) => column.startsWith("minmax(0, ") && Number.parseFloat(column.slice(10)) > 0));
+  assert.match(
+    get("chart-steps").textContent,
+    /shown as \d+ steps, merging changes made on the same day or dated out of order;/,
+  );
+  // A day's bar shows its last revision, counts its changes, and marks a higher total inside it.
+  const merged = bars.buckets.findIndex((bucket) => bucket.peak > revisions[bucket.end].estimatedTokens);
+  assert.ok(merged >= 0);
+  const bar = chart.children[merged];
+  assert.ok(bar.children.some((child) => child.className === "peak"));
+  chart.listeners.pointermove({ target: bar, clientX: 300 });
+  assert.equal(get("chart-tip").children[2].textContent, `${bars.buckets[merged].changes} changes in these revisions`);
+  // Page Up and Page Down move a bar at a time; only the selected bar is a tab stop.
+  get("target").value = String(bars.buckets[merged].end);
+  get("target").listeners.change();
+  get("slider").listeners.keydown({ key: "PageUp", preventDefault() {} });
+  assert.equal(get("target").value, String(bars.buckets[merged + 1].end));
+  get("slider").listeners.keydown({ key: "PageDown", preventDefault() {} });
+  get("slider").listeners.keydown({ key: "PageDown", preventDefault() {} });
+  assert.equal(get("target").value, String(bars.buckets[merged - 1].end));
+  const stops = chart.children.filter((child) => child.tabIndex === 0);
+  assert.deepEqual(stops, [chart.children[merged - 1]]);
+  assert.equal(chart.children[merged - 1].classes.has("selected"), true);
+  assert.equal(chart.children.filter((child) => child.classes.has("selected")).length, 1);
 });
 
 test("the comparison selects list changed revisions by month and default to the previous change", async () => {
