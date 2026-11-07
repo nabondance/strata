@@ -260,6 +260,9 @@ export function exerciseReportUi(html, report) {
   const expected = compareRevisions(revisions[2], revisions[3]);
   assert.match(get("compare-tokens").textContent, new RegExp(String(expected.deltaTokens)));
   assert.equal(get("compare-components").children.length, expected.components.length);
+  // The moved-file note shows only when the comparison has both an addition and a removal.
+  const kinds = new Set(expected.components.map((component) => component.kind));
+  assert.equal(get("compare-moved").hidden, !(kinds.has("added") && kinds.has("removed")));
   // Providers and categories that did not move are left out of the comparison.
   assert.equal(
     get("compare-categories").children.length,

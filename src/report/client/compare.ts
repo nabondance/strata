@@ -138,6 +138,8 @@ export const compareScript = `    // The selects list the first revision, the la
       }
       const body = $('compare-components');
       body.replaceChildren();
+      const kinds = new Set(comparison.components.map((component) => component.kind));
+      $('compare-moved').hidden = !(kinds.has('added') && kinds.has('removed'));
       if (!comparison.components.length) {
         const row = document.createElement('tr');
         const cell = text('td', 'No component changes between these revisions.', 'empty');

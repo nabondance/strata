@@ -524,7 +524,7 @@ async function analyze(args: string[]): Promise<void> {
   if (skills && skills.count > skills.sourceOnlyCount) {
     const unresolved = latest.skillListingUnresolved;
     say(
-      `Skills: ${latest.skillListingTokens} listed tokens, the names and descriptions kept in context before a skill is used; the skill files store ${skills.estimatedTokens}.` +
+      `Skills: ${latest.skillListingTokens} tokens of names and descriptions listed up front, ${skills.estimatedTokens} in the skill files.` +
         (unresolved
           ? ` ${unresolved} manifest${unresolved === 1 ? " has" : "s have"} frontmatter Strata could not read and ${unresolved === 1 ? "is" : "are"} not counted.`
           : ""),
@@ -538,7 +538,7 @@ async function analyze(args: string[]): Promise<void> {
     const day = (index: number) =>
       report.revisions[index]!.date.slice(0, 10) + (report.shallow && index === 0 ? " or earlier" : "");
     say(
-      `Instruction age: half of the latest instruction text was in place by revision ${age.median + 1} (${day(age.median)}); ${sharePercent(age.kept)} of the text at the first revision with instructions (${report.revisions[age.first]!.date.slice(0, 10)}) is still present.` +
+      `Instruction age: half of the latest text was in place by revision ${age.median + 1} (${day(age.median)}); ${sharePercent(age.kept)} of the first instructions (${report.revisions[age.first]!.date.slice(0, 10)}) are still present.` +
         (report.shallow && age.first === 0
           ? " This shallow clone starts at revision 1, so text dated there may be older."
           : ""),
