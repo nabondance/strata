@@ -389,6 +389,8 @@ export function exerciseReportUi(html, report) {
   assert.match(get("treemap-hover").textContent, /stored-text tokens/);
   firstLeaf.listeners.mouseleave();
   assert.match(get("treemap-hover").textContent, /source-only/);
+  // Counts of zero are left out of the treemap's summary.
+  assert.doesNotMatch(get("treemap-hover").textContent, /(^|· )0 /);
   firstLeaf.listeners.click();
   // The path filter is a substring search, so CLAUDE.md also lists .claude/CLAUDE.md.
   assert.equal(get("files-panel").open, true);

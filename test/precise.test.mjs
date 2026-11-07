@@ -254,7 +254,7 @@ test("the HTML report describes the counting method in use and charts a provider
     assert.match(get("method").textContent, /^Estimate: UTF-8 bytes ÷ 4 per file/);
     assert.equal(get("counting-note").textContent, "This view: the estimate.");
     assert.equal(get("compare-listing-label").textContent, "Skill summary tokens");
-    assert.match(get("listing-note").textContent, /^Summary: the name and description/);
+    assert.match(get("listing-note").textContent, /^The summary is part of the full text/);
     assert.equal(
       get("tokens").textContent,
       String(

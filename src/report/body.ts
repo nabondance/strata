@@ -10,20 +10,26 @@ import { tokenAdjective } from "./token-adjective.js";
 export function reportBody(report: Report, origin?: ReportOrigin): string {
   const adjective = tokenAdjective(report);
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
-  const providerColumns = (report.providerMeasurements ?? [])
+  const measured = report.providerMeasurements ?? [];
+  // Only Codex is counted without --precise, and it never sends text, so the note is for --precise runs.
+  const precise = measured.some(({ provider }) => provider !== "codex");
+  const sentTo = measured.filter((entry) => textRecipients(entry).length);
+  const providerColumns = measured
     .map(
       (measured) =>
         `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerName[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
     )
     .join("");
-  const sentTo = (report.providerMeasurements ?? []).filter((measured) => textRecipients(measured).length);
-  const providerNote = report.providerMeasurements
-    ? `Provider columns are each provider's own count and are never added together. ${
-        sentTo.length
-          ? `Text sent to: ${sentTo.map((measured) => `${escapeHtml(textRecipients(measured).join(" and "))} (${providerName[measured.provider]})`).join(", ")}.`
-          : "No text was sent to a provider."
-      }`
-    : "";
+  const providerNote = [
+    measured.length > 1 ? "Provider columns are each provider's own count and are never added together." : "",
+    sentTo.length
+      ? `Text sent to: ${sentTo.map((entry) => `${escapeHtml(textRecipients(entry).join(" and "))} (${providerName[entry.provider]})`).join(", ")}.`
+      : precise
+        ? "No text was sent to a provider."
+        : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return `  <header>
     <div class="masthead">
@@ -134,7 +140,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
       </div>
       <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ summary</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button><p class="muted" id="compare-moved" hidden>A moved file can appear as a removal plus an addition.</p></div>
     </section>
-    <details class="panel" id="files-panel"${report.providerMeasurements?.some(({ provider }) => provider !== "codex") ? " open" : ""}>
+    <details class="panel" id="files-panel"${precise ? " open" : ""}>
       <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
       <div class="inventory-controls">
         <label>Provider<select id="provider-filter"><option value="">All providers</option></select></label>
@@ -143,7 +149,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
-      ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
+      ${providerNote ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
     </div>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>${origin ? ` ${escapeHtml(origin.version)} on ${escapeHtml(origin.date)}` : ""}.</footer>

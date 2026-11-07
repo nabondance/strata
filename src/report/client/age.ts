@@ -106,6 +106,6 @@ export const ageScript = `    // Instruction age follows the whole inventory, li
       const medianDate = revisions[median].date.slice(0, 10) + (data.shallow && median === 0 ? ' or earlier' : '');
       const firstDate = revisions[ageStart].date.slice(0, 10);
       $('age-count').textContent = 'half added by ' + medianDate + ' · ' + kept + ' of the ' + firstDate + ' text still there' + (activeView === 'all' ? '' : ' · all files');
-      $('age-note').textContent = fmt(total) + ' bytes of instruction lines at revision ' + (selected + 1) + '. Half of them were in place by revision ' + (median + 1) + ' (' + medianDate + '). Of the ' + fmt(ages.bytes[ageStart]) + ' bytes at the first revision with instructions (' + firstDate + '), ' + kept + ' are still present.' +
+      $('age-note').textContent = fmt(total) + ' bytes of instruction lines at revision ' + (selected + 1) + ', against ' + fmt(ages.bytes[ageStart]) + ' at the first (' + firstDate + ').' +
         (data.shallow && ageStart === 0 ? ' This shallow clone starts at revision 1, so text dated there may be older.' : '');
     }`;
