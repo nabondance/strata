@@ -15,7 +15,7 @@ From the branch's worktree, build the "before" version in a detached worktree of
 
 ```sh
 git worktree remove --force .strata-output/before 2>/dev/null; rm -rf .strata-output/shots
-git fetch origin
+git fetch origin main
 git worktree add --detach .strata-output/before origin/main
 (cd .strata-output/before && pnpm install --frozen-lockfile && pnpm build)
 pnpm build
