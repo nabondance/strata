@@ -168,6 +168,8 @@ test("tracks configuration across first-parent history without reading untracked
     // The per-provider columns are the point of this mode, so their table starts open.
     assert.match(renderHtml(providerReport), /<details class="panel" id="files-panel" open>/);
     assert.match(renderHtml(report), /<details class="panel" id="files-panel">/);
+    // Without --precise only Codex is counted, on this machine, so there is nothing to say about sending text.
+    assert.doesNotMatch(renderHtml(report), /No text was sent|never added together/);
     const providerUi = exerciseReportUi(renderHtml(providerReport), providerReport);
     assert.equal(providerUi("files").children[0].children.length, 8);
     const sharedRow = providerUi("files").children.find((row) => row.children[0].textContent === "AGENTS.md");

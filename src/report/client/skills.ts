@@ -12,7 +12,7 @@ export const skillsScript = `    function renderSkills() {
       $('skill-count').textContent = plural(groups.length, 'skill') + ' · summaries ' + fmt(listedTokens) + listingKind() + ' · full text ' + fmt(manifestTokens) + ' tokens' + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       const borrowed = (activeView === 'cursor' || activeView === 'copilot') && groups.some((group) => group.provider !== activeView);
       $('listing-note').textContent = (activeMeasure === 'estimate' ? '' : 'Full text uses ' + providerNames[activeMeasure] + ' counts and summaries the ' + listingKind().slice(2, -1) + ', so do not compare them. ') +
-        'Summary: the name and description an agent sees before using a skill. It is part of the full text, so do not add the two. Hidden skills have no summary; unresolved ones could not be read and are not counted.' +
+        'The summary is part of the full text, so do not add the two.' +
         (borrowed ? ' ' + activeView[0].toUpperCase() + activeView.slice(1) + ' may summarize skills from .claude/skills or .agents/skills differently.' : '');
       const toggle = $('skill-toggle');
       toggle.hidden = groups.length <= 8;

@@ -134,7 +134,6 @@ export const reportStyles = `    ${displayFontFace}
     .map-tools button { padding: 6px 11px; border: 1px solid var(--line); background: var(--sheet); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
     .map-tools button:hover { background: var(--hover); }
     .map-tools button:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
-    .map-intro { font-size: 13px; margin: 0 0 4px; max-width: 900px; }
     .map-key { display: inline-block; flex: none; width: 9px; height: 14px; border: 2px solid var(--ink); border-left: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; }
     .map-key.dashed { border-style: dashed; border-left: 0; }
     .config-map { --gutter: 150px; position: relative; padding-right: var(--gutter); border-top: 1px solid var(--grid); }

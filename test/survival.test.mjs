@@ -197,7 +197,7 @@ test("dates instruction lines by the revision they appeared at and follows them 
     assert.equal(cli.status, 0, cli.stderr);
     assert.ok(
       cli.stdout.includes(
-        `Instruction age: half of the latest instruction text was in place by revision 3 (${report.revisions[2].date.slice(0, 10)}); ${sharePercent(summary.kept)} of the text at the first revision with instructions (${report.revisions[0].date.slice(0, 10)}) is still present.`,
+        `Instruction age: half of the latest text was in place by revision 3 (${report.revisions[2].date.slice(0, 10)}); ${sharePercent(summary.kept)} of the first instructions (${report.revisions[0].date.slice(0, 10)}) are still present.`,
       ),
       cli.stdout,
     );
@@ -274,7 +274,7 @@ test("a merge adds its branch's lines at the merge, and a shallow clone starts i
     assert.equal(cli.status, 0, cli.stderr);
     assert.match(
       cli.stdout,
-      /is still present\. This shallow clone starts at revision 1, so text dated there may be older\./,
+      /are still present\. This shallow clone starts at revision 1, so text dated there may be older\./,
     );
   } finally {
     cleanup();
