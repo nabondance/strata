@@ -524,7 +524,7 @@ async function analyze(args: string[]): Promise<void> {
   if (skills && skills.count > skills.sourceOnlyCount) {
     const unresolved = latest.skillListingUnresolved;
     say(
-      `Skills: ${latest.skillListingTokens} tokens of names and descriptions listed up front, ${skills.estimatedTokens} in the skill files.` +
+      `Skills: ${latest.skillListingTokens} tokens of names and descriptions, ${skills.estimatedTokens} in the skill files.` +
         (unresolved
           ? ` ${unresolved} manifest${unresolved === 1 ? " has" : "s have"} frontmatter Strata could not read and ${unresolved === 1 ? "is" : "are"} not counted.`
           : ""),

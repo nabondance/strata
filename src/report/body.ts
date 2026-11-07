@@ -81,7 +81,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
     </section>
     <section class="panel" aria-labelledby="map-heading">
       <div class="panel-head"><h2 id="map-heading">Configuration map</h2><div class="map-tools" role="group" aria-label="Folders"><button type="button" id="map-expand">Open all folders</button><button type="button" id="map-collapse">Close all folders</button></div></div>
-      <div class="legend"><span title="The arrow points at the imported file. A line does not show that a session loaded the file."><i class="map-key"></i>Claude @path import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file or folder, measured in bytes</span></div>
+      <div class="legend"><span title="The arrow points at the imported file."><i class="map-key"></i>Claude @path import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file or folder, measured in bytes</span></div>
       <div class="config-map" id="config-map" role="tree" aria-labelledby="map-heading"></div>
       <p class="treemap-hover" id="map-hover" aria-live="polite"></p>
     </section>

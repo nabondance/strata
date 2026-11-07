@@ -41,7 +41,7 @@ Run this one command inside any Git repository. It writes a single HTML report t
 ```text
 Analyzed 95 revisions of strata.
 Latest: 6 tracked components, 5159 stored-text tokens (UTF-8 bytes / 4 per file, an estimate).
-Skills: 156 tokens of names and descriptions listed up front, 2574 in the skill files.
+Skills: 156 tokens of names and descriptions, 2574 in the skill files.
 At session start: Claude Code 2481 tokens (1469 more when needed), Codex 2478 tokens (1287 more when needed), Gemini CLI 78 tokens (1287 more when needed).
 Instruction age: half of the latest text was in place by revision 67 (2026-10-18); 52% of the first instructions (2026-10-08) are still present.
 Codex: 3497 tokens latest, encoding-exact with o200k_base.
