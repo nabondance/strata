@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="518" viewBox="0 0 800 518" role="img" aria-labelledby="strata-title strata-desc">
+<title id="strata-title">Strata: agent context through time</title>
+<desc id="strata-desc">Estimated stored-text tokens in Git-tracked agent configuration of strata / main: 5,255 tokens in 6 tracked files at the latest of 104 revisions.</desc>
+<rect width="800" height="518" fill="#fbfaf6"/>
+<g fill="#24312c">
+<g transform="translate(32 25)"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><clipPath id="strata-mark"><rect width="64" height="64" rx="10"/></clipPath><g clip-path="url(#strata-mark)"><rect width="64" height="64" fill="#1d2622"/><path d="M0,0H38L35.38,12H0Z" fill="#d9a441"/><path d="M42,0H64V21H37.41Z" fill="#d9a441"/><path d="M0,16H34.5L32.09,27H0Z" fill="#efeadb"/><path d="M36.53,25H64V36H34.13Z" fill="#efeadb"/><path d="M0,31H31.22L27.94,46H0Z" fill="#b5573a"/><path d="M33.25,40H64V55H29.97Z" fill="#b5573a"/><path d="M0,50H27.06L24,64H0Z" fill="#5f8f8a"/><path d="M29.09,59H64V64H28Z" fill="#5f8f8a"/></g></svg></g>
+<text x="64" y="40" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="800" letter-spacing="2.6">STRATA</text>
+<text x="768" y="40" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5c6a63">strata / main</text>
+<line x1="32" y1="54" x2="768" y2="54" stroke="#b9b8ac"/>
+<text x="32" y="96" font-family="Georgia, 'Times New Roman', serif" font-size="30" letter-spacing="-1.2">Agent context through time</text>
+<line x1="32" y1="120" x2="768" y2="120" stroke="#24312c" stroke-width="2"/>
+<text x="32" y="140" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.8" fill="#5c6a63">ESTIMATED TOKENS</text>
+<text x="32" y="164" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="650" letter-spacing="-0.6">5,255</text>
+<line x1="216" y1="121" x2="216" y2="172" stroke="#c9c8be"/>
+<text x="230" y="140" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.8" fill="#5c6a63">TRACKED FILES</text>
+<text x="230" y="164" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="650" letter-spacing="-0.6">6</text>
+<line x1="400" y1="121" x2="400" y2="172" stroke="#c9c8be"/>
+<text x="414" y="140" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.8" fill="#5c6a63">REVISIONS</text>
+<text x="414" y="164" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="650" letter-spacing="-0.6">104</text>
+<line x1="584" y1="121" x2="584" y2="172" stroke="#c9c8be"/>
+<text x="598" y="140" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.8" fill="#5c6a63">SINCE 2026-10-08</text>
+<text x="598" y="164" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="650" letter-spacing="-0.6">+4,574</text>
+<line x1="32" y1="172" x2="768" y2="172" stroke="#c9c8be"/>
+<text x="68" y="380" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#5c6a63">0</text>
+<line x1="76" y1="316" x2="768" y2="316" stroke="#e4e2d9"/>
+<text x="68" y="320" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#5c6a63">2K</text>
+<line x1="76" y1="256" x2="768" y2="256" stroke="#e4e2d9"/>
+<text x="68" y="260" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#5c6a63">4K</text>
+<line x1="76" y1="196" x2="768" y2="196" stroke="#e4e2d9"/>
+<text x="68" y="200" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#5c6a63">6K</text>
+<polygon points="76,361 101.6,361 101.6,357.5 127.3,357.5 127.3,351.1 152.9,351.1 152.9,350.5 178.5,350.5 178.5,348.1 204.1,348.1 204.1,346.9 229.8,346.9 229.8,344.5 255.4,344.5 255.4,342.4 281,342.4 281,341.4 306.7,341.4 306.7,340.5 332.3,340.5 332.3,338.7 357.9,338.7 357.9,336.2 383.6,336.2 383.6,327.1 409.2,327.1 409.2,326.2 434.8,326.2 434.8,324.3 460.4,324.3 460.4,323.2 486.1,323.2 486.1,322.4 511.7,322.4 511.7,321.7 537.3,321.7 537.3,317.2 563,317.2 563,317.1 588.6,317.1 588.6,315.3 614.2,315.3 614.2,310.5 639.9,310.5 639.9,309.4 665.5,309.4 665.5,308.1 691.1,308.1 691.1,306.2 716.7,306.2 716.7,303.9 742.4,303.9 742.4,301 768,301 768,376 742.4,376 742.4,376 716.7,376 716.7,376 691.1,376 691.1,376 665.5,376 665.5,376 639.9,376 639.9,376 614.2,376 614.2,376 588.6,376 588.6,376 563,376 563,376 537.3,376 537.3,376 511.7,376 511.7,376 486.1,376 486.1,376 460.4,376 460.4,376 434.8,376 434.8,376 409.2,376 409.2,376 383.6,376 383.6,376 357.9,376 357.9,376 332.3,376 332.3,376 306.7,376 306.7,376 281,376 281,376 255.4,376 255.4,376 229.8,376 229.8,376 204.1,376 204.1,376 178.5,376 178.5,376 152.9,376 152.9,376 127.3,376 127.3,376 101.6,376 101.6,376 76,376" fill="#007d8a"/>
+<polygon points="76,361 101.6,361 101.6,357.5 127.3,357.5 127.3,351.1 152.9,351.1 152.9,350.5 178.5,350.5 178.5,348.1 204.1,348.1 204.1,346.9 229.8,346.9 229.8,344.5 255.4,344.5 255.4,342.4 281,342.4 281,341.4 306.7,341.4 306.7,340.5 332.3,340.5 332.3,338.7 357.9,338.7 357.9,336.2 383.6,336.2 383.6,249.9 409.2,249.9 409.2,249 434.8,249 434.8,247.1 460.4,247.1 460.4,246 486.1,246 486.1,245.2 511.7,245.2 511.7,244.5 537.3,244.5 537.3,240 563,240 563,239.9 588.6,239.9 588.6,238.1 614.2,238.1 614.2,233.3 639.9,233.3 639.9,232.2 665.5,232.2 665.5,230.8 691.1,230.8 691.1,228.9 716.7,228.9 716.7,226.7 742.4,226.7 742.4,223.8 768,223.8 768,301 742.4,301 742.4,303.9 716.7,303.9 716.7,306.2 691.1,306.2 691.1,308.1 665.5,308.1 665.5,309.4 639.9,309.4 639.9,310.5 614.2,310.5 614.2,315.3 588.6,315.3 588.6,317.1 563,317.1 563,317.2 537.3,317.2 537.3,321.7 511.7,321.7 511.7,322.4 486.1,322.4 486.1,323.2 460.4,323.2 460.4,324.3 434.8,324.3 434.8,326.2 409.2,326.2 409.2,327.1 383.6,327.1 383.6,336.2 357.9,336.2 357.9,338.7 332.3,338.7 332.3,340.5 306.7,340.5 306.7,341.4 281,341.4 281,342.4 255.4,342.4 255.4,344.5 229.8,344.5 229.8,346.9 204.1,346.9 204.1,348.1 178.5,348.1 178.5,350.5 152.9,350.5 152.9,351.1 127.3,351.1 127.3,357.5 101.6,357.5 101.6,361 76,361" fill="#b5573a"/>
+<polygon points="76,355.6 101.6,355.6 101.6,352 127.3,352 127.3,345.7 152.9,345.7 152.9,345 178.5,345 178.5,342.6 204.1,342.6 204.1,341.5 229.8,341.5 229.8,339.1 255.4,339.1 255.4,336.9 281,336.9 281,336 306.7,336 306.7,335.1 332.3,335.1 332.3,333.3 357.9,333.3 357.9,330.7 383.6,330.7 383.6,244.5 409.2,244.5 409.2,243.6 434.8,243.6 434.8,241.6 460.4,241.6 460.4,240.5 486.1,240.5 486.1,239.7 511.7,239.7 511.7,239 537.3,239 537.3,234.5 563,234.5 563,234.4 588.6,234.4 588.6,232.7 614.2,232.7 614.2,227.8 639.9,227.8 639.9,226.7 665.5,226.7 665.5,225.4 691.1,225.4 691.1,223.5 716.7,223.5 716.7,221.2 742.4,221.2 742.4,218.4 768,218.4 768,223.8 742.4,223.8 742.4,226.7 716.7,226.7 716.7,228.9 691.1,228.9 691.1,230.8 665.5,230.8 665.5,232.2 639.9,232.2 639.9,233.3 614.2,233.3 614.2,238.1 588.6,238.1 588.6,239.9 563,239.9 563,240 537.3,240 537.3,244.5 511.7,244.5 511.7,245.2 486.1,245.2 486.1,246 460.4,246 460.4,247.1 434.8,247.1 434.8,249 409.2,249 409.2,249.9 383.6,249.9 383.6,336.2 357.9,336.2 357.9,338.7 332.3,338.7 332.3,340.5 306.7,340.5 306.7,341.4 281,341.4 281,342.4 255.4,342.4 255.4,344.5 229.8,344.5 229.8,346.9 204.1,346.9 204.1,348.1 178.5,348.1 178.5,350.5 152.9,350.5 152.9,351.1 127.3,351.1 127.3,357.5 101.6,357.5 101.6,361 76,361" fill="#8062b0"/>
+<line x1="76" y1="376" x2="768" y2="376" stroke="#8b9289"/>
+<text x="76" y="394" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5c6a63">2026-10-08</text>
+<text x="768" y="394" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5c6a63">2026-11-07</text>
+<rect x="32" y="417" width="10" height="10" fill="#007d8a"/>
+<text x="48" y="426" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#5c6a63">instructions</text>
+<rect x="154" y="417" width="10" height="10" fill="#b5573a"/>
+<text x="170" y="426" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#5c6a63">skills</text>
+<rect x="234" y="417" width="10" height="10" fill="#8062b0"/>
+<text x="250" y="426" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#5c6a63">agents</text>
+<text x="32" y="456" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#5c6a63">Estimated stored-text tokens. Stored configuration in Git, not loaded session context or billing.</text>
+<text x="32" y="472" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#5c6a63">98 revisions shown as 27 steps, one per change; each step shows the last revision in its group.</text>
+<text x="32" y="488" font-family="'Avenir Next', 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#5c6a63">The chart starts at revision 7: the 6 earlier revisions have no tracked configuration.</text>
+</g>
+</svg>
