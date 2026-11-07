@@ -7,9 +7,12 @@ import {
   timelineBuckets,
   timelineDateTicks,
   timelineEdges,
+  timelineRevision,
   timelineScale,
+  timelineSpan,
   timelineStepsNote,
   timelineTimeBars,
+  timelineZoom,
 } from "../dist/timeline.js";
 import { loadReportUi, previousChange, selectOptions } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
@@ -190,10 +193,7 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   assert.ok(Math.abs(columns[0] - expectedWidth) < 0.01, `${columns[0]} vs ${expectedWidth}`);
   assert.ok(Math.abs(columns.at(-1) - (timeWidths.at(-1) / span) * 1000) < 0.01);
   assert.ok(columns.at(-1) >= (elapsed / columns.length / span) * 1000 - 0.01);
-  assert.equal(
-    get("chart-steps").textContent,
-    "161 revisions shown as 160 steps, one per change; each step shows the last revision in its group. Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.",
-  );
+  assert.equal(get("chart-steps").textContent, "One bar per change, as wide as the time until the next one.");
   // The widened last bar adds width, not time: no calendar label falls after the latest revision.
   const latestMonth = revisions.at(-1).date.slice(0, 7);
   for (const label of get("timeline-dates").children) assert.ok(label.textContent <= latestMonth, label.textContent);
@@ -227,7 +227,7 @@ test("the history chart labels its axes, says when bars group revisions, and sho
   );
 });
 
-test("spaced by time, changes made on the same day share a bar and the rest keep their own", async () => {
+test("spaced by time, every change keeps its own bar, and only a rebased one joins the bar before it", async () => {
   const report = await longHistory();
   // Pairs of padded revisions share a day, the higher one first, and one is dated a day before the revision it follows (a rebase).
   const hour = 60 * 60 * 1000;
@@ -252,22 +252,22 @@ test("spaced by time, changes made on the same day share a bar and the rest keep
     changes.map((bucket) => revisions[bucket.start].date),
     Date.parse(revisions.at(-1).date),
   );
-  assert.equal(bars.period, "day");
-  assert.ok(bars.buckets.length > 80 && bars.buckets.length < changes.length, `${bars.buckets.length}`);
+  // Changes an hour apart keep their own bars; only the rebased one joins the bar before it.
+  assert.equal(bars.buckets.length, changes.length - 1);
   assert.equal(chart.children.length, bars.buckets.length);
   // Bars have no minimum width, so their columns match the edges the slider uses; the rebased revision joins the bar
   // before it rather than leaving that bar with no width.
   const columns = chart.style.gridTemplateColumns.split(") ");
   assert.ok(columns.every((column) => column.startsWith("minmax(0, ") && Number.parseFloat(column.slice(10)) > 0));
-  assert.match(
-    get("chart-steps").textContent,
-    /shown as \d+ steps, merging changes made on the same day or dated out of order;/,
-  );
-  // A day's bar shows its last revision, counts its changes, and marks a higher total inside it.
-  const merged = bars.buckets.findIndex((bucket) => bucket.peak > revisions[bucket.end].estimatedTokens);
-  assert.ok(merged >= 0);
+  assert.match(get("chart-steps").textContent, /; 1 change dated out of order shares the bar before it\./);
+  // The merged bar shows its last revision, counts its changes, and marks a higher total inside it when it hides one.
+  assert.equal(bars.buckets.filter((bucket) => bucket.changes > 1).length, 1);
+  const merged = bars.buckets.findIndex((bucket) => bucket.changes > 1);
   const bar = chart.children[merged];
-  assert.ok(bar.children.some((child) => child.className === "peak"));
+  assert.equal(
+    bar.children.some((child) => child.className === "peak"),
+    bars.buckets[merged].peak > revisions[bars.buckets[merged].end].estimatedTokens,
+  );
   chart.listeners.pointermove({ target: bar, clientX: 300 });
   assert.equal(get("chart-tip").children[2].textContent, `${bars.buckets[merged].changes} changes in these revisions`);
   // Page Up and Page Down move a bar at a time; only the selected bar is a tab stop.
@@ -282,6 +282,192 @@ test("spaced by time, changes made on the same day share a bar and the rest keep
   assert.deepEqual(stops, [chart.children[merged - 1]]);
   assert.equal(chart.children[merged - 1].classes.has("selected"), true);
   assert.equal(chart.children.filter((child) => child.classes.has("selected")).length, 1);
+});
+
+test("dragging across the history chart zooms into the bars under it, and Show all or Escape goes back", async () => {
+  const report = await longHistory();
+  const revisions = expandRevisions(report);
+  const { get, timers } = loadReportUi(renderHtml(report));
+  const chart = get("chart");
+  const zoomControl = () => get("chart-spacing").children.find((child) => child.className === "chart-zoom");
+  const drag = (from, to, pointerId = 1) => {
+    chart.listeners.pointerdown({ button: 0, clientX: from, pointerId });
+    chart.listeners.pointermove({ clientX: to, pointerId, target: chart });
+    const band = !get("chart-brush").hidden;
+    chart.listeners.pointerup({ clientX: to, pointerId });
+    return band;
+  };
+  const runTimers = () => {
+    for (const [id, run] of [...timers]) {
+      timers.delete(id);
+      run();
+    }
+  };
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Time")
+    .listeners.click();
+  assert.equal(zoomControl().textContent, "Drag across the chart to zoom in");
+  const whole = chart.children.length;
+  const values = revisions.map((revision) =>
+    Object.values(revision.categoryTotals).map((total) => total.estimatedTokens),
+  );
+  const changes = timelineBuckets(values, revisions.length);
+  const bars = timelineTimeBars(
+    changes,
+    changes.map((bucket) => revisions[bucket.start].date),
+    Date.parse(revisions.at(-1).date),
+  );
+  assert.equal(whole, bars.buckets.length);
+  const range = timelineZoom(bars.buckets, timelineEdges(bars.buckets.length, bars.widths), 0.5, 0.75);
+
+  // A band follows the drag; on release the chart shows whole bars under it, and the axis dates are theirs.
+  assert.equal(drag(500, 750), true);
+  assert.equal(get("chart-brush").hidden, true);
+  const shown = bars.buckets.filter((bucket) => bucket.start >= range.start && bucket.end <= range.end).length;
+  assert.equal(chart.children.length, shown);
+  assert.ok(shown < whole / 2, `${shown}`);
+  assert.equal(get("timeline-start").textContent, revisions[range.start].date.slice(0, 10));
+  assert.equal(get("timeline-end").textContent, revisions[range.end].date.slice(0, 10));
+  // Each revision in the range is its own bar here, and none is dated out of order.
+  assert.equal(shown, range.end - range.start + 1);
+  assert.equal(get("chart-steps").textContent, "One bar per change, as wide as the time until the next one.");
+  // The latest revision is outside the range, so the range's last one is selected, and its bar takes the focus.
+  assert.equal(get("target").value, String(range.end));
+  assert.equal(chart.children.at(-1).classes.has("selected"), true);
+  assert.equal(chart.children.at(-1).focused, true);
+  // The click that ends a drag does not select a bar; a later click does.
+  chart.children[0].listeners.click();
+  assert.equal(get("target").value, String(range.end));
+  runTimers();
+  chart.children[0].listeners.click();
+  assert.equal(get("target").value, String(bars.buckets.find((bucket) => bucket.start === range.start).end));
+
+  // Escape, or the Show all button, shows the whole history again and keeps the selection.
+  assert.equal(zoomControl().textContent, "Show all");
+  const picked = get("target").value;
+  chart.listeners.keydown({ key: "Escape", target: chart.children[0], preventDefault() {} });
+  assert.equal(chart.children.length, whole);
+  assert.equal(get("target").value, picked);
+  assert.equal(zoomControl().textContent, "Drag across the chart to zoom in");
+  runTimers();
+  drag(500, 750);
+  runTimers();
+  zoomControl().listeners.click();
+  assert.equal(chart.children.length, whole);
+
+  // A short move is a click, not a drag; a drag over one change has nothing to zoom into.
+  assert.equal(drag(500, 503), false);
+  assert.equal(chart.children.length, whole);
+  drag(999, 994);
+  runTimers();
+  assert.equal(chart.children.length, whole);
+
+  // Zoomed in, picking a revision outside the range from the selects shows the whole history again.
+  drag(500, 750);
+  runTimers();
+  get("target").value = "3";
+  get("target").listeners.change();
+  assert.equal(chart.children.length, whole);
+  assert.equal(get("target").value, "3");
+
+  // Spaced by change, the zoomed range gets its own 100 bars, so merged changes come apart.
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Change")
+    .listeners.click();
+  assert.equal(chart.children.length, 100);
+  drag(0, 395);
+  runTimers();
+  // The drag covered 40 bars; their changes now each have one.
+  assert.ok(chart.children.length > 40, `${chart.children.length}`);
+  assert.match(get("chart-steps").textContent, /one per change/);
+  // The other spacing lays the bars out differently, so switching it shows the whole history again.
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Time")
+    .listeners.click();
+  assert.equal(zoomControl().textContent, "Drag across the chart to zoom in");
+  assert.equal(chart.children.length, whole);
+  assert.equal(get("chart-overview").hidden, true);
+});
+
+test("zoomed in, an overview of the whole history shows the zoomed range, and moving its window pans the chart", async () => {
+  const report = await longHistory();
+  const revisions = expandRevisions(report);
+  const { get, timers } = loadReportUi(renderHtml(report));
+  const chart = get("chart");
+  const strip = get("overview-strip");
+  const win = get("overview-window");
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Time")
+    .listeners.click();
+  // The whole history needs no overview.
+  assert.equal(get("chart-overview").hidden, true);
+  const values = revisions.map((revision) =>
+    Object.values(revision.categoryTotals).map((total) => total.estimatedTokens),
+  );
+  const changes = timelineBuckets(values, revisions.length);
+  const bars = timelineTimeBars(
+    changes,
+    changes.map((bucket) => revisions[bucket.start].date),
+    Date.parse(revisions.at(-1).date),
+  );
+  const edges = timelineEdges(bars.buckets.length, bars.widths);
+  const total = bars.buckets.reduce((sum, bucket) => sum + bucket.changes, 0);
+  const range = timelineZoom(bars.buckets, edges, 0.5, 0.75);
+  chart.listeners.pointerdown({ button: 0, clientX: 500, pointerId: 1 });
+  chart.listeners.pointermove({ clientX: 750, pointerId: 1, target: chart });
+  chart.listeners.pointerup({ clientX: 750, pointerId: 1 });
+  for (const [id, run] of [...timers]) {
+    timers.delete(id);
+    run();
+  }
+
+  // Zoomed in, the overview shows where the range sits in the whole history, and how much of it the chart shows.
+  assert.equal(get("chart-overview").hidden, false);
+  assert.ok(get("overview-plot").children.length > 0);
+  const [from, to] = timelineSpan(bars.buckets, edges, range.start, range.end);
+  assert.equal(win.style.left, `min(${(from * 100).toFixed(3)}%, calc(100% - 8px))`);
+  assert.equal(win.style.width, `${((to - from) * 100).toFixed(3)}%`);
+  assert.equal(get("overview-start").textContent, revisions[0].date.slice(0, 10));
+  assert.equal(get("overview-end").textContent, revisions.at(-1).date.slice(0, 10));
+  assert.equal(get("overview-note").textContent, `Zoomed in: ${chart.children.length} of ${total} changes`);
+  assert.match(win.getAttribute("aria-label"), /Arrow keys move the range/);
+
+  // Dragging the window to the left pans the chart to earlier revisions over the same share of the history.
+  const pan = (down, up) => {
+    strip.listeners.pointerdown({ button: 0, clientX: down, pointerId: 2 });
+    strip.listeners.pointermove({ clientX: up, pointerId: 2 });
+    strip.listeners.pointerup({ clientX: up, pointerId: 2 });
+  };
+  const middle = ((from + to) / 2) * 1000;
+  pan(middle, middle - 200);
+  const moved = [
+    timelineRevision(bars.buckets, edges, from - 0.2 + 1e-9),
+    timelineRevision(bars.buckets, edges, to - 0.2 - 1e-9),
+  ];
+  assert.equal(get("timeline-start").textContent, revisions[moved[0]].date.slice(0, 10));
+  assert.equal(get("timeline-end").textContent, revisions[moved[1]].date.slice(0, 10));
+  assert.equal(get("chart-overview").hidden, false);
+  // The selection was after the range, so it moved to the range's last revision.
+  assert.equal(get("target").value, String(moved[1]));
+
+  // Pressing outside the window moves it there; a window past the left end stops at it.
+  pan(0, 0);
+  assert.equal(get("timeline-start").textContent, revisions[0].date.slice(0, 10));
+  assert.ok(win.style.left.startsWith("min(0.000%"), win.style.left);
+
+  // From the keyboard, End and Home move the range to either end, and Escape shows the whole history.
+  const key = (name) => win.listeners.keydown({ key: name, preventDefault() {} });
+  key("End");
+  assert.equal(get("timeline-end").textContent, revisions.at(-1).date.slice(0, 10));
+  assert.equal(win.focused, true);
+  const start = get("timeline-start").textContent;
+  key("ArrowLeft");
+  assert.ok(get("timeline-start").textContent < start);
+  key("Home");
+  assert.equal(get("timeline-start").textContent, revisions[0].date.slice(0, 10));
+  key("Escape");
+  assert.equal(get("chart-overview").hidden, true);
+  assert.equal(chart.children.length, bars.buckets.length);
 });
 
 test("the comparison selects list changed revisions by month and default to the previous change", async () => {

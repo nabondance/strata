@@ -15,8 +15,10 @@ import {
   timelinePosition,
   timelineRevision,
   timelineScale,
+  timelineSpan,
   timelineStepsNote,
   timelineTimeBars,
+  timelineZoom,
 } from "../timeline.js";
 import { layoutTreemap, shorterTreemapNames, treemapNames } from "../treemap.js";
 import { sessionProviderNames, upFrontContext } from "../up-front.js";
@@ -94,6 +96,8 @@ export function clientScript(report: Report, panels: readonly string[] = panelSc
     const timelineTimeBars = ${timelineTimeBars.toString()};
     const timelinePosition = ${timelinePosition.toString()};
     const timelineRevision = ${timelineRevision.toString()};
+    const timelineZoom = ${timelineZoom.toString()};
+    const timelineSpan = ${timelineSpan.toString()};
     const importLinks = ${importsSource};
     const upFrontContext = ${upFrontSource};
     const configMap = ${mapSource};

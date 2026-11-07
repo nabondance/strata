@@ -50,29 +50,27 @@ export const historyScript = `    function renderLegend() {
       chartBuckets = [];
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
-      // A bar starts wherever the drawn layers change. Spaced by change, the most alike neighbors merge when there are
-      // more than 100; spaced by time, each bar takes its own width, so only changes made on the same day merge.
+      // Zoomed in, the chart covers the revisions a drag picked; a view where they have nothing tracked shows all.
+      if (chartZoom && Math.max(chartStart, chartZoom.start) >= Math.min(viewRevisions.length - 1, chartZoom.end)) chartZoom = null;
+      const first = chartZoom ? Math.max(chartStart, chartZoom.start) : chartStart;
+      const last = chartZoom ? Math.min(viewRevisions.length - 1, chartZoom.end) : viewRevisions.length - 1;
+      chartRange = { start: first, end: last };
       const values = viewRevisions.map((revision) => categories.map((category) => revision.categoryTotals[category].estimatedTokens));
       renderChartSpacing();
-      const time = (index) => Date.parse(viewRevisions[index].date);
-      const t0 = time(chartStart);
-      const t1 = time(viewRevisions.length - 1);
-      const byTime = chartSpacing === 'time' && t1 > t0;
-      let buckets = timelineBuckets(values, byTime ? values.length : 100, chartStart);
-      const bars = byTime ? timelineTimeBars(buckets, buckets.map((bucket) => viewRevisions[bucket.start].date), t1) : undefined;
-      if (bars) buckets = bars.buckets;
+      const { buckets, bars, byTime, t0, edges } = chartBars(values, first, last);
       const widths = bars?.widths;
       const span = widths ? widths.reduce((sum, width) => sum + width, 0) : 0;
       chart.classList.toggle('by-time', byTime);
       // Where each bar sits across the chart, so the slider can follow the bars in either spacing.
-      chartEdges = timelineEdges(buckets.length, widths);
+      chartEdges = edges;
       chart.style.gridTemplateColumns = byTime
         // No minimum width: a bar shorter than a pixel stays where its time puts it, so the bars, the slider, and the
         // date labels line up.
         ? widths.map((width) => 'minmax(0, ' + (width / span * 1000).toFixed(6) + 'fr)').join(' ')
         : 'repeat(' + buckets.length + ', minmax(0, 1fr))';
-      const max = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
-      // The scale covers every charted revision, not only the last of each step, and changes with the view and measure.
+      const max = Math.max(1, ...viewRevisions.slice(first, last + 1).map((revision) => revision.estimatedTokens));
+      // The scale covers every charted revision, not only the last of each step, and changes with the view, the measure,
+      // and the zoom.
       const scale = timelineScale(max);
       $('chart-ticks').replaceChildren(...scale.ticks.map((value) => {
         const tick = text('span', '', 'history-tick');
@@ -106,6 +104,7 @@ export const historyScript = `    function renderLegend() {
         }
         // Safari does not focus a clicked button, and arrow keys need the focus on a bar.
         button.addEventListener('click', () => {
+          if (chartDragged) return;
           render(bucket.end);
           button.focus();
         });
@@ -122,14 +121,78 @@ export const historyScript = `    function renderLegend() {
         label.style.left = (tick.at / tickDates.length * 100).toFixed(2) + '%';
         return label;
       }));
-      const charted = viewRevisions.length - chartStart;
-      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, bars?.period, bars?.outOfOrder);
-      const spacingNote = byTime ? 'Each bar is as wide as the time until the next one; the last is at least as wide as an average bar.' : '';
-      $('chart-steps').hidden = !note && !spacingNote;
-      $('chart-steps').textContent = [note, spacingNote].filter(Boolean).join(' ');
-      $('timeline-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
-      $('timeline-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
-      renderSilhouette(values, chartStart, max);
+      const charted = last - first + 1;
+      const note = timelineStepsNote(charted, buckets, buckets.some((bucket) => bucket.peak > viewRevisions[bucket.end].estimatedTokens), fmt, byTime);
+      $('chart-steps').hidden = !note;
+      $('chart-steps').textContent = note;
+      $('timeline-start').textContent = viewRevisions[first].date.slice(0, 10);
+      $('timeline-end').textContent = viewRevisions[last].date.slice(0, 10);
+      // The masthead keeps the whole history, on its own scale, and so does the overview under a zoomed chart.
+      const wholeMax = Math.max(1, ...viewRevisions.map((revision) => revision.estimatedTokens));
+      renderSilhouette(values, chartStart, wholeMax);
+      renderOverview(values, wholeMax);
+    }
+
+    /**
+     * The bars from one revision to another. A bar starts wherever the drawn layers change. Spaced by change, the most
+     * alike neighbors merge when there are more than 100; spaced by time, each bar takes its own width, so every change
+     * keeps its own bar.
+     */
+    function chartBars(values, first, last) {
+      const t0 = Date.parse(viewRevisions[first].date);
+      const t1 = Date.parse(viewRevisions[last].date);
+      const byTime = chartSpacing === 'time' && t1 > t0;
+      const charted = values.slice(0, last + 1);
+      let buckets = timelineBuckets(charted, byTime ? charted.length : 100, first);
+      const bars = byTime ? timelineTimeBars(buckets, buckets.map((bucket) => viewRevisions[bucket.start].date), t1) : undefined;
+      if (bars) buckets = bars.buckets;
+      return { buckets, bars, byTime, t0, edges: timelineEdges(buckets.length, bars?.widths) };
+    }
+
+    /**
+     * Zoomed in, a strip under the chart shows the whole history as the unzoomed chart spaces it, with a window over
+     * the zoomed range and the rest dimmed, so it is clear the chart shows only part of the history, and which part.
+     */
+    function renderOverview(values, max) {
+      $('chart-overview').hidden = !chartZoom;
+      overviewBars = null;
+      if (!chartZoom) return;
+      const whole = chartBars(values, chartStart, viewRevisions.length - 1);
+      overviewBars = whole;
+      const tops = whole.buckets.map(() => 0);
+      const layers = [];
+      categories.forEach((category, at) => {
+        if (!whole.buckets.some((bucket) => values[bucket.end][at])) return;
+        const points = ['0% 100%'];
+        whole.buckets.forEach((bucket, index) => {
+          tops[index] += values[bucket.end][at];
+          const y = (100 - tops[index] / max * 100).toFixed(2) + '%';
+          const [from, to] = whole.edges[index];
+          points.push((from * 100).toFixed(3) + '% ' + y, (to * 100).toFixed(3) + '% ' + y);
+        });
+        points.push('100% 100%');
+        const layer = text('i', '');
+        layer.style.clipPath = 'polygon(' + points.join(',') + ')';
+        layer.style.background = colors[category];
+        // Upper layers come first so each lower one paints over them down to the baseline.
+        layers.unshift(layer);
+      });
+      $('overview-plot').replaceChildren(...layers);
+      overviewWindow = timelineSpan(whole.buckets, whole.edges, chartRange.start, chartRange.end);
+      placeOverviewWindow(...overviewWindow);
+      const changes = (buckets) => buckets.reduce((sum, bucket) => sum + bucket.changes, 0);
+      const note = 'Zoomed in: ' + fmt(changes(chartBuckets)) + ' of ' + fmt(changes(whole.buckets)) + ' changes';
+      $('overview-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
+      $('overview-note').textContent = note;
+      $('overview-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
+      $('overview-window').setAttribute('aria-label', note + ', ' + viewRevisions[chartRange.start].date.slice(0, 10) + ' to ' + viewRevisions[chartRange.end].date.slice(0, 10) + '. Arrow keys move the range; Escape shows the whole history.');
+    }
+
+    /** Draws the overview's window from one position to another, 0 to 1; a very short range keeps a few pixels. */
+    function placeOverviewWindow(from, to) {
+      const win = $('overview-window');
+      win.style.left = 'min(' + (from * 100).toFixed(3) + '%, calc(100% - 8px))';
+      win.style.width = ((to - from) * 100).toFixed(3) + '%';
     }
 
     /** The switch between bars of equal width and bars as wide as the time they cover. */
@@ -143,11 +206,116 @@ export const historyScript = `    function renderLegend() {
         button.addEventListener('click', () => {
           if (chartSpacing === key) return;
           chartSpacing = key;
+          // The other spacing lays the bars out differently, so a zoomed range would no longer match what was dragged.
+          chartZoom = null;
           renderChart();
           render(selected);
         });
         container.append(button);
       }
+      if (chartZoom) {
+        const all = text('button', 'Show all', 'chart-zoom');
+        all.type = 'button';
+        all.title = 'Show the whole history again (Escape)';
+        all.addEventListener('click', showWholeChart);
+        container.append(all);
+      } else if (viewRevisions.length > 1) {
+        container.append(text('span', 'Drag across the chart to zoom in', 'chart-zoom'));
+      }
+    }
+
+    /** Zooms into the bars between two positions across the chart, 0 to 1; a drag over a single change does nothing. */
+    function zoomChart(from, to) {
+      const range = timelineZoom(chartBuckets, chartEdges, from, to);
+      if (!range) return;
+      zoomTo(range);
+      chartBuckets.find((bucket) => bucket.selected)?.button.focus();
+    }
+    /** Shows a range of revisions; a selected revision outside it moves to the nearer end. */
+    function zoomTo(range) {
+      chartZoom = range;
+      renderChart();
+      render(Math.max(chartRange.start, Math.min(chartRange.end, selected)));
+    }
+    /** Moves the zoomed range to the revisions under a window across the overview, 0 to 1. */
+    function panChart(from, to) {
+      const { buckets, edges } = overviewBars;
+      // The window's edges sit on revision edges, so a hair inside them finds the revisions it covers.
+      const start = timelineRevision(buckets, edges, from + 1e-9);
+      const end = timelineRevision(buckets, edges, Math.max(from, to - 1e-9));
+      if (start === undefined || end <= start || (start === chartRange.start && end === chartRange.end)) {
+        placeOverviewWindow(...overviewWindow);
+        return;
+      }
+      zoomTo({ start, end });
+    }
+    function showWholeChart() {
+      if (!chartZoom) return;
+      chartZoom = null;
+      renderChart();
+      render(selected);
+    }
+
+    /**
+     * Dragging the overview's window moves the zoomed range across the history; pressing outside the window moves it
+     * there first. Its arrow keys move it by a quarter of its revisions, Home and End to either end.
+     */
+    function setupOverview() {
+      const strip = $('overview-strip');
+      const win = $('overview-window');
+      let pan = null;
+      const share = (clientX) => {
+        const box = strip.getBoundingClientRect();
+        return box.width ? (clientX - box.left) / box.width : 0;
+      };
+      const place = (from, width) => Math.max(0, Math.min(1 - width, from));
+      strip.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0 || !overviewBars) return;
+        const [from, to] = overviewWindow;
+        const width = to - from;
+        const at = share(event.clientX);
+        pan = { id: event.pointerId, x: at, width, from: at >= from && at <= to ? from : place(at - width / 2, width) };
+        placeOverviewWindow(pan.from, pan.from + width);
+        try {
+          strip.setPointerCapture?.(event.pointerId);
+        } catch {}
+      });
+      const panned = (event) => place(pan.from + share(event.clientX) - pan.x, pan.width);
+      strip.addEventListener('pointermove', (event) => {
+        if (!pan || event.pointerId !== pan.id) return;
+        const from = panned(event);
+        placeOverviewWindow(from, from + pan.width);
+      });
+      strip.addEventListener('pointerup', (event) => {
+        if (!pan || event.pointerId !== pan.id) return;
+        const from = panned(event);
+        const { width } = pan;
+        pan = null;
+        panChart(from, from + width);
+      });
+      strip.addEventListener('pointercancel', () => {
+        pan = null;
+        placeOverviewWindow(...overviewWindow);
+      });
+      win.addEventListener('keydown', (event) => {
+        if (!chartZoom) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          showWholeChart();
+          chartBuckets.find((bucket) => bucket.selected)?.button.focus();
+          return;
+        }
+        const size = chartRange.end - chartRange.start;
+        const step = Math.max(1, Math.round((size + 1) / 4));
+        const last = viewRevisions.length - 1;
+        const start = { ArrowLeft: chartRange.start - step, ArrowRight: chartRange.start + step, Home: chartStart, End: last - size }[event.key];
+        if (start === undefined) return;
+        event.preventDefault();
+        const from = Math.max(chartStart, Math.min(last - size, start));
+        if (from === chartRange.start) return;
+        zoomTo({ start: from, end: from + size });
+        win.focus();
+      });
     }
 
     const slider = $('slider');
@@ -167,6 +335,11 @@ export const historyScript = `    function renderLegend() {
       slider.addEventListener('change', () => render(sliderRevision(Number(slider.value))));
       // Its arrow keys still step one revision at a time; Page Up and Page Down move a bar.
       slider.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && chartZoom) {
+          event.preventDefault();
+          showWholeChart();
+          return;
+        }
         const at = chartBuckets.findIndex((bucket) => bucket.start <= selected && selected <= bucket.end);
         const first = chartBuckets[0]?.start ?? 0;
         const last = chartBuckets.at(-1)?.end ?? 0;
@@ -181,6 +354,12 @@ export const historyScript = `    function renderLegend() {
       });
       // The bars are one tab stop; arrow keys, Home, and End move the selection between them.
       $('chart').addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && chartZoom) {
+          event.preventDefault();
+          showWholeChart();
+          chartBuckets.find((bucket) => bucket.selected)?.button.focus();
+          return;
+        }
         const at = chartBuckets.findIndex((bucket) => bucket.button === event.target);
         const next = { ArrowLeft: at - 1, ArrowRight: at + 1, Home: 0, End: chartBuckets.length - 1 }[event.key];
         if (at < 0 || next === undefined) return;
@@ -191,7 +370,54 @@ export const historyScript = `    function renderLegend() {
       });
       // The hover card follows the pointer, and a focused bar shows it too, so the keyboard reads the same figures.
       const barAt = (target) => chartBuckets.find((bucket) => bucket.button === target?.closest?.('.bar'));
+      // Dragging across the chart zooms into the bars under the drag; a click without a drag still selects a bar.
+      let drag = null;
+      const chartShare = (clientX) => {
+        const box = $('chart').getBoundingClientRect();
+        return box.width ? Math.max(0, Math.min(1, (clientX - box.left) / box.width)) : 0;
+      };
+      $('chart').addEventListener('pointerdown', (event) => {
+        if (event.button === 0 && chartBuckets.length) drag = { x: event.clientX, id: event.pointerId, moved: false };
+      });
+      /** Draws the band under a drag across the chart; true while a drag is going on, so the hover card stays hidden. */
+      function moveDrag(event) {
+        if (!drag || event.pointerId !== drag.id) return false;
+        if (!drag.moved && Math.abs(event.clientX - drag.x) < 5) return false;
+        if (!drag.moved) {
+          drag.moved = true;
+          hideChartTip();
+          // Capture keeps the drag going outside the chart; a pointer that has already gone up cannot be captured.
+          try {
+            $('chart').setPointerCapture?.(drag.id);
+          } catch {}
+        }
+        // The band covers the drag, inside the chart.
+        const box = $('chart').getBoundingClientRect();
+        const left = Math.max(0, Math.min(drag.x, event.clientX) - box.left);
+        const right = Math.min(box.width, Math.max(drag.x, event.clientX) - box.left);
+        const brush = $('chart-brush');
+        // The band sits in the chart's scroll box, which also holds the chart.
+        const scroll = brush.parentElement?.getBoundingClientRect() ?? box;
+        brush.style.left = (box.left - scroll.left + left).toFixed(1) + 'px';
+        brush.style.width = Math.max(0, right - left).toFixed(1) + 'px';
+        brush.hidden = false;
+        return true;
+      }
+      const endDrag = (event, zoom) => {
+        if (!drag || event.pointerId !== drag.id) return;
+        const { x, moved } = drag;
+        drag = null;
+        $('chart-brush').hidden = true;
+        if (!moved) return;
+        // The click that ends a drag does not also select the bar under it.
+        chartDragged = true;
+        setTimeout(() => { chartDragged = false; }, 0);
+        if (zoom) zoomChart(chartShare(x), chartShare(event.clientX));
+      };
+      $('chart').addEventListener('pointerup', (event) => endDrag(event, true));
+      $('chart').addEventListener('pointercancel', (event) => endDrag(event, false));
       $('chart').addEventListener('pointermove', (event) => {
+        if (moveDrag(event)) return;
         const bucket = barAt(event.target);
         if (bucket) showChartTip(bucket, event.clientX);
       });
@@ -203,6 +429,7 @@ export const historyScript = `    function renderLegend() {
         showChartTip(bucket, (bar.left || 0) + (bar.width || 0) / 2);
       });
       $('chart').addEventListener('focusout', hideChartTip);
+      setupOverview();
       setupComparison();
     }
 
