@@ -90,6 +90,9 @@ export function loadReportUi(html) {
     }
     getBoundingClientRect() {
       if (this.className === "treemap-leaf") return { bottom: 100, right: 180 };
+      // The history chart and the overview under it are 1,000 pixels wide, so a drag across them can be given in pixels.
+      if (this.tag === "chart" || this.tag === "overview-strip")
+        return { left: 0, width: 1000, right: 1000, bottom: 220 };
       // A test can say which names fit, in a full or compact rectangle; one that does not runs past its lower edge.
       if (this.className === "leaf-name")
         return { bottom: layout.labelFits?.(this.textContent, this.parentElement) === false ? 200 : 40 };

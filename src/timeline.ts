@@ -133,26 +133,23 @@ export interface TimelineTimeBars {
   buckets: TimelineBucket[];
   /** Each bar's width in milliseconds. */
   widths: number[];
-  /** The period whose changes share a bar. */
-  period: "day" | "week" | "month" | "year";
-  /** Whether some change joined a bar because of its date being out of order rather than in the same period. */
+  /** Whether some change joined the bar before it because its date did not move time on. */
   outOfOrder: boolean;
   /** The time from the first bar's start to the latest date, before the last bar is widened. */
   elapsed: number;
 }
 
 /**
- * Bars spaced by time, from one bucket per change and the date of each bucket's first revision: changes made on the
- * same day share a bar. A history with more than `maxBars` such days groups by week, then month, then year, the
- * finest that fits, so bars stay wide enough to see and select. A merged bar shows its last revision, the one that
- * stood once the period was over, and keeps the highest total inside it. Each bar is as wide as the time from its
- * first revision to the next bar's, and the last one to `end`, the latest revision's time.
+ * Bars spaced by time, from one bucket per change and the date of each bucket's first revision: every change keeps
+ * its own bar, so any change can be selected and compared, however close it came to the one before. Each bar is as
+ * wide as the time from its first revision to the next bar's, and the last one to `end`, the latest revision's time.
  *
  * Dates need not increase (clock skew, a rebase), so times are read on a clock that never goes back: a change dated
- * no later than the open bar's start joins that bar, so every bar has a width, the widths add up to the time the chart
- * covers, and dates placed across it line up with the bars. A date more than 30 days after the latest revision's is
- * a wrong clock rather than a time the history reached, so it does not move the clock either; otherwise one such date
- * would pull every later change into its bar. `outOfOrder` says whether either rule merged a change.
+ * no later than the bar before it does not move time on, so it joins that bar, which then shows it and keeps the
+ * highest total inside it. So every bar has a width, the widths add up to the time the chart covers, and dates
+ * placed across it line up with the bars. A date more than 30 days after the latest revision's is a wrong clock
+ * rather than a time the history reached, so it does not move the clock either; otherwise one such date would pull
+ * every later change into its bar. `outOfOrder` says whether either rule merged a change.
  *
  * The last bar has no next one to end at, and the latest change is often days or minutes before the latest revision,
  * which would leave the selected bar a hairline, so it is at least as wide as an average bar.
@@ -162,11 +159,9 @@ export function timelineTimeBars(
   buckets: readonly TimelineBucket[],
   dates: readonly string[],
   end: number,
-  maxBars = 400,
 ): TimelineTimeBars {
-  if (!buckets.length) return { buckets: [], widths: [], period: "day", outOfOrder: false, elapsed: 0 };
+  if (!buckets.length) return { buckets: [], widths: [], outOfOrder: false, elapsed: 0 };
   const limit = end + 30 * 86_400_000;
-  const times: number[] = [];
   const clock: number[] = [];
   // A wrong clock on the first change would leave nothing to start the chart from, so it starts at the earliest date.
   let earliest = end;
@@ -174,52 +169,35 @@ export function timelineTimeBars(
   let latest = Number.NEGATIVE_INFINITY;
   for (const date of dates) {
     const time = Date.parse(date);
-    times.push(time > limit ? (clock.length ? latest : earliest) : time);
-    latest = Math.max(latest, times.at(-1) as number);
+    latest = Math.max(latest, time > limit ? (clock.length ? latest : earliest) : time);
     clock.push(latest);
   }
   const finish = Math.max(end, latest);
-  // Weeks start on Monday: 1970-01-01, day 0, was a Thursday.
-  const periods = {
-    day: (date: string) => date.slice(0, 10),
-    week: (date: string) => String(Math.floor((Date.parse(date.slice(0, 10)) / 86_400_000 + 3) / 7)),
-    month: (date: string) => date.slice(0, 7),
-    year: (date: string) => date.slice(0, 4),
-  };
-  for (const [period, key] of Object.entries(periods) as [TimelineTimeBars["period"], (date: string) => string][]) {
-    const merged: TimelineBucket[] = [];
-    const first: number[] = [];
-    let open = "";
-    let outOfOrder = false;
-    for (let index = 0; index < buckets.length; index += 1) {
-      const bucket = buckets[index] as TimelineBucket;
-      const at = key(dates[index] as string);
-      const group = merged.at(-1);
-      // A change dated no later than the open bar's start does not move time on, so it joins that bar rather than
-      // leaving the bar before it with no width.
-      const behind = (times[index] as number) <= (clock[first.at(-1) as number] as number);
-      if (group && (at === open || behind)) {
-        if (at !== open) outOfOrder = true;
-        group.end = bucket.end;
-        group.peak = Math.max(group.peak, bucket.peak);
-        group.changes += bucket.changes;
-        continue;
-      }
-      merged.push({ ...bucket });
-      first.push(index);
-      open = at;
+  const merged: TimelineBucket[] = [];
+  const first: number[] = [];
+  let outOfOrder = false;
+  for (let index = 0; index < buckets.length; index += 1) {
+    const bucket = buckets[index] as TimelineBucket;
+    const group = merged.at(-1);
+    // A change that does not move the clock on would leave the bar before it with no width, so it joins that bar.
+    if (group && (clock[index] as number) <= (clock[first.at(-1) as number] as number)) {
+      outOfOrder = true;
+      group.end = bucket.end;
+      group.peak = Math.max(group.peak, bucket.peak);
+      group.changes += bucket.changes;
+      continue;
     }
-    if (merged.length > maxBars && period !== "year") continue;
-    const widths = first.map(
-      (index, bar) =>
-        (bar + 1 < first.length ? (clock[first[bar + 1] as number] as number) : finish) - (clock[index] as number),
-    );
-    const elapsed = finish - (clock[0] as number);
-    const last = widths.length - 1;
-    widths[last] = Math.max(widths[last] as number, elapsed / widths.length);
-    return { buckets: merged, widths, period, outOfOrder, elapsed };
+    merged.push({ ...bucket });
+    first.push(index);
   }
-  throw new Error("Unreachable");
+  const widths = first.map(
+    (index, bar) =>
+      (bar + 1 < first.length ? (clock[first[bar + 1] as number] as number) : finish) - (clock[index] as number),
+  );
+  const elapsed = finish - (clock[0] as number);
+  const last = widths.length - 1;
+  widths[last] = Math.max(widths[last] as number, elapsed / widths.length);
+  return { buckets: merged, widths, outOfOrder, elapsed };
 }
 
 /**
@@ -274,10 +252,58 @@ export function timelineRevision(
 }
 
 /**
+ * The revisions a drag across the chart zooms into, from two positions across it, 0 to 1: every revision of the bars
+ * under the drag, whole bars only. Undefined when the drag covers a single change, which there is nothing to zoom into.
+ * The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelineZoom(
+  buckets: readonly { start: number; end: number; changes: number }[],
+  edges: readonly [number, number][],
+  from: number,
+  to: number,
+): { start: number; end: number } | undefined {
+  if (!buckets.length) return undefined;
+  const barAt = (position: number) => {
+    const at = edges.findIndex(([, right]) => position < right);
+    return at < 0 ? buckets.length - 1 : at;
+  };
+  const first = barAt(Math.min(from, to));
+  const last = barAt(Math.max(from, to));
+  let changes = 0;
+  for (let at = first; at <= last; at += 1) changes += (buckets[at] as { changes: number }).changes;
+  if (changes < 2) return undefined;
+  return {
+    start: (buckets[first] as { start: number }).start,
+    end: (buckets[last] as { end: number }).end,
+  };
+}
+
+/**
+ * Where a run of revisions sits across the chart, from 0 to 1: from the left edge of the first one's share of its bar
+ * to the right edge of the last one's. A revision before the first bar sits at the left end, one after the last at the
+ * right end. The HTML report embeds this function's source, so it must stay self-contained.
+ */
+export function timelineSpan(
+  buckets: readonly { start: number; end: number }[],
+  edges: readonly [number, number][],
+  first: number,
+  last: number,
+): [number, number] {
+  if (!buckets.length) return [0, 1];
+  const edge = (index: number, after: boolean) => {
+    const at = buckets.findIndex((bucket) => bucket.start <= index && index <= bucket.end);
+    if (at < 0) return index < (buckets[0] as { start: number }).start ? 0 : 1;
+    const bucket = buckets[at] as { start: number; end: number };
+    const [from, to] = edges[at] as [number, number];
+    return from + ((to - from) * (index - bucket.start + (after ? 1 : 0))) / (bucket.end - bucket.start + 1);
+  };
+  return [edge(first, false), edge(last, true)];
+}
+
+/**
  * The line under a grouped timeline, shared by the HTML report and the SVG image; empty when every charted revision
- * has its own bar. `higher` says whether some bar hides a higher total, which a dashed line marks. `period`, when
- * bars are spaced by time, is the period whose changes share a bar, which replaces merging the most alike neighbors,
- * and `outOfOrder` says some changes joined a bar because their dates were out of order.
+ * has its own bar. `higher` says whether some bar hides a higher total, which a dashed line marks. `byTime` says the
+ * bars are spaced by time: the line then says how wide they are, and how many changes dated out of order share a bar.
  * The HTML report embeds this function's source, so it must stay self-contained.
  */
 export function timelineStepsNote(
@@ -285,15 +311,21 @@ export function timelineStepsNote(
   buckets: readonly TimelineBucket[],
   higher: boolean,
   format: (value: number) => string = (value) => new Intl.NumberFormat("en-US").format(value),
-  period?: string,
-  outOfOrder = false,
+  byTime = false,
 ): string {
+  if (byTime) {
+    const merged = buckets.reduce((total, bucket) => total + bucket.changes, 0) - buckets.length;
+    const outOfOrder = merged
+      ? `; ${format(merged)} ${merged === 1 ? "change dated out of order shares the bar before it" : "changes dated out of order share the bar before them"}`
+      : "";
+    return `One bar per change, as wide as the time until the next one${outOfOrder}.${higher ? " A dashed line marks a higher total inside a bar." : ""}`;
+  }
   if (buckets.length >= revisions) return "";
   const changes = buckets.reduce((total, bucket) => total + bucket.changes, 0);
   if (changes <= buckets.length) {
     return `${format(revisions)} revisions shown as ${format(buckets.length)} steps, one per change; each step shows the last revision in its group.`;
   }
-  return `${format(revisions)} revisions and ${format(changes)} changes shown as ${format(buckets.length)} steps, merging ${period ? `changes made ${period === "day" ? "on the same day" : `in the same ${period}`}${outOfOrder ? " or dated out of order" : ""}` : "the most alike neighbors"}; each step shows the last revision in its group.${higher ? " A dashed line marks a higher total inside a step." : ""}`;
+  return `${format(revisions)} revisions and ${format(changes)} changes shown as ${format(buckets.length)} steps, merging the most alike neighbors; each step shows the last revision in its group.${higher ? " A dashed line marks a higher total inside a step." : ""}`;
 }
 
 export interface TimelineScale {

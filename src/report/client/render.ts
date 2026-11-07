@@ -1,5 +1,10 @@
 /** Drawing a selected revision: the masthead, then each panel whose input changed. */
 export const renderScript = `    function render(index, dragging) {
+      // A revision picked outside the zoomed range, from the revision selects, shows the whole history again.
+      if (chartZoom && (index < chartRange.start || index > chartRange.end)) {
+        chartZoom = null;
+        renderChart();
+      }
       selected = index;
       const revision = viewRevisions[index];
       // Most commits of a long history touch no tracked file, so the masthead shows the latest change at or before

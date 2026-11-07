@@ -5,8 +5,10 @@ import {
   timelineEdges,
   timelinePosition,
   timelineRevision,
+  timelineSpan,
   timelineStepsNote,
   timelineTimeBars,
+  timelineZoom,
 } from "../dist/timeline.js";
 
 /** One value per revision, as a one-layer chart draws it. */
@@ -95,40 +97,33 @@ test("the grouped timeline note says how bars group revisions", () => {
     "#1500 revisions and #1500 changes shown as #100 steps, merging the most alike neighbors; each step shows the last revision in its group.",
   );
   assert.equal(
-    timelineStepsNote(1500, merged, false, undefined, "day"),
-    "1,500 revisions and 1,500 changes shown as 100 steps, merging changes made on the same day; each step shows the last revision in its group.",
+    timelineStepsNote(1500, merged, false, undefined, true),
+    "One bar per change, as wide as the time until the next one; 1,400 changes dated out of order share the bar before them.",
   );
 });
 
-test("bars spaced by time merge only changes made on the same day", () => {
+test("bars spaced by time give every change its own bar", () => {
   const minute = 60 * 1000;
   const hour = 60 * minute;
   const day = 24 * hour;
   const at = (time) => new Date(Date.parse("2024-01-01T00:00:00Z") + time).toISOString();
   const changes = timelineBuckets(single([10, 50, 20, 30, 40, 45]));
   assert.equal(changes.length, 6);
-  // Two changes on day 0, one on day 1, two on day 5, and one on day 6, a minute before the latest revision.
-  const starts = [0, 2 * hour, day, 5 * day, 5 * day + hour, 6 * day];
+  // Two changes on day 0, one on day 1, two on day 5 a minute apart, and one on day 6, a minute before the latest
+  // revision: each keeps its own bar, however close it came to the one before.
+  const starts = [0, 2 * hour, day, 5 * day, 5 * day + minute, 6 * day];
   const end = Date.parse(at(6 * day + minute));
   const bars = timelineTimeBars(changes, starts.map(at), end);
-  assert.deepEqual(bars.buckets, [
-    { start: 0, end: 1, peak: 50, changes: 2 },
-    { start: 2, end: 2, peak: 20, changes: 1 },
-    { start: 3, end: 4, peak: 40, changes: 2 },
-    { start: 5, end: 5, peak: 45, changes: 1 },
-  ]);
-  assert.equal(bars.period, "day");
+  assert.deepEqual(bars.buckets, changes);
   assert.equal(bars.elapsed, 6 * day + minute);
   // Each bar lasts until the next one starts; the last is at least as wide as an average bar.
-  assert.deepEqual(bars.widths, [day, 4 * day, day, (6 * day + minute) / 4]);
+  assert.deepEqual(bars.widths, [2 * hour, day - 2 * hour, 4 * day, minute, day - minute, (6 * day + minute) / 6]);
   assert.equal(bars.outOfOrder, false);
-  assert.deepEqual(timelineTimeBars([], [], 0), {
-    buckets: [],
-    widths: [],
-    period: "day",
-    outOfOrder: false,
-    elapsed: 0,
-  });
+  assert.equal(
+    timelineStepsNote(7, bars.buckets, false, undefined, true),
+    "One bar per change, as wide as the time until the next one.",
+  );
+  assert.deepEqual(timelineTimeBars([], [], 0), { buckets: [], widths: [], outOfOrder: false, elapsed: 0 });
 });
 
 test("bars spaced by time read dates on a clock that never goes back", () => {
@@ -149,9 +144,11 @@ test("bars spaced by time read dates on a clock that never goes back", () => {
   assert.equal(bars.elapsed, 12 * day);
   assert.equal(bars.outOfOrder, true);
   assert.equal(
-    timelineStepsNote(4, bars.buckets, false, undefined, bars.period, bars.outOfOrder),
-    "4 revisions and 4 changes shown as 3 steps, merging changes made on the same day or dated out of order; each step shows the last revision in its group.",
+    timelineStepsNote(4, bars.buckets, true, undefined, true),
+    "One bar per change, as wide as the time until the next one; 1 change dated out of order shares the bar before it. A dashed line marks a higher total inside a bar.",
   );
+  // Two changes with the same date share a bar too, since the second would have no width.
+  assert.equal(timelineTimeBars(changes, [0, 3, 3, 12].map(at), Date.parse(at(12))).buckets.length, 3);
   // A date years ahead of the latest revision is a wrong clock: it joins the bar before it rather than pulling
   // every later change into its own bar.
   const future = timelineBuckets(single([1, 2, 3, 4, 5]));
@@ -171,35 +168,59 @@ test("bars spaced by time read dates on a clock that never goes back", () => {
   const first = timelineTimeBars(future, [2000, 1, 2, 3, 4].map(at), Date.parse(at(4)));
   assert.equal(first.buckets.length, 4);
   assert.ok(first.widths.every((width) => width > 0));
-  // A rebased change between two on the same day does not split that day.
-  const day3 = timelineTimeBars(changes, [0, 10.1, 9, 10.2].map(at), Date.parse(at(11)));
-  assert.equal(day3.buckets.length, 2);
+  // A rebased change joins the bar before it; the changes after it keep their own bars.
+  const rebased = timelineTimeBars(future, [0, 10, 9, 11, 12].map(at), Date.parse(at(12)));
+  assert.equal(rebased.buckets.length, 4);
   // A latest revision dated before the latest change ends the chart at that change.
   assert.equal(timelineTimeBars(changes, [0, 10, 5, 12].map(at), Date.parse(at(8))).elapsed, 12 * day);
 });
 
-test("bars spaced by time group by week, month, or year when there are too many days", () => {
+test("bars spaced by time have no cap", () => {
   const day = 24 * 60 * 60 * 1000;
   const changes = timelineBuckets(single(Array.from({ length: 1000 }, (_, index) => index)), 1000);
   const dates = changes.map((_, index) => new Date(Date.parse("2024-01-01T00:00:00Z") + index * day).toISOString());
-  const end = Date.parse(dates.at(-1));
-  // Under the limit, every day keeps its own bar.
-  assert.equal(timelineTimeBars(changes, dates, end, 1000).buckets.length, 1000);
-  // 1,000 days are 143 weeks starting on Monday 2024-01-01; a week's bar shows its last day.
-  const weeks = timelineTimeBars(changes, dates, end);
-  assert.equal(weeks.period, "week");
-  assert.equal(weeks.buckets.length, 143);
-  assert.deepEqual(weeks.buckets[0], { start: 0, end: 6, peak: 6, changes: 7 });
-  const months = timelineTimeBars(changes, dates, end, 100);
-  assert.equal(months.period, "month");
-  assert.equal(months.buckets.length, 33);
-  const years = timelineTimeBars(changes, dates, end, 2);
-  assert.equal(years.period, "year");
-  assert.equal(years.buckets.length, 3);
-  assert.equal(
-    timelineStepsNote(1000, weeks.buckets, false, undefined, weeks.period),
-    "1,000 revisions and 1,000 changes shown as 143 steps, merging changes made in the same week; each step shows the last revision in its group.",
-  );
+  const bars = timelineTimeBars(changes, dates, Date.parse(dates.at(-1)));
+  assert.equal(bars.buckets.length, 1000);
+  assert.equal(bars.outOfOrder, false);
+});
+
+test("a drag across the chart zooms into whole bars, and needs more than one change", () => {
+  const buckets = [
+    { start: 0, end: 2, changes: 1 },
+    { start: 3, end: 3, changes: 1 },
+    { start: 4, end: 9, changes: 3 },
+    { start: 10, end: 12, changes: 1 },
+  ];
+  const edges = timelineEdges(4, [1, 1, 2, 4]);
+  // Edges at 0.125, 0.25, and 0.5: a drag from inside the second bar to inside the fourth covers all three.
+  assert.deepEqual(timelineZoom(buckets, edges, 0.2, 0.6), { start: 3, end: 12 });
+  assert.deepEqual(timelineZoom(buckets, edges, 0.6, 0.2), { start: 3, end: 12 });
+  // Inside one bar there is nothing to zoom into, unless that bar merged several changes.
+  assert.equal(timelineZoom(buckets, edges, 0.01, 0.1), undefined);
+  assert.deepEqual(timelineZoom(buckets, edges, 0.3, 0.4), { start: 4, end: 9 });
+  // A drag past the right edge ends at the last bar.
+  assert.deepEqual(timelineZoom(buckets, edges, 0.1, 1), { start: 0, end: 12 });
+  assert.equal(timelineZoom([], [], 0, 1), undefined);
+});
+
+test("a run of revisions spans its share of the bars, from its first revision's left edge to its last one's right", () => {
+  const buckets = [
+    { start: 2, end: 2 },
+    { start: 3, end: 6 },
+    { start: 7, end: 7 },
+  ];
+  const edges = timelineEdges(3, [1, 2, 1]);
+  assert.deepEqual(timelineSpan(buckets, edges, 2, 7), [0, 1]);
+  assert.deepEqual(timelineSpan(buckets, edges, 3, 6), [0.25, 0.75]);
+  // Revisions 4 and 5 are the middle two quarters of the second bar.
+  assert.deepEqual(timelineSpan(buckets, edges, 4, 5), [0.375, 0.625]);
+  // The span maps back to the same revisions.
+  const [from, to] = timelineSpan(buckets, edges, 4, 5);
+  assert.equal(timelineRevision(buckets, edges, from + 1e-9), 4);
+  assert.equal(timelineRevision(buckets, edges, to - 1e-9), 5);
+  // Revisions outside the bars sit at the ends.
+  assert.deepEqual(timelineSpan(buckets, edges, 0, 9), [0, 1]);
+  assert.deepEqual(timelineSpan([], [], 0, 1), [0, 1]);
 });
 
 test("the slider position follows the bars, in equal or time-proportional widths", () => {

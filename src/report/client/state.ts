@@ -128,6 +128,14 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
     // 'change' gives every bar the same width; 'time' makes each as wide as the time its configuration lasted.
     let chartSpacing = 'change';
     let chartStart = 0;
+    // The revisions a drag zoomed the chart into, or null for the whole history; chartRange is what the chart shows.
+    let chartZoom = null;
+    let chartRange = { start: 0, end: 0 };
+    // Zoomed in, the whole history's bars under the chart, and where the zoomed range sits across them, 0 to 1.
+    let overviewBars = null;
+    let overviewWindow = [0, 1];
+    // Set for a moment after a drag, so the click that ends it does not select a bar.
+    let chartDragged = false;
     let treemapLabels = [];
     // What the line under the treemap says while no rectangle is hovered or focused.
     let treemapNote = '';

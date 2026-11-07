@@ -234,6 +234,22 @@ export const reportStyles = `    ${displayFontFace}
     .history-tip-row b { margin-left: auto; padding-left: 12px; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
     .chart-spacing { margin: 0 0 10px; }
     .history-plot .chart.by-time { gap: 0; }
+    /* Dragging across the chart zooms in: horizontal drags reach the page, vertical ones still scroll it. */
+    .history-plot .chart { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+    .chart-brush { position: absolute; top: 4px; height: 220px; background: color-mix(in srgb, var(--clay) 16%, transparent); border-inline: 1px solid var(--clay); pointer-events: none; }
+    .chart-brush[hidden] { display: none; }
+    .chart-spacing .chart-zoom { margin-left: auto; }
+    .chart-spacing span.chart-zoom { font-size: 12px; }
+    /* Zoomed in, the whole history under the chart: a window over the zoomed range, the rest dimmed. */
+    .chart-overview { margin-top: 14px; }
+    .chart-overview[hidden] { display: none; }
+    .overview-strip { position: relative; height: 34px; overflow: hidden; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .overview-strip:active { cursor: grabbing; }
+    .overview-plot, .overview-plot i { position: absolute; inset: 0; }
+    .overview-window { position: absolute; top: 0; bottom: 0; min-width: 8px; box-sizing: border-box; border-inline: 2px solid var(--clay); background: color-mix(in srgb, var(--clay) 12%, transparent); box-shadow: 0 0 0 100vw color-mix(in srgb, var(--sheet) 68%, transparent); }
+    .overview-window:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+    .overview-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .overview-meta #overview-note { color: var(--clay); font-weight: 600; }
     .history-plot .peak { position: absolute; left: 12%; right: 12%; height: 0; border-top: 2px dashed var(--muted); pointer-events: none; }
     .history-tip-total { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 2px; }
     @media (max-width: 520px) { .history-plot { padding-left: 34px; } .history-tick { left: 34px; } .history-dates span:not(.primary) { display: none; } }
