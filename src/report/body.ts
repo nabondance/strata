@@ -61,7 +61,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
         <input id="slider" type="range" aria-label="Select revision">
         <div class="timeline-meta"><span id="timeline-start"></span><span class="history-dates" id="timeline-dates" aria-hidden="true"></span><span id="timeline-end"></span></div>
         <div class="chart-overview" id="chart-overview" hidden>
-          <div class="overview-strip" id="overview-strip"><div class="overview-plot" id="overview-plot" aria-hidden="true"></div><button type="button" class="overview-window" id="overview-window"></button></div>
+          <div class="overview-strip" id="overview-strip"><div class="overview-plot" id="overview-plot" aria-hidden="true"></div><div class="overview-window" id="overview-window" role="slider" tabindex="0" aria-label="Zoomed range" aria-valuemin="0" aria-valuemax="100"></div></div>
           <div class="overview-meta"><span id="overview-start"></span><span id="overview-note"></span><span id="overview-end"></span></div>
         </div>
         <p class="history-steps" id="chart-steps" hidden></p>

@@ -246,7 +246,7 @@ export const reportStyles = `    ${displayFontFace}
     .overview-strip { position: relative; height: 34px; overflow: hidden; border-bottom: 1px solid var(--line); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
     .overview-strip:active { cursor: grabbing; }
     .overview-plot, .overview-plot i { position: absolute; inset: 0; }
-    .overview-window { position: absolute; top: 0; bottom: 0; min-width: 8px; padding: 0; border: 0; border-inline: 2px solid var(--clay); background: color-mix(in srgb, var(--clay) 12%, transparent); box-shadow: 0 0 0 100vw color-mix(in srgb, var(--sheet) 68%, transparent); cursor: inherit; }
+    .overview-window { position: absolute; top: 0; bottom: 0; min-width: 8px; box-sizing: border-box; border-inline: 2px solid var(--clay); background: color-mix(in srgb, var(--clay) 12%, transparent); box-shadow: 0 0 0 100vw color-mix(in srgb, var(--sheet) 68%, transparent); }
     .overview-window:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
     .overview-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .overview-meta #overview-note { color: var(--clay); font-weight: 600; }

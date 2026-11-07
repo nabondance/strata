@@ -430,7 +430,11 @@ test("zoomed in, an overview of the whole history shows the zoomed range, and mo
   assert.equal(get("overview-start").textContent, revisions[0].date.slice(0, 10));
   assert.equal(get("overview-end").textContent, revisions.at(-1).date.slice(0, 10));
   assert.equal(get("overview-note").textContent, `Zoomed in: ${chart.children.length} of ${total} changes`);
-  assert.match(win.getAttribute("aria-label"), /Arrow keys move the range/);
+  // Assistive technology reads the window as a slider over the history, with the range's dates.
+  assert.equal(
+    win.getAttribute("aria-valuetext"),
+    `${revisions[range.start].date.slice(0, 10)} to ${revisions[range.end].date.slice(0, 10)}, ${get("overview-note").textContent}`,
+  );
 
   // Dragging the window to the left pans the chart to earlier revisions over the same share of the history.
   const pan = (down, up) => {
@@ -449,6 +453,11 @@ test("zoomed in, an overview of the whole history shows the zoomed range, and mo
   assert.equal(get("chart-overview").hidden, false);
   // The selection was after the range, so it moved to the range's last revision.
   assert.equal(get("target").value, String(moved[1]));
+  // The count takes only changes inside the range: one that starts partway through a bar does not start with one.
+  const same = (at) => values[at].every((value, index) => value === values[at - 1][index]);
+  let inside = moved[0] > 0 && same(moved[0]) ? 0 : 1;
+  for (let at = moved[0] + 1; at <= moved[1]; at += 1) if (!same(at)) inside += 1;
+  assert.equal(get("overview-note").textContent, `Zoomed in: ${inside} of ${total} changes`);
 
   // Pressing outside the window moves it there; a window past the left end stops at it.
   pan(0, 0);
@@ -468,6 +477,59 @@ test("zoomed in, an overview of the whole history shows the zoomed range, and mo
   key("Escape");
   assert.equal(get("chart-overview").hidden, true);
   assert.equal(chart.children.length, bars.buckets.length);
+});
+
+test("zooming keeps the baseline mark, Show all keeps the focus, and a release outside the chart ends a drag", async () => {
+  const report = await longHistory();
+  const { get, timers } = loadReportUi(renderHtml(report));
+  const chart = get("chart");
+  const runTimers = () => {
+    for (const [id, run] of [...timers]) {
+      timers.delete(id);
+      run();
+    }
+  };
+  get("chart-spacing")
+    .children.find((child) => child.textContent === "Time")
+    .listeners.click();
+  // A fixed baseline inside the range the drag zooms into, with the selection inside it too.
+  const pick = chart.children[Math.floor(chart.children.length * 0.6)];
+  pick.listeners.click();
+  const target = Number(get("target").value);
+  const fixed = chart.children[Math.floor(chart.children.length * 0.55)];
+  fixed.listeners.click();
+  const baseline = Number(get("target").value);
+  get("target").value = String(target);
+  get("target").listeners.change();
+  get("baseline").value = String(baseline);
+  get("baseline").listeners.change();
+  assert.equal(fixed.classes.has("baseline"), true);
+  chart.listeners.pointerdown({ button: 0, clientX: 500, pointerId: 1 });
+  chart.listeners.pointermove({ clientX: 750, pointerId: 1, target: chart });
+  chart.listeners.pointerup({ clientX: 750, pointerId: 1 });
+  runTimers();
+  assert.equal(get("chart-overview").hidden, false);
+  assert.equal(get("target").value, String(target));
+  // The rebuilt bars still mark the baseline.
+  assert.equal(chart.children.filter((bar) => bar.classes.has("baseline")).length, 1);
+
+  // Show all moves the focus to the selected bar rather than losing it with the button.
+  get("chart-spacing")
+    .children.find((child) => child.className === "chart-zoom")
+    .listeners.click();
+  assert.equal(get("chart-overview").hidden, true);
+  assert.equal(chart.children.find((bar) => bar.classes.has("selected")).focused, true);
+  assert.equal(chart.children.filter((bar) => bar.classes.has("baseline")).length, 1);
+
+  // A button released outside the chart, before the drag passed 5 pixels, ends it: moving back over the chart with
+  // no button down draws no band and zooms into nothing.
+  const bars = chart.children.length;
+  chart.listeners.pointerdown({ button: 0, clientX: 500, pointerId: 3 });
+  chart.listeners.pointermove({ clientX: 800, pointerId: 3, buttons: 0, target: chart });
+  assert.equal(get("chart-brush").hidden, true);
+  chart.listeners.pointerup({ clientX: 800, pointerId: 3 });
+  runTimers();
+  assert.equal(chart.children.length, bars);
 });
 
 test("the comparison selects list changed revisions by month and default to the previous change", async () => {

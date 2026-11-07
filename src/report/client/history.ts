@@ -48,6 +48,8 @@ export const historyScript = `    function renderLegend() {
       hideChartTip();
       fillRevisionSelects();
       chartBuckets = [];
+      // New bars have no baseline mark yet, so the comparison draws it again with the next render.
+      drawn.target = null;
       // Leading revisions with nothing tracked in this view would only flatten the chart.
       chartStart = Math.max(0, viewRevisions.findIndex((revision) => revision.components.length));
       // Zoomed in, the chart covers the revisions a drag picked; a view where they have nothing tracked shows all.
@@ -181,11 +183,16 @@ export const historyScript = `    function renderLegend() {
       overviewWindow = timelineSpan(whole.buckets, whole.edges, chartRange.start, chartRange.end);
       placeOverviewWindow(...overviewWindow);
       const changes = (buckets) => buckets.reduce((sum, bucket) => sum + bucket.changes, 0);
-      const note = 'Zoomed in: ' + fmt(changes(chartBuckets)) + ' of ' + fmt(changes(whole.buckets)) + ' changes';
+      // The chart's first bar counts as a change; a range that starts partway through a bar does not start with one.
+      const at = chartRange.start;
+      const continued = at > chartStart && values[at].every((value, index) => value === values[at - 1][index]);
+      const note = 'Zoomed in: ' + fmt(changes(chartBuckets) - (continued ? 1 : 0)) + ' of ' + fmt(changes(whole.buckets)) + ' changes';
       $('overview-start').textContent = viewRevisions[chartStart].date.slice(0, 10);
       $('overview-note').textContent = note;
       $('overview-end').textContent = viewRevisions.at(-1).date.slice(0, 10);
-      $('overview-window').setAttribute('aria-label', note + ', ' + viewRevisions[chartRange.start].date.slice(0, 10) + ' to ' + viewRevisions[chartRange.end].date.slice(0, 10) + '. Arrow keys move the range; Escape shows the whole history.');
+      const win = $('overview-window');
+      win.setAttribute('aria-valuenow', String(Math.round(overviewWindow[0] * 100)));
+      win.setAttribute('aria-valuetext', viewRevisions[chartRange.start].date.slice(0, 10) + ' to ' + viewRevisions[chartRange.end].date.slice(0, 10) + ', ' + note);
     }
 
     /** Draws the overview's window from one position to another, 0 to 1; a very short range keeps a few pixels. */
@@ -217,7 +224,10 @@ export const historyScript = `    function renderLegend() {
         const all = text('button', 'Show all', 'chart-zoom');
         all.type = 'button';
         all.title = 'Show the whole history again (Escape)';
-        all.addEventListener('click', showWholeChart);
+        all.addEventListener('click', () => {
+          showWholeChart();
+          chartBuckets.find((bucket) => bucket.selected)?.button.focus();
+        });
         container.append(all);
       } else if (viewRevisions.length > 1) {
         container.append(text('span', 'Drag across the chart to zoom in', 'chart-zoom'));
@@ -227,7 +237,10 @@ export const historyScript = `    function renderLegend() {
     /** Zooms into the bars between two positions across the chart, 0 to 1; a drag over a single change does nothing. */
     function zoomChart(from, to) {
       const range = timelineZoom(chartBuckets, chartEdges, from, to);
-      if (!range) return;
+      // Spaced by time, a bar holds several changes only when their dates do not advance, so zooming into it alone
+      // would draw it the same way again.
+      const bars = range && chartBuckets.filter((bucket) => bucket.start >= range.start && bucket.end <= range.end).length;
+      if (!range || (bars < 2 && $('chart').classList.contains('by-time'))) return;
       zoomTo(range);
       chartBuckets.find((bucket) => bucket.selected)?.button.focus();
     }
@@ -274,7 +287,12 @@ export const historyScript = `    function renderLegend() {
         const [from, to] = overviewWindow;
         const width = to - from;
         const at = share(event.clientX);
-        pan = { id: event.pointerId, x: at, width, from: at >= from && at <= to ? from : place(at - width / 2, width) };
+        // A short range draws at least 8 pixels wide, kept inside the strip; a press anywhere on it grabs it.
+        const box = strip.getBoundingClientRect();
+        const least = box.width ? 8 / box.width : 0;
+        const left = Math.min(from, 1 - least);
+        const inside = at >= left && at <= Math.max(to, left + least);
+        pan = { id: event.pointerId, x: at, width, from: inside ? from : place(at - width / 2, width) };
         placeOverviewWindow(pan.from, pan.from + width);
         try {
           strip.setPointerCapture?.(event.pointerId);
@@ -382,6 +400,12 @@ export const historyScript = `    function renderLegend() {
       /** Draws the band under a drag across the chart; true while a drag is going on, so the hover card stays hidden. */
       function moveDrag(event) {
         if (!drag || event.pointerId !== drag.id) return false;
+        // A button released outside the chart, before the drag captured the pointer, ends it.
+        if (event.buttons === 0) {
+          drag = null;
+          $('chart-brush').hidden = true;
+          return false;
+        }
         if (!drag.moved && Math.abs(event.clientX - drag.x) < 5) return false;
         if (!drag.moved) {
           drag.moved = true;
