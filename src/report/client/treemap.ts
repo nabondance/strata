@@ -98,7 +98,12 @@ export const treemapScript = `    // Gaps and the category header are in pixels,
           treeLegend.append(entry);
         }
       }
-      treemapNote = (outlined ? fmt(outlined) + ' outlined files changed at this revision · ' : '') + fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized · ' + fmt(layout.sourceOnlyCount) + ' source-only' + sourceOnlyCategories() + ' · ' + fmt(layout.zeroTokenCount) + ' zero-token files';
+      treemapNote = [
+        outlined ? fmt(outlined) + ' outlined files changed at this revision' : '',
+        fmt(layout.groups.reduce((sum, group) => sum + group.leaves.length, 0)) + ' sized',
+        layout.sourceOnlyCount ? fmt(layout.sourceOnlyCount) + ' source-only' + sourceOnlyCategories() : '',
+        layout.zeroTokenCount ? plural(layout.zeroTokenCount, 'zero-token file') : '',
+      ].filter(Boolean).join(' · ');
       $('treemap-hover').textContent = treemapNote;
       $('treemap-hover').classList.remove('detail');
       drawn.treemap = viewRevisions[selected].components;

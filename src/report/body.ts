@@ -10,20 +10,26 @@ import { tokenAdjective } from "./token-adjective.js";
 export function reportBody(report: Report, origin?: ReportOrigin): string {
   const adjective = tokenAdjective(report);
   const accuracyLabels = { "api-counted": "API", "encoding-exact": "local exact", estimate: "estimate" } as const;
-  const providerColumns = (report.providerMeasurements ?? [])
+  const measured = report.providerMeasurements ?? [];
+  // Only Codex is counted without --precise, and it never sends text, so the note is for --precise runs.
+  const precise = measured.some(({ provider }) => provider !== "codex");
+  const sentTo = measured.filter((entry) => textRecipients(entry).length);
+  const providerColumns = measured
     .map(
       (measured) =>
         `<th class="num" title="${escapeHtml([measured.accuracy, measured.model, measured.method, measured.credential].filter(Boolean).join(" · "))}">${providerName[measured.provider]} ${accuracyLabels[measured.accuracy]}</th>`,
     )
     .join("");
-  const sentTo = (report.providerMeasurements ?? []).filter((measured) => textRecipients(measured).length);
-  const providerNote = report.providerMeasurements
-    ? `Provider columns are each provider's own count and are never added together. ${
-        sentTo.length
-          ? `Text sent to: ${sentTo.map((measured) => `${escapeHtml(textRecipients(measured).join(" and "))} (${providerName[measured.provider]})`).join(", ")}.`
-          : "No text was sent to a provider."
-      }`
-    : "";
+  const providerNote = [
+    measured.length > 1 ? "Provider columns are each provider's own count and are never added together." : "",
+    sentTo.length
+      ? `Text sent to: ${sentTo.map((entry) => `${escapeHtml(textRecipients(entry).join(" and "))} (${providerName[entry.provider]})`).join(", ")}.`
+      : precise
+        ? "No text was sent to a provider."
+        : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return `  <header>
     <div class="masthead">
@@ -75,14 +81,13 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
     </section>
     <section class="panel" aria-labelledby="map-heading">
       <div class="panel-head"><h2 id="map-heading">Configuration map</h2><div class="map-tools" role="group" aria-label="Folders"><button type="button" id="map-expand">Open all folders</button><button type="button" id="map-collapse">Close all folders</button></div></div>
-      <p class="muted map-intro">Where each file sits, with a bar for its share of the tokens named under the map. Lines are Claude @path imports, with the arrow at the imported file. A folder only holds its files, and a line does not show that a session loaded a file.</p>
-      <div class="legend"><span><i class="map-key"></i>Claude import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file or folder, measured in bytes</span></div>
+      <div class="legend"><span title="The arrow points at the imported file."><i class="map-key"></i>Claude @path import</span><span><i class="map-key dashed"></i>Import to or from a closed folder</span><span><i class="swatch hollow"></i>Source-only file or folder, measured in bytes</span></div>
       <div class="config-map" id="config-map" role="tree" aria-labelledby="map-heading"></div>
       <p class="treemap-hover" id="map-hover" aria-live="polite"></p>
     </section>
     <details class="panel" id="age-panel" hidden>
       <summary><h2>Instruction age</h2><span class="summary-count" id="age-count"></span></summary>
-      <p class="muted">How long the instruction text has stayed: each layer is the text first added in one period that is still there, oldest at the bottom.</p>
+      <p class="muted">Instruction text still present, layered by the period it was added, oldest at the bottom.</p>
       <details class="notice"><summary>How instruction age is measured</summary><p>Lines are matched by their exact text in every instruction file, so a line moved into a skill keeps its age, and an edited line starts again. Text removed and later restored counts as new, including a file that leaves and rejoins because an import was dropped and restored. Weighed by the bytes of nonblank lines, and always across all files, whatever the view. Periods follow author dates.</p></details>
       <div class="legend age-legend" id="age-legend"></div>
       <div class="chart-scroll"><div class="chart age-chart" id="age-chart" role="group" aria-label="Instruction text by the period it was added"></div></div>
@@ -91,7 +96,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
     </details>
     <details class="panel" id="upfront-panel" hidden>
       <summary><h2>At session start</h2><span class="summary-count" id="upfront-count"></span></summary>
-      <p class="muted">What each agent reads as soon as a session opens at the repository root, and what it reads only when needed.</p>
+      <p class="muted">For a session opened at the repository root.</p>
       <div class="table-wrap"><table><thead><tr><th>Agent</th><th class="num" title="Files read when the session opens">Files</th><th class="num" title="Root instructions, always-on rules, and the files they import">Instructions</th><th class="num" title="Each skill's name and description; the rest of a skill is read when it is used">Skill summaries</th><th class="num" title="Instructions plus skill summaries: everything read when the session opens">Total at start</th><th class="num" title="Skills, scoped rules, commands, agents, and instructions in subfolders">When needed</th></tr></thead><tbody id="upfront-rows"></tbody></table></div>
       <p class="muted" id="upfront-note" style="white-space: pre-line"></p>
       <div class="table-wrap" id="upfront-files-wrap" hidden><table><thead><tr><th>Read at start</th><th>Kind</th><th class="num">Tokens</th></tr></thead><tbody id="upfront-files"></tbody></table></div>
@@ -104,19 +109,18 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
     </details>
     <details class="panel" id="imports-panel" hidden>
       <summary><h2>Claude imports</h2><span class="summary-count" id="imports-count"></span></summary>
-      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep. Broken imports come first; an import of a symlink shows the file it leads to after an arrow.</p>
+      <p class="muted">Files that CLAUDE.md, CLAUDE.local.md, or AGENTS.md pull in with @path, up to four levels deep.</p>
       <div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Line</th><th>Imports</th><th class="num" title="1 means imported directly by the starting file">Depth</th><th>Status</th></tr></thead><tbody id="imports"></tbody></table></div>
       <button class="more" id="imports-more" type="button" hidden></button>
     </details>
     <details class="panel" id="mcp-panel" hidden>
       <summary><h2>MCP servers</h2><span class="summary-count" id="mcp-count"></span></summary>
-      <p class="muted">Servers the tracked MCP and settings files define, by name. Defined is not loaded: some tools ask before starting a project server and others start it once the folder is trusted, and user configuration is outside Git. Strata never starts a server, so the tool definitions a server sends are not measured.</p>
+      <details class="notice"><summary>Defined, not necessarily loaded</summary><p>Some tools ask before starting a project server and others start it once the folder is trusted, and user configuration is outside Git. Strata never starts a server, so the tool definitions a server sends are not measured.</p></details>
       <div class="table-wrap"><table><thead><tr><th>Server</th><th title="Local starts a process on your machine; remote connects to a URL">Runs</th><th>Defined in</th><th>Provider</th></tr></thead><tbody id="mcp-servers"></tbody></table></div>
       <button class="more" id="mcp-servers-more" type="button" hidden></button>
     </details>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
-      <p class="muted">A moved file can appear as a removal plus an addition.</p>
       <div class="compare-controls">
         <label>Baseline revision<select id="baseline"></select></label>
         <label>Target revision<select id="target"></select></label>
@@ -134,9 +138,9 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>
       </div>
-      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ summary</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button></div>
+      <div class="compare-section"><h3>Changed components</h3><div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th>Change</th><th class="num">Δ tokens</th><th class="num">Δ summary</th></tr></thead><tbody id="compare-components"></tbody></table></div><button class="more" id="compare-components-more" type="button" hidden></button><p class="muted" id="compare-moved" hidden>A moved file can appear as a removal plus an addition.</p></div>
     </section>
-    <details class="panel" id="files-panel"${report.providerMeasurements?.some(({ provider }) => provider !== "codex") ? " open" : ""}>
+    <details class="panel" id="files-panel"${precise ? " open" : ""}>
       <summary><h2>Tracked components</h2><span class="summary-count" id="files-total"></span></summary>
       <div class="inventory-controls">
         <label>Provider<select id="provider-filter"><option value="">All providers</option></select></label>
@@ -145,7 +149,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
         <button id="clear-filters" type="button">Clear filters</button>
       </div>
       <p class="inventory-count" id="inventory-count" aria-live="polite" hidden></p>
-      ${report.providerMeasurements ? `<p class="muted provider-note">${providerNote}</p>` : ""}
+      ${providerNote ? `<p class="muted provider-note">${providerNote}</p>` : ""}
       <div class="table-wrap"><table><thead><tr><th>Path</th><th>Provider</th><th>Category</th><th class="num">Tokens</th><th class="num">Bytes</th>${providerColumns}</tr></thead><tbody id="files"></tbody></table></div><button class="more" id="files-more" type="button" hidden></button></details>
     </div>
     <footer>Made with <a href="${brandUrl}" target="_blank" rel="noopener noreferrer">Strata</a>${origin ? ` ${escapeHtml(origin.version)} on ${escapeHtml(origin.date)}` : ""}.</footer>

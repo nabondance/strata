@@ -206,7 +206,7 @@ test("measures each manifest's listing separately from its stored tokens", async
     assert.equal(cli.status, 0, cli.stderr);
     assert.match(
       cli.stderr,
-      /Skills: \d+ listed tokens, the names and descriptions kept in context before a skill is used; the skill files store \d+\. 2 manifests have frontmatter Strata could not read and are not counted\./,
+      /Skills: \d+ tokens of names and descriptions, \d+ in the skill files\. 2 manifests have frontmatter Strata could not read and are not counted\./,
     );
   } finally {
     cleanup();

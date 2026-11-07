@@ -52,7 +52,7 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
     // What a map row's figure is, inside a sentence.
     const rowTokens = () => activeMeasure === 'estimate' ? 'stored-text tokens' : inlineStat();
     function measureLabel() {
-      if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.label };
+      if (activeMeasure === 'estimate') return { stat: tokenAdjective + ' tokens', compare: tokenAdjective + ' stored-text tokens', meta: data.measurement.accuracy === 'estimate' ? '' : data.measurement.label };
       const measured = measures.get(activeMeasure);
       const kind = measured.accuracy === 'api-counted' ? 'API-counted' : 'exact';
       const name = providerNames[activeMeasure];
@@ -99,7 +99,7 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
       $('repo-meta').replaceChildren(
         text('span', data.branch + ' · ' + fmt(revisions.length) + ' revisions · '),
         text('span', revisions[0].date.slice(0, 10) + ' → ' + revisions.at(-1).date.slice(0, 10), 'nowrap'),
-        text('span', ' · ' + label.meta),
+        ...(label.meta ? [text('span', ' · ' + label.meta)] : []),
       );
     }
     function renderMeasureSwitch() {

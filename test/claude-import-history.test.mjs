@@ -259,6 +259,7 @@ test("resolves Claude @path imports per revision against the tracked tree", asyn
     assert.equal(mapLines().length, expectedMap.edges.length);
     assert.ok(expectedMap.edges.length >= 5);
     assert.match(ui.get("map-hover").textContent, / import lines · 5 unresolved, listed under Claude imports\./);
+    assert.match(ui.get("map-hover").textContent, /A line does not show that a session loaded the file\.$/);
     // A row's detail line names what the file imports and what imports it.
     onMap("focusin", mapRow("CLAUDE.md"));
     assert.match(

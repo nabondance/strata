@@ -144,10 +144,11 @@ export const mapScript = `    // The map draws the view's files; its import line
       if (map.offMap) counts.push(fmt(map.offMap) + ' with a file outside this view');
       // Imports are Claude's; another agent's tab can still show one between two files it reads.
       const borrowed = map.edges.length && activeView !== 'all' && activeView !== 'claude' ? ' Lines are Claude imports; they do not show that ' + (agentNames[activeView] ?? 'another agent') + ' follows them.' : '';
+      const lineNote = borrowed || (map.edges.length ? ' A line does not show that a session loaded the file.' : '');
       // An empty tree holds nothing, so the note under it says why.
       // A provider tab can be empty at a revision that tracks other agents' files.
       const empty = activeView === 'all' || !revisions[selected].components.length ? 'No tracked files at this revision.' : 'No files in this view at this revision.';
-      mapNote = !map.rows.length ? empty : (data.privacy.mode === 'shareable' ? 'Folder and file names are aliases in this export. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + borrowed;
+      mapNote = !map.rows.length ? empty : (data.privacy.mode === 'shareable' ? 'Folder and file names are aliases in this export. ' : '') + counts.join(' · ') + '. Bars share ' + fmt(map.totalTokens) + ' ' + inlineStat() + '.' + lineNote;
       $('map-hover').textContent = mapNote;
       $('map-hover').classList.remove('detail');
       if (focus) nodes[map.rows.findIndex((row) => row.path === mapCurrent)]?.focus();
