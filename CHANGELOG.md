@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0](https://github.com/nabondance/strata/compare/v0.7.0...v0.8.0) (2026-11-08)
+
+
+### Features
+
+* add a switch to space the history chart's bars by time ([#71](https://github.com/nabondance/strata/issues/71)) ([d38b6a6](https://github.com/nabondance/strata/commit/d38b6a6cf5c2c2a6d38bab35719d783fa40aa1e2))
+* carry every repeated revision field forward (schema 22), and fix report issues found on the demo site ([#73](https://github.com/nabondance/strata/issues/73)) ([c6a9b8c](https://github.com/nabondance/strata/commit/c6a9b8c2bb7a1e96290a6f8511b25e074477f390))
+* give every change its own bar in time spacing, and drag to zoom the history chart ([#78](https://github.com/nabondance/strata/issues/78)) ([48724f4](https://github.com/nabondance/strata/commit/48724f4a29e44df246d5bf749731a9d38d016232))
+* group the timeline by change and draw the masthead ungrouped ([#70](https://github.com/nabondance/strata/issues/70)) ([9458deb](https://github.com/nabondance/strata/commit/9458debdc9c6f73df717e8637cc5b2600a38bd5b))
+* in time spacing, give each day with a change its own bar ([#75](https://github.com/nabondance/strata/issues/75)) ([db2e195](https://github.com/nabondance/strata/commit/db2e19505135e3b199b054466a58ac0fc100c0c5))
+* publish a demo gallery of Strata reports to GitHub Pages ([#69](https://github.com/nabondance/strata/issues/69)) ([d9714dc](https://github.com/nabondance/strata/commit/d9714dce04e200efab80e4fecabdf4ddde039d16))
+* run the published npm package in the Action at a release ([#66](https://github.com/nabondance/strata/issues/66)) ([7bec3a8](https://github.com/nabondance/strata/commit/7bec3a886eb4e538b8faee5448a33643c63133cd))
+
+
+### Bug Fixes
+
+* keep the slider over the selected bar, and hide view tabs that repeat All files ([#72](https://github.com/nabondance/strata/issues/72)) ([91775a8](https://github.com/nabondance/strata/commit/91775a8c1f2e6ebb0eec8b45d005706de1b5965c))
+* slow down on count rate limits instead of falling back, and say a rerun resumes ([#74](https://github.com/nabondance/strata/issues/74)) ([08a8222](https://github.com/nabondance/strata/commit/08a82222684aa0cbb37faca3dd81bb61ae582f06))
+* trim helper text in the report and the analyze summary ([#79](https://github.com/nabondance/strata/issues/79)) ([af1ee24](https://github.com/nabondance/strata/commit/af1ee245330e2a155713dc9a51f1f3d24648f0ec))
+
 ## [0.7.0](https://github.com/nabondance/strata/compare/v0.6.0...v0.7.0) (2026-10-31)
 
 
