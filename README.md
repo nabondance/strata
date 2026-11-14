@@ -10,7 +10,6 @@
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square" alt="license">
   <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
-  <a href="https://nabondance.github.io/strata/"><img src="https://img.shields.io/badge/demo-live%20reports-b5573a?style=flat-square" alt="Live demo reports"></a>
   <a href="https://github.com/marketplace/actions/strata-agent-context-check"><img src="https://img.shields.io/badge/marketplace-GitHub%20Action-blue?style=flat-square&logo=github" alt="GitHub Action on the Marketplace"></a>
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
   <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
@@ -61,7 +60,7 @@ Report: /tmp/strata-report-k3Xb9Q/report.html
   </picture>
 </a>
 
-The images on this page are Strata's report on its own repository. **To click through real reports first, open the [demo gallery →](https://nabondance.github.io/strata/)**
+The images on this page are Strata's report on its own repository. **To click through real reports first, open the [demo gallery](https://nabondance.github.io/strata/).**
 
 ## How it works
 
