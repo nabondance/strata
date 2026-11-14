@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions, fillRevisions } from "../dist/expand.js";
@@ -11,6 +14,9 @@ import {
   timelineScale,
   timelineStepsNote,
 } from "../dist/timeline.js";
+
+const d3Directory = resolve(dirname(createRequire(import.meta.url).resolve("d3-hierarchy")), "..");
+const d3Version = JSON.parse(readFileSync(resolve(d3Directory, "package.json"), "utf8")).version;
 
 /**
  * The slider value that selects a revision in the All files view with bars spaced by change: the slider runs along
@@ -120,7 +126,8 @@ export function loadReportUi(html) {
   assert.ok(d3Script);
   assert.ok(script);
   assert.match(html, /Permission to use, copy, modify, and\/or distribute this software/);
-  assert.match(html, /d3-hierarchy\/ v3\.1\.2/);
+  // The bundled d3-hierarchy keeps its version banner, so the report names the release it embeds.
+  assert.ok(html.includes(`d3-hierarchy/ v${d3Version}`));
   const timers = new Map();
   const context = {
     document,
