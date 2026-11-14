@@ -92,7 +92,9 @@ runs:
     # its provenance names the repository, workflow, and tag that built it.
     # Otherwise, as at a commit whose source differs from the release, or when
     # npm cannot serve or verify the package, Strata is built from the Action's
-    # own source. A later call in the same job reuses either. pnpm is installed
+    # own source. A later call in the same job reuses either. The signatures are
+    # checked with a pinned npm, because npm before 11.12.0 does not list the
+    # verified packages and their attestations. pnpm is installed
     # with npm rather than pnpm/action-setup so the Action only depends on
     # GitHub-owned actions and runs under a restrictive policy.
     - name: Install Strata
@@ -122,7 +124,7 @@ runs:
             rm -rf "$prefix"
             if npm install --prefix "$prefix" --no-audit --no-fund --ignore-scripts --loglevel=error \
               "context-strata@$version" &&
-              npm audit signatures --prefix "$prefix" --json --include-attestations > "$check/audit.json" &&
+              npx --yes npm@11.21.2 audit signatures --prefix "$prefix" --json --include-attestations > "$check/audit.json" &&
               node "$source_dir/scripts/verify-npm-package.mjs" "$check/audit.json" "$prefix/package-lock.json" "$version" &&
               built_from "$package/dist"; then
               echo "$digest" > "$verified"

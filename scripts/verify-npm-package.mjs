@@ -1,6 +1,7 @@
 // Checks that the installed context-strata package was built by this
 // repository's publish workflow from the release tag, using the output of
-// `npm audit signatures --json --include-attestations`. npm has verified the
+// `npm audit signatures --json --include-attestations`, from npm 11.12.0 or
+// later: earlier versions leave out the verified packages. npm has verified the
 // signatures and attestations by then; this requires a SLSA provenance
 // attestation and checks what it names: the repository, the workflow, the
 // tag, and the tarball that was installed. Only then can the package's

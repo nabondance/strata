@@ -107,11 +107,14 @@ jobs:
         env:
           TOKENS: ${{ steps.strata.outputs.tokens }}
           DELTA: ${{ steps.strata.outputs.delta-tokens }}
+          INSTALL: ${{ steps.strata.outputs.install }}
         run: |
           set -euo pipefail
           [[ "$TOKENS" =~ ^[1-9][0-9]*$ ]]
           [[ "$DELTA" =~ ^-?[0-9]+$ ]]
-          echo "This repository: $TOKENS tokens, $DELTA change."
+          # Releases before the install output built from source; later ones use npm.
+          test -z "$INSTALL" || test "$INSTALL" = npm
+          echo "This repository: $TOKENS tokens, $DELTA change; Strata from ${INSTALL:-source}."
           # Release Please pins package.json's version in the README, and the
           # release workflow moves v0 to each release, so the two should match.
           pinned="v$(jq -r .version package.json)"
