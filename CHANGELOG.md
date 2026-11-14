@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/nabondance/strata/compare/v0.8.0...v0.8.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* verify the npm package with an npm that lists verified packages ([#83](https://github.com/nabondance/strata/issues/83)) ([c498397](https://github.com/nabondance/strata/commit/c4983971fcd93218940247d282801c9ad376ab59))
+
 ## [0.8.0](https://github.com/nabondance/strata/compare/v0.7.0...v0.8.0) (2026-11-08)
 
 
