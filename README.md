@@ -21,6 +21,12 @@
 **See how your agent context evolved across Git history.**
 
 <p align="center">
+  <a href="https://nabondance.github.io/strata/"><img src="https://img.shields.io/badge/Live%20demo-See%20real%20reports%20%E2%86%92-b5573a?style=for-the-badge" alt="Live demo: see real reports" height="36"></a>
+  <br>
+  <sub><b><a href="https://nabondance.github.io/strata/">nabondance.github.io/strata</a></b>: Strata on VS Code, Sentry, n8n, pydantic-ai, Codex, Gemini CLI, and more</sub>
+</p>
+
+<p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/claude-dark.svg"><img src="docs/brand/providers/claude.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Claude Code&nbsp;&nbsp;&nbsp;
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/codex-dark.svg"><img src="docs/brand/providers/codex.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Codex&nbsp;&nbsp;&nbsp;
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/gemini-cli-dark.svg"><img src="docs/brand/providers/gemini-cli.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Gemini CLI&nbsp;&nbsp;&nbsp;
@@ -48,12 +54,14 @@ Codex: 3497 tokens latest, encoding-exact with o200k_base.
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-timeline-dark.png">
-  <img src="docs/images/report-timeline.png" alt="The Strata report: stored instruction tokens per revision, stacked by category">
-</picture>
+<a href="https://nabondance.github.io/strata/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-timeline-dark.png">
+    <img src="docs/images/report-timeline.png" alt="The Strata report: stored instruction tokens per revision, stacked by category">
+  </picture>
+</a>
 
-The images on this page are Strata's report on its own repository. To click through real reports first, open the [demo gallery](https://nabondance.github.io/strata/): Strata on VS Code, Sentry, n8n, pydantic-ai, Codex, Gemini CLI, and more.
+The images on this page are Strata's report on its own repository. **To click through real reports first, open the [demo gallery →](https://nabondance.github.io/strata/)**
 
 ## How it works
 
