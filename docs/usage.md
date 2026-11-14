@@ -146,7 +146,6 @@ A session-start limit without an agent applies to every agent that keeps text at
 
 If no agent is left for the general limit, for example because no agent keeps text at session start, the run says the limit was not applied.
 
-
 ```sh
 strata diff --base <base-commit> --head <head-commit> --limit-increase 500 --limit-up-front-tokens claude=8000
 strata analyze --limit-up-front-tokens 8000 --format json --output report.json

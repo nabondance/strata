@@ -100,7 +100,6 @@ Remote counts are cached between runs:
 - A model name ending in `-latest` is an alias that moves to new models, so its counts are not cached.
 - The cache file is readable by its owner only and holds no paths or text.
 
-
 ## History extraction
 
 Analysis reads the whole first-parent history from one streamed `git log --first-parent --diff-merges=first-parent --raw -M` process, which needs Git 2.31 or newer. Each commit's raw diff against its first parent updates an in-memory inventory of recognized regular files:
