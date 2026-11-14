@@ -21,14 +21,16 @@ const script = action
   .join("\n");
 
 // npm pack, install, and audit signatures, with the provenance shaped as npm
-// reports it. FAKE_* variables choose what each one finds.
+// reports it. FAKE_* variables choose what each one finds. Like the npm on
+// GitHub's runners, it lists verified packages only when run as the pinned npm
+// through npx.
 const fakeNpm = `#!/usr/bin/env node
 const { appendFileSync, mkdirSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const { join } = require("node:path");
 const env = process.env;
 const args = process.argv.slice(2);
-appendFileSync(env.FAKE_LOG, \`npm \${args.join(" ")}\\n\`);
+if (!env.FAKE_PINNED_NPM) appendFileSync(env.FAKE_LOG, \`npm \${args.join(" ")}\\n\`);
 const sha = "ab".repeat(64);
 const writePackage = (root) => {
   mkdirSync(join(root, "dist"), { recursive: true });
@@ -46,6 +48,10 @@ if (args[0] === "pack") {
   writeFileSync(join(prefix, "package-lock.json"), JSON.stringify({ packages: { "node_modules/context-strata": { integrity } } }));
 } else if (args[0] === "audit") {
   if (env.FAKE_AUDIT_FAIL) process.exit(1);
+  if (!env.FAKE_PINNED_NPM) {
+    console.log(JSON.stringify({ invalid: [], missing: [] }));
+    process.exit(0);
+  }
   const version = env.FAKE_VERSION;
   const statement = {
     predicateType: "https://slsa.dev/provenance/v1",
@@ -66,6 +72,12 @@ if (args[0] === "pack") {
   const verified = [{ name: "context-strata", version, attestationBundles: [{ bundle: { dsseEnvelope: { payload } } }] }];
   console.log(JSON.stringify({ invalid: [], missing: [], verified }));
 }
+`;
+const fakeNpx = `#!/usr/bin/env bash
+echo "npx $*" >> "$FAKE_LOG"
+[ "$1" = --yes ] && shift
+case "$1" in npm@*) shift ;; *) exit 1 ;; esac
+FAKE_PINNED_NPM=1 exec "$(dirname "$0")/npm" "$@"
 `;
 const fakePnpm = `#!/usr/bin/env bash
 echo "pnpm $*" >> "$FAKE_LOG"
@@ -92,6 +104,7 @@ function setup() {
   mkdirSync(bin);
   for (const [name, text] of [
     ["npm", fakeNpm],
+    ["npx", fakeNpx],
     ["pnpm", fakePnpm],
   ]) {
     writeFileSync(join(bin, name), text);
@@ -140,7 +153,7 @@ test("the Action uses the npm package built from its own source, once its proven
     assert.equal(first.outputs.dist, join(runnerTemp, `strata-npm-${version}`, "node_modules/context-strata/dist"));
     assert.match(first.calls, new RegExp(`^npm pack --silent context-strata@${version.replaceAll(".", "\\.")}$`, "m"));
     assert.match(first.calls, /^npm install --prefix \S+ .*context-strata@/m);
-    assert.match(first.calls, /^npm audit signatures --prefix \S+ --json --include-attestations$/m);
+    assert.match(first.calls, /^npx --yes npm@\S+ audit signatures --prefix \S+ --json --include-attestations$/m);
     assert.doesNotMatch(first.calls, /pnpm/);
     const again = run();
     assert.equal(again.status, 0, again.stderr);
