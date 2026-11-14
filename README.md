@@ -18,7 +18,7 @@
   <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square&labelColor=555&color=blue" alt="stored agent context tokens on main"></a>
 </p>
 
-**See how your agent context evolved across Git history.**
+**See how your agent context evolved across Git history.** [Browse example reports →](https://nabondance.github.io/strata/)
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/claude-dark.svg"><img src="docs/brand/providers/claude.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Claude Code&nbsp;&nbsp;&nbsp;
@@ -48,10 +48,12 @@ Codex: 3497 tokens latest, encoding-exact with o200k_base.
 Report: /tmp/strata-report-k3Xb9Q/report.html
 ```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-timeline-dark.png">
-  <img src="docs/images/report-timeline.png" alt="The Strata report: stored instruction tokens per revision, stacked by category">
-</picture>
+<a href="https://nabondance.github.io/strata/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/report-timeline-dark.png">
+    <img src="docs/images/report-timeline.png" alt="The Strata report: stored instruction tokens per revision, stacked by category">
+  </picture>
+</a>
 
 The images on this page are Strata's report on its own repository. To click through real reports first, open the [demo gallery](https://nabondance.github.io/strata/): Strata on VS Code, Sentry, n8n, pydantic-ai, Codex, Gemini CLI, and more.
 
