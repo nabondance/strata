@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/node/v/context-strata?style=flat-square" alt="supported Node.js versions">
   <img src="https://img.shields.io/npm/l/context-strata?style=flat-square" alt="license">
   <a href="https://github.com/nabondance/strata/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/nabondance/strata/ci.yml?style=flat-square&label=ci" alt="CI status"></a>
+  <a href="https://nabondance.github.io/strata/"><img src="https://img.shields.io/badge/demo-live%20reports-b5573a?style=flat-square" alt="Live demo reports"></a>
   <a href="https://github.com/marketplace/actions/strata-agent-context-check"><img src="https://img.shields.io/badge/marketplace-GitHub%20Action-blue?style=flat-square&logo=github" alt="GitHub Action on the Marketplace"></a>
   <a href="https://www.npmjs.com/package/context-strata"><img src="https://img.shields.io/npm/dt/context-strata?style=flat-square" alt="npm total downloads"></a>
   <a href="https://github.com/nabondance/strata/stargazers"><img src="https://img.shields.io/github/stars/nabondance/strata?style=flat-square" alt="GitHub stars"></a>
@@ -17,13 +18,7 @@
   <a href="#readme-image-and-badge"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/nabondance/strata/strata-image/strata-badge.json&style=flat-square&labelColor=555&color=blue" alt="stored agent context tokens on main"></a>
 </p>
 
-**See how your agent context evolved across Git history.**
-
-<p align="center">
-  <a href="https://nabondance.github.io/strata/"><img src="https://img.shields.io/badge/Live%20demo-See%20real%20reports%20%E2%86%92-b5573a?style=for-the-badge" alt="Live demo: see real reports" height="36"></a>
-  <br>
-  <sub><b><a href="https://nabondance.github.io/strata/">nabondance.github.io/strata</a></b>: Strata on VS Code, Sentry, n8n, pydantic-ai, Codex, Gemini CLI, and more</sub>
-</p>
+**See how your agent context evolved across Git history.** [Browse example reports →](https://nabondance.github.io/strata/)
 
 <p align="center">
   <picture><source media="(prefers-color-scheme: dark)" srcset="docs/brand/providers/claude-dark.svg"><img src="docs/brand/providers/claude.svg" alt="" width="20" height="20" align="top"></picture>&nbsp;Claude Code&nbsp;&nbsp;&nbsp;
@@ -60,7 +55,7 @@ Report: /tmp/strata-report-k3Xb9Q/report.html
   </picture>
 </a>
 
-The images on this page are Strata's report on its own repository. **To click through real reports first, open the [demo gallery](https://nabondance.github.io/strata/).**
+The images on this page are Strata's report on its own repository. To click through real reports first, open the [demo gallery](https://nabondance.github.io/strata/): Strata on VS Code, Sentry, n8n, pydantic-ai, Codex, Gemini CLI, and more.
 
 ## How it works
 
