@@ -23,7 +23,7 @@ import {
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
-import { confirmedPackages, PluginLists } from "./plugins.js";
+import { checkPackages, PluginLists, unavailablePackagesNotice } from "./plugins.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -262,16 +262,27 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
   return read;
 }
 
+/** Leave a path out of every commit, for a plugin file with a version that could not be downloaded. */
+function dropPaths(deltas: CommitDelta[], paths: ReadonlySet<string>): void {
+  for (const delta of deltas) {
+    delta.written = delta.written.filter((file) => !paths.has(file.path));
+    delta.removed = delta.removed.filter((path) => !paths.has(path));
+    delta.candidates = delta.candidates.filter(({ path }) => !paths.has(path));
+    for (const [from, to] of delta.renames) if (paths.has(from) || paths.has(to)) delta.renames.delete(from);
+  }
+}
+
 /**
- * Add the plugin packages whose names alone could not show them, once their content confirms them.
+ * Add the plugin packages whose names alone could not show them, as their content `confirmed` them.
  * A version that is not a package counts as the file being absent. A package keeps its label while a
  * Claude import reaches it, as in `strata diff`, because the report holds one label per file version.
+ * A rename stays only between paths tracked by their name or as a package, so an imported file that
+ * happens to be called `plugin.json` is never reported as renamed.
  */
-function addPluginPackages(root: string, deltas: CommitDelta[]): void {
-  const files = deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? []));
-  const confirmed = new Set(confirmedPackages(root, files).map((file) => versionKey(file.path, file.blob)));
+function addPluginPackages(deltas: CommitDelta[], confirmed: ReadonlySet<string>): void {
   const packages = new Map<string, string>();
   for (const delta of deltas) {
+    const wasPackage = new Set([...delta.renames.keys()].filter((path) => packages.has(path)));
     const written: TrackedFile[] = [];
     const gone: string[] = [];
     for (const { path, file } of delta.candidates) {
@@ -281,6 +292,9 @@ function addPluginPackages(root: string, deltas: CommitDelta[]): void {
       } else if (packages.delete(path)) {
         gone.push(path);
       }
+    }
+    for (const [from, to] of delta.renames) {
+      if (!(classify(from) || wasPackage.has(from)) || !(classify(to) || packages.has(to))) delta.renames.delete(from);
     }
     // What import tracking did to a path that holds a package does not apply.
     delta.removed = [...delta.removed.filter((path) => !packages.has(path) && !gone.includes(path)), ...gone];
@@ -333,11 +347,22 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     pluginLists,
     ...(text ? [text] : []),
   ]);
+  const packageCheck = checkPackages(
+    root,
+    deltas.flatMap((delta) => [
+      ...delta.written.filter((file) => file.classification.pluginPackage),
+      ...delta.candidates.flatMap(({ file }) => file ?? []),
+    ]),
+  );
+  if (packageCheck.unavailable.size) {
+    dropPaths(deltas, packageCheck.unavailable);
+    onNotice?.(unavailablePackagesNotice(packageCheck.unavailable.size));
+  }
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
   const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body), ignored);
 
-  addPluginPackages(root, deltas);
+  addPluginPackages(deltas, packageCheck.confirmed);
 
   const written = deltas.flatMap((delta) => delta.written);
   // A plugin package is written for others to install, so it does not show the repository uses a tool.

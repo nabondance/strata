@@ -1,4 +1,4 @@
-import type { Classification } from "./adapters.js";
+import { type Classification, pluginCandidate } from "./adapters.js";
 import { type ContentUse, utf8Text } from "./content-pass.js";
 import { availableBlobSizes, readBlobs } from "./git.js";
 import { type TrackedFile, versionKey } from "./inventory.js";
@@ -6,12 +6,19 @@ import { assignmentAt, keyParts, tomlLines } from "./mcp-servers.js";
 import type { PluginRef, PluginRefs } from "./model.js";
 
 /**
- * How a file names plugins: `settings` and `codex-config` turn them on or off, `manifest` defines
+ * How a file names plugins: `settings`, `copilot-settings`, and `codex-config` turn them on or off, `manifest` defines
  * one, `skills-folder` defines one in the root `.claude/skills`, which Claude Code loads without a
  * settings entry, and `marketplace` is a catalog of them. `agent-manifest` is a `plugin.json` already
  * tracked inside an agent's folder, which defines a plugin only if it declares the Agent Plugins schema.
  */
-type PluginFormat = "settings" | "codex-config" | "manifest" | "agent-manifest" | "skills-folder" | "marketplace";
+type PluginFormat =
+  | "settings"
+  | "copilot-settings"
+  | "codex-config"
+  | "manifest"
+  | "agent-manifest"
+  | "skills-folder"
+  | "marketplace";
 
 /** The plugin format of a recognized file, or null when the file cannot name a plugin. */
 export function pluginFormat(path: string, classification: Classification): PluginFormat | null {
@@ -27,7 +34,7 @@ export function pluginFormat(path: string, classification: Classification): Plug
   if (classification.provider === "codex") return name === "config.toml" ? "codex-config" : null;
   if (classification.provider === "claude") return parts.at(-2) === ".claude" ? "settings" : null;
   return classification.provider === "copilot" && /^\.github\/copilot\/settings(?:\.local)?\.json$/.test(path)
-    ? "settings"
+    ? "copilot-settings"
     : null;
 }
 
@@ -39,7 +46,7 @@ const isName = (value: unknown): value is string => typeof value === "string" &&
 /** Strict JSON, as Claude Code reads these files; undefined when it does not parse. */
 function parsed(text: string): unknown {
   try {
-    return JSON.parse(text.replace(/^﻿/, ""));
+    return JSON.parse(text.replace(/^\uFEFF/, ""));
   } catch {
     return undefined;
   }
@@ -54,8 +61,11 @@ const isAgentManifest = (value: unknown): value is { name: string } =>
 const listed = (plugins: PluginRef[]): PluginRefs => ({ status: "listed", plugins });
 const unresolved: PluginRefs = { status: "unresolved" };
 
-/** A settings file's `enabledPlugins` and `extraKnownMarketplaces`, or null when it has neither. */
-function settingsPlugins(text: string): PluginRefs | null {
+/**
+ * A settings file's `enabledPlugins` and `extraKnownMarketplaces`, or null when it has neither.
+ * Claude's settings schema also allows a list of strings as a value; Copilot documents only booleans.
+ */
+function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null {
   if (!/enabledPlugins|extraKnownMarketplaces/.test(text)) return null;
   const settings = parsed(text);
   if (!isObject(settings)) return unresolved;
@@ -66,8 +76,11 @@ function settingsPlugins(text: string): PluginRefs | null {
   if (enabled !== undefined) {
     if (!isObject(enabled)) return unresolved;
     for (const [name, value] of Object.entries(enabled)) {
-      if (!name || typeof value !== "boolean") return unresolved;
-      plugins.push({ name, state: value ? "enabled" : "disabled" });
+      if (!name) return unresolved;
+      if (typeof value === "boolean") plugins.push({ name, state: value ? "enabled" : "disabled" });
+      else if (allowsLists && Array.isArray(value) && value.every((item) => typeof item === "string")) {
+        plugins.push({ name, state: "configured" });
+      } else return unresolved;
     }
   }
   if (marketplaces !== undefined) {
@@ -89,6 +102,14 @@ function manifestPlugin(text: string, format: "manifest" | "skills-folder"): Plu
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
+/** Whether a marketplace source names a path inside the repository rather than a URL or a path outside it. */
+const isRepositoryPath = (source: string) =>
+  source.length > 0 &&
+  !/^[a-z][a-z0-9+.-]*:/i.test(source) &&
+  !/^[^/]+@[^/]+:/.test(source) &&
+  !/^[/\\]/.test(source) &&
+  !source.split(/[/\\]/).includes("..");
+
 /** A marketplace file, by its name and how many plugins it lists. A source's URL is never kept. */
 function marketplacePlugins(text: string): PluginRefs {
   const marketplace = parsed(text);
@@ -97,15 +118,22 @@ function marketplacePlugins(text: string): PluginRefs {
   for (const entry of marketplace.plugins as unknown[]) {
     if (!isObject(entry) || !isName(entry.name)) return unresolved;
     const source = entry.source;
-    // A path in the repository: a string, Codex's `{ source: "local", path }`, or Cursor's `{ path }`.
-    if (typeof source === "string") counted.local += 1;
-    else if (!isObject(source)) return unresolved;
-    else if (source.source === "local" || (source.source === undefined && isName(source.path))) counted.local += 1;
-    else if (isName(source.source)) counted.external += 1;
+    // A path is a string, Codex's `{ source: "local", path }`, or Cursor's `{ path }`.
+    const path = typeof source === "string" ? source : !isObject(source) ? undefined : source.path;
+    if (
+      typeof source === "string" ||
+      (isObject(source) && (source.source === "local" || source.source === undefined))
+    ) {
+      if (!isName(path)) return unresolved;
+      counted[isRepositoryPath(path) ? "local" : "external"] += 1;
+    } else if (isObject(source) && isName(source.source)) counted.external += 1;
     else return unresolved;
   }
   return listed([{ name: marketplace.name, state: "catalog", listed: counted }]);
 }
+
+/** Whether a TOML key Strata could not split starts with `plugins`. */
+const namesPlugins = (key: string) => /^\s*(?:plugins|"plugins"|'plugins')\s*(?:\.|$)/.test(key);
 
 /**
  * The `[plugins."<plugin>@<marketplace>"]` tables of a Codex `config.toml`, or null when it has none.
@@ -127,8 +155,14 @@ function codexPlugins(text: string): PluginRefs | null {
     if (!line) continue;
     if (line.startsWith("[")) {
       const header = line.match(/^\[\[(.*)\]\]$/) ?? line.match(/^\[(.*)\]$/);
-      const parts = header ? keyParts(header[1]!) : null;
-      if (!parts) return unresolved;
+      if (!header) return unresolved;
+      const parts = keyParts(header[1]!);
+      if (!parts) {
+        // A key Strata cannot read, such as one with a Unicode escape, matters only under `plugins`.
+        if (namesPlugins(header[1]!)) return unresolved;
+        table = [""];
+        continue;
+      }
       if (parts[0] === "plugins") {
         if (line.startsWith("[[")) return unresolved;
         mentioned = true;
@@ -138,8 +172,12 @@ function codexPlugins(text: string): PluginRefs | null {
       continue;
     }
     const equals = assignmentAt(line);
-    const key = equals < 0 ? null : keyParts(line.slice(0, equals));
-    if (!key) return unresolved;
+    if (equals < 0) return unresolved;
+    const key = keyParts(line.slice(0, equals));
+    if (!key) {
+      if (table[0] === "plugins" || namesPlugins(line.slice(0, equals))) return unresolved;
+      continue;
+    }
     const path = [...table, ...key];
     if (path[0] !== "plugins") continue;
     mentioned = true;
@@ -162,7 +200,7 @@ function codexPlugins(text: string): PluginRefs | null {
 
 /** The plugins one version of a file names, or null when a settings file names none. */
 export function pluginRefs(text: string, format: PluginFormat): PluginRefs | null {
-  if (format === "settings") return settingsPlugins(text);
+  if (format === "settings" || format === "copilot-settings") return settingsPlugins(text, format === "settings");
   if (format === "codex-config") return codexPlugins(text);
   if (format === "agent-manifest") {
     const manifest = parsed(text);
@@ -197,17 +235,33 @@ export class PluginLists implements ContentUse {
 /** The largest marketplace Cursor documents; a larger file with one of these names is not a package. */
 const maxPackageBytes = 10 * 1024 * 1024;
 
+/** Which versions of plugin files are packages, and which paths could not be checked. */
+export interface PackageCheck {
+  /** Version keys of the candidates whose content confirms them as plugin packages. */
+  confirmed: Set<string>;
+  /**
+   * Paths with a version a partial clone could not download. Each is left out at every commit, since
+   * a missing version would otherwise read as the file being added or removed.
+   */
+  unavailable: Set<string>;
+}
+
 /**
- * The candidates that really are plugin packages: a `plugin.json` that declares the Agent Plugins
- * `$schema`, which Copilot, Codex, and Cursor share, or a root `marketplace.json` with the required
- * `name`, `owner`, and `plugins`. Another `plugin.json`, including Copilot's legacy form, cannot be
- * told apart from any other project's file, so it is left out, as is one that cannot be read.
+ * Check plugin package files. A candidate is confirmed by its content: a `plugin.json` that declares
+ * the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root `marketplace.json`
+ * with the required `name`, `owner`, and `plugins`. Another `plugin.json`, including Copilot's legacy
+ * form, cannot be told apart from any other project's file, so it is left out.
  */
-export function confirmedPackages(repo: string, files: TrackedFile[]): TrackedFile[] {
-  if (!files.length) return [];
-  const blobs = [...new Set(files.map((file) => file.blob))];
-  const sizes = availableBlobSizes(repo, blobs);
-  const readable = blobs.filter((blob) => (sizes.get(blob) ?? Number.POSITIVE_INFINITY) <= maxPackageBytes);
+export function checkPackages(repo: string, files: TrackedFile[]): PackageCheck {
+  const confirmed = new Set<string>();
+  const unavailable = new Set<string>();
+  if (!files.length) return { confirmed, unavailable };
+  const sizes = availableBlobSizes(repo, [...new Set(files.map((file) => file.blob))]);
+  for (const file of files) if (!sizes.has(file.blob)) unavailable.add(file.path);
+  const candidates = files.filter((file) => pluginCandidate(file.path) && !unavailable.has(file.path));
+  const readable = [...new Set(candidates.map((file) => file.blob))].filter(
+    (blob) => sizes.get(blob)! <= maxPackageBytes,
+  );
   const manifests = new Set<string>();
   const catalogs = new Set<string>();
   for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0)) {
@@ -218,5 +272,16 @@ export function confirmedPackages(repo: string, files: TrackedFile[]): TrackedFi
       catalogs.add(blob);
     }
   }
-  return files.filter((file) => (file.path === "marketplace.json" ? catalogs : manifests).has(file.blob));
+  for (const file of candidates) {
+    if ((file.path === "marketplace.json" ? catalogs : manifests).has(file.blob)) {
+      confirmed.add(versionKey(file.path, file.blob));
+    }
+  }
+  return { confirmed, unavailable };
 }
+
+/** The line that says plugin files were left out because a partial clone could not download them. */
+export const unavailablePackagesNotice = (count: number) =>
+  `${count} plugin ${count === 1 ? "file" : "files"} could not be downloaded from this partial clone's remote, so ${
+    count === 1 ? "it is" : "they are"
+  } left out of the plugin results. Fetch the missing objects to include ${count === 1 ? "it" : "them"}.`;

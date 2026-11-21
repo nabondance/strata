@@ -56,6 +56,7 @@ export const importsScript = `    // Imports are links between stored files, so 
     const pluginStates = {
       enabled: 'enabled',
       disabled: 'turned off',
+      configured: 'configured with a list',
       defined: 'defined here',
       catalog: 'marketplace file',
       marketplace: 'registered marketplace',

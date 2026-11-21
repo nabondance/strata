@@ -268,6 +268,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                                                                     |
 | 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths; shareable paths aliased per segment; `ignore` |
 | 22      | every revision total, and empty `changes`, left out when they repeat the previous revision; the last revision keeps every field                                                                                                                |
+| 23      | agent plugins: `plugins` and `pluginPackage`, and each tool's manifests and marketplace files as source-only settings                                                                                                                          |
 
 #### Version 8: provider counts
 
@@ -539,8 +540,9 @@ Each file's `plugins` has a `status` of `listed`, with `name` and `state` for ea
 
 - `defined`: a manifest names it. Nothing enables it.
 - `skills-folder`: a manifest in Claude's root `.claude/skills`, which Claude Code loads unless it is turned off.
-- `catalog`: a marketplace file, by its name, with `listed` counting its plugins whose source is a path in the repository (`local`) or anything else (`external`). It stores counts because a marketplace can list hundreds of plugins across thousands of versions.
+- `catalog`: a marketplace file, by its name, with `listed` counting its plugins whose source is a relative path inside the repository (`local`) or anything else, including a URL (`external`). It stores counts because a marketplace can list hundreds of plugins across thousands of versions.
 - `enabled` and `disabled`: `enabledPlugins` in Claude or Copilot settings, or `[plugins."<id>"]` in a Codex `config.toml`.
+- `configured`: a list of strings as a Claude `enabledPlugins` value. [Claude's settings schema](https://json.schemastore.org/claude-code-settings.json) allows it, but its documentation does not say what it means, so Strata does not call it enabled.
 - `marketplace`: a name in `extraKnownMarketplaces`.
 
 These stay separate because Git cannot show which plugins a session loaded:
@@ -554,7 +556,7 @@ These stay separate because Git cannot show which plugins a session loaded:
 
 Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files, and the tools in their `readers` get no report tab of their own. A `plugin.json` already tracked inside an agent's folder keeps its label, and also names a plugin if it declares the Agent Plugins `$schema`.
 
-A manifest's history can hold thousands of versions. In a partial clone, Strata downloads the missing blobs it needs into `.git` in one request, with the command Git uses for its own on-demand fetches, instead of one request per blob. A `plugin.json` that cannot be downloaded counts as not being a package, and this download never waits for a login, so an unrelated file cannot stop the analysis.
+A manifest's history can hold thousands of versions. In a partial clone, Strata downloads the missing blobs it needs into `.git` in one request, with the command Git uses for its own on-demand fetches, instead of one request per blob. The download can use the caller's credential helpers and askpass programs, but never waits at a terminal. A plugin file with a version that still cannot be read is left out at every commit, with a notice, because a missing version would otherwise read as the file being added or removed.
 
 A comparison identifies a reference by its file and name. The same plugin defined in one file and enabled in another is two references, and a plugin that goes from enabled to turned off is a change rather than a removal and an addition. A file unreadable at either commit is left out of the counts and lists at both, because it may still name the plugins it named, and is counted only as unresolved.
 
@@ -972,6 +974,7 @@ Its JSON has its own schema version, currently 15. Compared components carry the
 | 12      | `limits` when a [limit](#limits) is set.                                                                                                                                                                                                                                                                                                                |
 | 13      | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate.                                                                     |
 | 14      | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13. `ignore` when `--ignore` is given, with both trees leaving out the paths it matches; the Markdown adds a line naming the patterns.        |
+| 15      | `comparison.plugins` when either commit has a component with [`plugins`](#agent-plugins): the references at both, the files that could not be read, and those added, removed, or changed.                                                                                                                                                               |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 

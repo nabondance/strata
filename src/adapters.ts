@@ -360,7 +360,7 @@ export function classify(path: string): Classification | null {
 
 /**
  * A path that may be a plugin package but whose name alone cannot show it: `plugin.json` anywhere, or
- * a root `marketplace.json`. These are common file names, so `confirmedPackages` reads each one, and
+ * a root `marketplace.json`. These are common file names, so `checkPackages` reads each one, and
  * only a file in the documented format is tracked.
  */
 export function pluginCandidate(path: string): Classification | null {

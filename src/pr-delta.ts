@@ -12,7 +12,7 @@ import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
 import { blobSizes, git, listTree, resolveCommit } from "./git.js";
-import { type Ignored, ignoreMatcher } from "./ignore.js";
+import { ignoreMatcher } from "./ignore.js";
 import {
   byPath,
   distinctBlobs,
@@ -29,7 +29,7 @@ import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement } from "./measurement.js";
 import type { ClaudeImport, PluginCatalog, PluginState } from "./model.js";
-import { confirmedPackages, PluginLists } from "./plugins.js";
+import { checkPackages, type PackageCheck, PluginLists, unavailablePackagesNotice } from "./plugins.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -65,22 +65,25 @@ function commitId(repo: string, revision: string, side: "Base" | "Head"): string
 
 /**
  * The recognized files in a commit's tree, followed by the files Claude imports there that no path
- * rule recognizes. All of them are added to `pass`, which import parsing hands what it reads. An
- * entry `ignored` accepts is dropped from the tree first, so no import reaches it.
+ * rule recognizes, and the plugin packages `check` confirmed. All of them are added to `pass`, which
+ * import parsing hands what it reads. The tree already leaves out what `--ignore` matches.
  */
 function trackedFiles(
   repo: string,
-  id: string,
+  tree: ReturnType<typeof listTree>,
   imports: Map<string, ClaudeImport[]>,
   pass: ContentPass,
-  ignored: Ignored,
+  check: PackageCheck,
 ): TrackedFile[] {
-  const tree = listTree(repo, id).filter(({ path }) => !ignored(path));
-  const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
+  const recognized = tree.flatMap(({ mode, blob, path }) =>
+    check.unavailable.has(path) ? [] : (trackedFile(mode, blob, path) ?? []),
+  );
   pass.add(recognized);
   const found = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
-  const candidates = tree.flatMap(({ mode, blob, path }) => pluginCandidateFile(mode, blob, path) ?? []);
-  const packages = confirmedPackages(repo, candidates);
+  const packages = tree.flatMap(({ mode, blob, path }) => {
+    const file = pluginCandidateFile(mode, blob, path);
+    return file && check.confirmed.has(versionKey(path, blob)) ? [file] : [];
+  });
   // A package keeps its label while a Claude import reaches it, as in `strata analyze`.
   const packaged = new Set(packages.map((file) => file.path));
   const imported = found.filter((file) => !packaged.has(file.path));
@@ -88,6 +91,14 @@ function trackedFiles(
   pass.add(packages);
   return [...recognized, ...imported, ...packages];
 }
+
+/** The files in a tree that are plugin packages by name, or may be by content. */
+const packageFiles = (tree: ReturnType<typeof listTree>) =>
+  tree.flatMap(({ mode, blob, path }) => {
+    const file = trackedFile(mode, blob, path);
+    if (file) return file.classification.pluginPackage ? [file] : [];
+    return pluginCandidateFile(mode, blob, path) ?? [];
+  });
 
 export interface ProviderTotalDelta {
   provider: CountedProvider;
@@ -123,7 +134,14 @@ export interface PullRequestDelta {
 }
 
 /** With `text`, the shared read also finds which instruction blobs are blank or not UTF-8, for provider counts. */
-function readCommits(repo: string, base: string, head: string, ignore: readonly string[], text?: TextCheck) {
+function readCommits(
+  repo: string,
+  base: string,
+  head: string,
+  ignore: readonly string[],
+  text?: TextCheck,
+  onNotice?: (line: string) => void,
+) {
   const measurer = createMeasurer("estimate");
   const ignored = ignoreMatcher(ignore);
   git(repo, ["rev-parse", "--git-dir"]);
@@ -138,7 +156,11 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
   const mcpLists = new McpServerLists();
   const pluginLists = new PluginLists();
   const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, pluginLists, ...(text ? [text] : [])]);
-  const files = ids.map((id, index) => trackedFiles(repo, id, imports[index]!, pass, ignored));
+  const trees = ids.map((id) => listTree(repo, id).filter(({ path }) => !ignored(path)));
+  // Checked across both commits, so a file readable at only one is not reported as added or removed.
+  const packageCheck = checkPackages(repo, trees.flatMap(packageFiles));
+  if (packageCheck.unavailable.size) onNotice?.(unavailablePackagesNotice(packageCheck.unavailable.size));
+  const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, packageCheck));
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
   const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
@@ -217,9 +239,9 @@ export function compareGitCommits(
   repo: string,
   base: string,
   head: string,
-  options: { ignore?: readonly string[] } = {},
+  options: { ignore?: readonly string[]; onNotice?: (line: string) => void } = {},
 ): PullRequestDelta {
-  return readCommits(repo, base, head, options.ignore ?? []).delta;
+  return readCommits(repo, base, head, options.ignore ?? [], undefined, options.onNotice).delta;
 }
 
 /**
@@ -234,7 +256,14 @@ export async function compareGitCommitsWithProviders(
   options: { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void; ignore?: readonly string[] },
 ): Promise<PullRequestDelta> {
   const text = new TextCheck(countsLocally(options.providerPlan));
-  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options.ignore ?? [], text);
+  const { delta, files, measured, snapshots } = readCommits(
+    repo,
+    base,
+    head,
+    options.ignore ?? [],
+    text,
+    options.onNotice,
+  );
   const all = files.flat();
   const geminiBlobs = new Set(
     snapshots.flatMap(({ snapshot, names }) =>
@@ -385,6 +414,7 @@ function mcpLines(delta: PullRequestDelta): string[] {
 const pluginStateLabels: Record<PluginState, string> = {
   enabled: "enabled",
   disabled: "turned off",
+  configured: "configured with a list",
   defined: "defined here",
   catalog: "marketplace file",
   marketplace: "registered marketplace",

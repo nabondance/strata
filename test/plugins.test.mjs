@@ -346,7 +346,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const prompts = join(bin, "prompts");
   writeFileSync(
     join(bin, "git"),
-    `#!/bin/sh\nunset GIT_NO_LAZY_FETCH\ncase " $* " in *" fetch "*) echo "$GIT_TERMINAL_PROMPT" >> "${prompts}";; esac\nexec "${realGit}" "$@"\n`,
+    `#!/bin/sh\nunset GIT_NO_LAZY_FETCH\ncase " $* " in *" version "*) echo "git version 2.43.0"; exit 0;; *" fetch "*) echo "$GIT_TERMINAL_PROMPT" >> "${prompts}";; esac\nexec "${realGit}" "$@"\n`,
     { mode: 0o755 },
   );
   const path = process.env.PATH;
@@ -361,6 +361,42 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     process.env.PATH = path;
   }
   assert.match(readFileSync(prompts, "utf8"), /^0\n/);
+
+  // A version that cannot be downloaded leaves its file out at both commits, with a notice.
+  const unchecked = syntheticRepo("strata-plugins-unchecked-");
+  t.after(unchecked.cleanup);
+  unchecked.git("config", "uploadpack.allowFilter", "true");
+  unchecked.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  unchecked.put("pkg/plugin.json", manifest("old"));
+  const oldVersion = unchecked.commit("Old version");
+  unchecked.put("pkg/plugin.json", manifest("new"));
+  const newVersion = unchecked.commit("New version");
+  const uncheckedClone = `${unchecked.repo}-clone`;
+  t.after(() => rmSync(uncheckedClone, { recursive: true, force: true }));
+  execFileSync(
+    "git",
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${unchecked.repo}`, uncheckedClone],
+    { stdio: "ignore" },
+  );
+  execFileSync("git", ["-C", uncheckedClone, "cat-file", "-p", `${newVersion}:pkg/plugin.json`], { stdio: "ignore" });
+  execFileSync("git", ["-C", uncheckedClone, "remote", "set-url", "origin", `file://${unchecked.repo}-gone`]);
+  const notices = [];
+  const leftOut = compareGitCommits(uncheckedClone, oldVersion, newVersion, { onNotice: (line) => notices.push(line) });
+  assert.equal(leftOut.comparison.plugins, undefined);
+  assert.match(notices[0], /1 plugin file could not be downloaded/);
+
+  // An imported file that happens to be called plugin.json is not reported as renamed.
+  const importedMove = syntheticRepo("strata-plugins-imported-move-");
+  t.after(importedMove.cleanup);
+  importedMove.put("CLAUDE.md", "@docs/plugin.json\n");
+  importedMove.put("docs/plugin.json", '{"name":"not a package"}\n');
+  importedMove.commit("Import it");
+  importedMove.put("conf/.keep", "");
+  importedMove.git("mv", "docs/plugin.json", "conf/plugin.json");
+  importedMove.put("CLAUDE.md", "@conf/plugin.json\n");
+  importedMove.commit("Move it");
+  const moved = expandRevisions(await analyzeRepository(importedMove.repo)).at(-1);
+  assert.ok(!moved.changes.some((change) => change.kind === "renamed"));
 
   // A settings file saved in another encoding may still name its plugins.
   const encoded = syntheticRepo("strata-plugins-encoded-");
@@ -392,6 +428,22 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   assert.equal(pluginRefs('{"theme":"enabledPlugins"}', "settings"), null);
   assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@b":"yes"}}', "settings"), unresolved);
   assert.deepEqual(pluginRefs('{"enabledPlugins":[]}', "settings"), unresolved);
+  // Claude's schema allows a list of strings, which Copilot does not document.
+  assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "settings").plugins, [
+    { name: "a@m", state: "configured" },
+  ]);
+  assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "copilot-settings"), unresolved);
+  // A URL is not a path in this repository, whichever way it is written.
+  for (const source of ['"https://example.invalid/p.git"', '"git@example.invalid:o/p.git"', '"../outside"']) {
+    const catalog = pluginRefs(`{"name":"m","plugins":[{"name":"p","source":${source}}]}`, "marketplace");
+    assert.deepEqual(catalog.plugins[0].listed, { local: 0, external: 1 }, source);
+  }
+  // A table Strata cannot read matters only under `plugins`.
+  assert.equal(
+    pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),
+    null,
+  );
+  assert.deepEqual(pluginRefs('[plugins."caf\\u00e9@m"]\nenabled = true\n', "codex-config"), unresolved);
   assert.deepEqual(pluginRefs('{"version":"1"}', "manifest"), unresolved);
   assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "marketplace"), unresolved);
   assert.equal(pluginRefs('model = "plugins"\n', "codex-config"), null);
