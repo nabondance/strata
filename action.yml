@@ -61,6 +61,13 @@ inputs:
       a warning and lets the step pass. Used only when a limit is set.
     required: false
     default: fail
+  image-branch:
+    description: >-
+      Branch to keep a README image and badge on, such as 'strata-image'. On a push to the default
+      branch, the Action draws the history and publishes it as that branch's single commit. It needs
+      'contents: write' and a checkout with 'fetch-depth: 0'. Other events never publish. Off when empty.
+    required: false
+    default: ""
 outputs:
   tokens:
     description: Stored instructional text at the head, in tokens, in the run's measurement.
@@ -80,9 +87,23 @@ outputs:
   install:
     description: "'npm' when Strata came from the published npm package, which happens when the Action's source matches a release's; 'source' when the Action built it from its own source."
     value: ${{ steps.install.outputs.install }}
+  image-file:
+    description: Path of the rendered SVG, on a run that draws the image.
+    value: ${{ steps.image.outputs.image-file }}
+  image-url:
+    description: URL of the published SVG for a README, on a run that publishes or finds the image current.
+    value: ${{ steps.publish.outputs.image-url }}
 runs:
   using: composite
   steps:
+    # Checked on every event, so a wrong branch name shows on the pull request that adds it.
+    - name: Check the image branch
+      if: ${{ inputs.image-branch != '' }}
+      shell: bash
+      env:
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
+        STRATA_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" check
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: "22"
@@ -288,3 +309,23 @@ runs:
           console.log(`json-file=${json}`);
         ' "$STRATA_DIST/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
         exit "$status"
+    # Runs after a passed limit too, so the image stays true; the Action still fails.
+    - name: Render the image
+      id: image
+      if: ${{ !cancelled() && inputs.image-branch != '' && steps.install.outcome == 'success' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      shell: bash
+      env:
+        STRATA_DIST: ${{ steps.install.outputs.dist }}
+        STRATA_IGNORE: ${{ inputs.ignore }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" render
+    # The only step that receives the token. It runs Git and no Strata or dependency code.
+    - name: Publish the image
+      id: publish
+      if: ${{ !cancelled() && steps.image.outcome == 'success' }}
+      shell: bash
+      env:
+        STRATA_TOKEN: ${{ github.token }}
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
+        STRATA_IMAGE_DIR: ${{ steps.image.outputs.image-dir }}
+        STRATA_IMAGE_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" publish

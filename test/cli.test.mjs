@@ -1031,6 +1031,7 @@ function actionRunner(temp, defaults) {
   const action = readFileSync("action.yml", "utf8");
   const script = action
     .split("    - name: Compare the commits")[1]
+    .split("\n    # Runs after a passed limit too")[0]
     .split("      run: |\n")[1]
     .split("\n")
     .map((line) => line.slice(8))
