@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/nabondance/strata/compare/v0.8.1...v0.9.0) (2026-11-21)
+
+
+### Features
+
+* publish the README image from the Action with image-branch ([#87](https://github.com/nabondance/strata/issues/87)) ([4c149de](https://github.com/nabondance/strata/commit/4c149deb87b996d76bd8a7c71fb489e442d645d5))
+
 ## [0.8.1](https://github.com/nabondance/strata/compare/v0.8.0...v0.8.1) (2026-11-14)
 
 
