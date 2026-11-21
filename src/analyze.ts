@@ -58,8 +58,8 @@ interface CommitDelta {
   removed: string[];
   written: TrackedFile[];
   renames: Map<string, string>;
-  /** Files that may be plugin packages, in the order this commit changed them; see `addPluginPackages`. */
-  candidates: Array<TrackedFile | { removed: string }>;
+  /** What this commit did to paths that may be plugin packages; `file` is null when one is gone. */
+  candidates: Array<{ path: string; file: TrackedFile | null }>;
   /** Recognized paths that became, stayed, or stopped being a symlink, for following Claude imports. */
   links?: SymlinkEvent[];
 }
@@ -124,7 +124,7 @@ async function readHistory(
         const source = paths[0]!;
         if ((status === "D" || status[0] === "R") && !ignored(source)) {
           if (classify(source)) current.removed.push(source);
-          if (pluginCandidate(source)) current.candidates.push({ removed: source });
+          if (pluginCandidate(source)) current.candidates.push({ path: source, file: null });
           submodules.delete(source);
           if (links.delete(source)) linkEvent(current, source, null);
         }
@@ -133,10 +133,18 @@ async function readHistory(
           else submodules.delete(path);
           const file = trackedFile(mode, blob, path);
           if (file) current.written.push(file);
-          if (pluginCandidate(path)) {
-            current.candidates.push(pluginCandidateFile(mode, blob, path) ?? { removed: path });
-          } else if (classify(path)) current.removed.push(path);
-          if (file && status[0] === "R" && classify(source) && !ignored(source)) current.renames.set(source, path);
+          else if (classify(path)) current.removed.push(path);
+          const candidate = pluginCandidate(path) ? pluginCandidateFile(mode, blob, path) : null;
+          if (pluginCandidate(path)) current.candidates.push({ path, file: candidate });
+          // `buildChanges` reports a rename only when both paths end up tracked, as a candidate may not.
+          if (
+            (file || candidate) &&
+            status[0] === "R" &&
+            (classify(source) || pluginCandidate(source)) &&
+            !ignored(source)
+          ) {
+            current.renames.set(source, path);
+          }
           // An import may name a recognized path that is a symlink; only links are kept.
           if (mode === symlinkMode && classify(path)) {
             links.add(path);
@@ -256,29 +264,30 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
 
 /**
  * Add the plugin packages whose names alone could not show them, once their content confirms them.
- * A version that is not a package counts as the file being absent. A path Claude imports keeps that
- * label instead, so one file is never tracked twice.
+ * A version that is not a package counts as the file being absent. A package keeps its label while a
+ * Claude import reaches it, as in `strata diff`, because the report holds one label per file version.
  */
 function addPluginPackages(root: string, deltas: CommitDelta[]): void {
-  const imported = new Set<string>();
-  for (const delta of deltas) {
-    for (const file of delta.written) if (file.classification.imported) imported.add(file.path);
-  }
-  const files = deltas.flatMap((delta) =>
-    delta.candidates.flatMap((entry) => ("removed" in entry || imported.has(entry.path) ? [] : [entry])),
-  );
+  const files = deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? []));
   const confirmed = new Set(confirmedPackages(root, files).map((file) => versionKey(file.path, file.blob)));
-  const present = new Set<string>();
+  const packages = new Map<string, string>();
   for (const delta of deltas) {
-    for (const entry of delta.candidates) {
-      if (!("removed" in entry) && confirmed.has(versionKey(entry.path, entry.blob))) {
-        present.add(entry.path);
-        delta.written.push(entry);
-      } else {
-        const path = "removed" in entry ? entry.removed : entry.path;
-        if (present.delete(path)) delta.removed.push(path);
+    const written: TrackedFile[] = [];
+    const gone: string[] = [];
+    for (const { path, file } of delta.candidates) {
+      if (file && confirmed.has(versionKey(file.path, file.blob))) {
+        if (packages.get(path) !== file.blob) written.push(file);
+        packages.set(path, file.blob);
+      } else if (packages.delete(path)) {
+        gone.push(path);
       }
     }
+    // What import tracking did to a path that holds a package does not apply.
+    delta.removed = [...delta.removed.filter((path) => !packages.has(path) && !gone.includes(path)), ...gone];
+    delta.written = [
+      ...delta.written.filter((file) => !file.classification.imported || !packages.has(file.path)),
+      ...written,
+    ];
   }
 }
 

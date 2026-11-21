@@ -8,9 +8,10 @@ import type { PluginRef, PluginRefs } from "./model.js";
 /**
  * How a file names plugins: `settings` and `codex-config` turn them on or off, `manifest` defines
  * one, `skills-folder` defines one in the root `.claude/skills`, which Claude Code loads without a
- * settings entry, and `marketplace` is a catalog of them.
+ * settings entry, and `marketplace` is a catalog of them. `agent-manifest` is a `plugin.json` already
+ * tracked inside an agent's folder, which defines a plugin only if it declares the Agent Plugins schema.
  */
-type PluginFormat = "settings" | "codex-config" | "manifest" | "skills-folder" | "marketplace";
+type PluginFormat = "settings" | "codex-config" | "manifest" | "agent-manifest" | "skills-folder" | "marketplace";
 
 /** The plugin format of a recognized file, or null when the file cannot name a plugin. */
 export function pluginFormat(path: string, classification: Classification): PluginFormat | null {
@@ -21,6 +22,7 @@ export function pluginFormat(path: string, classification: Classification): Plug
     return /^\.claude\/skills\/[^/]+\/\.claude-plugin\/plugin\.json$/.test(path) ? "skills-folder" : "manifest";
   }
   if (classification.pluginPackage) return name === "marketplace.json" ? "marketplace" : "manifest";
+  if (classification.category === "other" && name === "plugin.json") return "agent-manifest";
   if (classification.category !== "settings") return null;
   if (classification.provider === "codex") return name === "config.toml" ? "codex-config" : null;
   if (classification.provider === "claude") return parts.at(-2) === ".claude" ? "settings" : null;
@@ -42,6 +44,12 @@ function parsed(text: string): unknown {
     return undefined;
   }
 }
+
+const agentPluginSchema = /^https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json$/;
+
+/** Whether a parsed `plugin.json` declares the Agent Plugins schema that Copilot, Codex, and Cursor share. */
+const isAgentManifest = (value: unknown): value is { name: string } =>
+  isObject(value) && isName(value.name) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
 
 const listed = (plugins: PluginRef[]): PluginRefs => ({ status: "listed", plugins });
 const unresolved: PluginRefs = { status: "unresolved" };
@@ -156,6 +164,10 @@ function codexPlugins(text: string): PluginRefs | null {
 export function pluginRefs(text: string, format: PluginFormat): PluginRefs | null {
   if (format === "settings") return settingsPlugins(text);
   if (format === "codex-config") return codexPlugins(text);
+  if (format === "agent-manifest") {
+    const manifest = parsed(text);
+    return isAgentManifest(manifest) ? listed([{ name: manifest.name, state: "defined" }]) : null;
+  }
   return format === "marketplace" ? marketplacePlugins(text) : manifestPlugin(text, format);
 }
 
@@ -175,7 +187,7 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const optional = format === "settings" || format === "codex-config";
+      const optional = format === "settings" || format === "codex-config" || format === "agent-manifest";
       const plugins = text === null ? (optional ? null : unresolved) : pluginRefs(text, format);
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
@@ -184,7 +196,6 @@ export class PluginLists implements ContentUse {
 
 /** The largest marketplace Cursor documents; a larger file with one of these names is not a package. */
 const maxPackageBytes = 10 * 1024 * 1024;
-const agentPluginSchema = /^https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json$/;
 
 /**
  * The candidates that really are plugin packages: a `plugin.json` that declares the Agent Plugins
@@ -202,9 +213,10 @@ export function confirmedPackages(repo: string, files: TrackedFile[]): TrackedFi
   for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0)) {
     const text = utf8Text(body);
     const value = text === null ? undefined : parsed(text);
-    if (!isObject(value) || !isName(value.name)) continue;
-    if (typeof value.$schema === "string" && agentPluginSchema.test(value.$schema)) manifests.add(blob);
-    if (isObject(value.owner) && Array.isArray(value.plugins)) catalogs.add(blob);
+    if (isAgentManifest(value)) manifests.add(blob);
+    if (isObject(value) && isName(value.name) && isObject(value.owner) && Array.isArray(value.plugins)) {
+      catalogs.add(blob);
+    }
   }
   return files.filter((file) => (file.path === "marketplace.json" ? catalogs : manifests).has(file.blob));
 }

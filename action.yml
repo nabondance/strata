@@ -83,7 +83,7 @@ outputs:
     description: Path of the Markdown delta, the same text as the job summary.
     value: ${{ steps.compare.outputs.summary-file }}
   json-file:
-    description: Path of the JSON delta (schema version 14), for later steps.
+    description: Path of the JSON delta (schema version 15), for later steps.
     value: ${{ steps.compare.outputs.json-file }}
   install:
     description: "'npm' when Strata came from the published npm package, which happens when the Action's source matches a release's; 'source' when the Action built it from its own source."

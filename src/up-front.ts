@@ -68,7 +68,8 @@ export function upFrontContext(
   provider: SessionProvider,
   geminiContextFiles?: readonly ContextFile[] | null,
 ): UpFrontContext {
-  const configured = components.some((component) => component.provider === provider);
+  // A plugin package is written for others to install, so it does not show the repository uses the tool.
+  const configured = components.some((component) => component.provider === provider && !component.pluginPackage);
   const reads = components.filter((component) => providerReads(component, provider, geminiContextFiles, configured));
   // A rule's frontmatter is read by the tool that owns it; another tool reading its folder applies its own rules.
   const counts = (component: Component) => component.category !== "rules" || component.provider === provider;

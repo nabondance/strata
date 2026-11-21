@@ -139,10 +139,60 @@ export function listTree(repo: string, revision: string, env?: NodeJS.ProcessEnv
   return entries;
 }
 
+/**
+ * In a partial clone, download the missing blobs in one request. Git would otherwise fetch each on
+ * demand, with one pack and one round trip per blob, which is slow and can fail on a long history.
+ * Any failure here is left to the read that follows, which reports it.
+ */
+function fetchMissingBlobs(repo: string, blobs: string[]): void {
+  let remote: string | undefined;
+  try {
+    remote = gitText(repo, ["config", "--get-regexp", "^remote\\..*\\.promisor$"])
+      .split("\n")
+      .find((line) => line.endsWith(" true"))
+      ?.match(/^remote\.(.*)\.promisor /)?.[1];
+  } catch {
+    return; // No promisor remote, so nothing can be missing.
+  }
+  if (!remote) return;
+  try {
+    const known = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`, {
+      ...process.env,
+      GIT_NO_LAZY_FETCH: "1",
+    }).toString("utf8");
+    const missing = known.split("\n").flatMap((line) => (line.endsWith(" missing") ? [line.split(" ")[0]!] : []));
+    if (!missing.length) return;
+    // The command Git itself runs for a lazy fetch, given every object at once.
+    git(
+      repo,
+      [
+        "-c",
+        "fetch.negotiationAlgorithm=noop",
+        "-c",
+        "gc.auto=0",
+        "-c",
+        "maintenance.auto=false",
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--recurse-submodules=no",
+        "--filter=blob:none",
+        "--stdin",
+        remote,
+      ],
+      `${missing.join("\n")}\n`,
+    );
+  } catch {
+    // The read below fetches on demand or names what is unavailable.
+  }
+}
+
 /** Byte sizes of blobs, read from object headers without loading their content. */
 export function blobSizes(repo: string, blobs: string[]): Map<string, number> {
   const sizes = new Map<string, number>();
   if (!blobs.length) return sizes;
+  fetchMissingBlobs(repo, blobs);
   const output = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`).toString("utf8");
   for (const line of output.split("\n")) {
     if (!line) continue;

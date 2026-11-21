@@ -78,14 +78,13 @@ function trackedFiles(
   const tree = listTree(repo, id).filter(({ path }) => !ignored(path));
   const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
   pass.add(recognized);
-  const imported = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
-  pass.add(imported);
-  // A file Claude imports keeps that label, as it does in `strata analyze`.
-  const importedPaths = new Set(imported.map((file) => file.path));
-  const candidates = tree.flatMap(({ mode, blob, path }) =>
-    importedPaths.has(path) ? [] : (pluginCandidateFile(mode, blob, path) ?? []),
-  );
+  const found = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
+  const candidates = tree.flatMap(({ mode, blob, path }) => pluginCandidateFile(mode, blob, path) ?? []);
   const packages = confirmedPackages(repo, candidates);
+  // A package keeps its label while a Claude import reaches it, as in `strata analyze`.
+  const packaged = new Set(packages.map((file) => file.path));
+  const imported = found.filter((file) => !packaged.has(file.path));
+  pass.add(imported);
   pass.add(packages);
   return [...recognized, ...imported, ...packages];
 }

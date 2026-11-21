@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
+import { importLinks } from "../dist/import-links.js";
 import { pluginRefs } from "../dist/plugins.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
@@ -210,6 +214,91 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
   } finally {
     cleanup();
   }
+});
+
+test("keeps packages exact through imports, renames, partial clones, and tool detection", async (t) => {
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-plugins-edges-");
+  t.after(cleanup);
+  const manifest = (name) =>
+    JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name });
+  const packaged = (revision) =>
+    revision.components.filter((component) => component.pluginPackage).map((component) => component.path);
+  put("CLAUDE.md", "Memory.\n");
+  put("plugin.json", manifest("root"));
+  // A manifest inside an agent's folder keeps its label and still names its plugin.
+  put(".agents/plugins/foo/plugin.json", manifest("foo"));
+  const ids = [commit("Manifest first")];
+  put("CLAUDE.md", "Memory.\n@plugin.json\n");
+  ids.push(commit("Import it"));
+  put("CLAUDE.md", "Memory.\n");
+  ids.push(commit("Stop importing it"));
+  git("mv", "plugin.json", "moved-plugin.json");
+  git("mv", "moved-plugin.json", "pkg-plugin.json");
+  git("mv", "pkg-plugin.json", "plugin.json");
+  git("mv", ".agents/plugins/foo/plugin.json", ".agents/plugins/foo/kept.json");
+  git("mv", ".agents/plugins/foo/kept.json", ".agents/plugins/foo/plugin.json");
+  put("sub/x.txt", "x\n");
+  git("mv", "plugin.json", "sub/plugin.json");
+  ids.push(commit("Move it"));
+
+  const report = await analyzeRepository(repo);
+  const revisions = expandRevisions(report);
+  // A package keeps its label while an import reaches it, and `strata diff` agrees.
+  assert.deepEqual(revisions.map(packaged), [["plugin.json"], ["plugin.json"], ["plugin.json"], ["sub/plugin.json"]]);
+  const reached = revisions[1].components.find((component) => component.path === "plugin.json");
+  assert.ok(!reached.imported && reached.plugins.status === "listed");
+  const links = importLinks(revisions[1].components);
+  assert.ok(links.some((link) => link.target === "plugin.json" && link.status === "resolved"));
+  for (let index = 1; index < ids.length; index += 1) {
+    assert.deepEqual(
+      compareGitCommits(repo, ids[index - 1], ids[index]).comparison.plugins,
+      compareRevisions(revisions[index - 1], revisions[index]).plugins,
+    );
+  }
+  assert.ok(
+    revisions[3].changes.some(
+      (change) =>
+        change.kind === "renamed" && change.previousPath === "plugin.json" && change.path === "sub/plugin.json",
+    ),
+  );
+  assert.deepEqual(revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json").plugins, {
+    status: "listed",
+    plugins: [{ name: "foo", state: "defined" }],
+  });
+
+  // Publishing for a tool neither adds it to session context nor gives it a report tab.
+  const published = syntheticRepo("strata-plugins-published-");
+  t.after(published.cleanup);
+  published.put("AGENTS.md", "Shared instructions.\n");
+  const base = published.commit("Instructions");
+  published.put(".cursor-plugin/plugin.json", '{"name":"pub"}\n');
+  published.put(".claude-plugin/plugin.json", '{"name":"pub"}\n');
+  const head = published.commit("Publish plugins");
+  assert.ok(!compareGitCommits(published.repo, base, head).upFront.some((row) => row.provider === "cursor"));
+  const tabs = loadReportUi(renderHtml(await analyzeRepository(published.repo)))
+    .get("provider-tabs")
+    .children.map((tab) => tab.textContent);
+  assert.ok(!tabs.some((tab) => tab.startsWith("Copilot")), tabs.join(", "));
+
+  // A partial clone gets its missing blobs in one fetch, not one pack per version.
+  const history = syntheticRepo("strata-plugins-partial-");
+  t.after(history.cleanup);
+  for (let version = 0; version < 12; version += 1) {
+    history.put("pkg/plugin.json", manifest(`v${version}`));
+    history.commit(`Version ${version}`);
+  }
+  history.git("config", "uploadpack.allowFilter", "true");
+  history.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  const clone = `${history.repo}-partial`;
+  t.after(() => rmSync(clone, { recursive: true, force: true }));
+  execFileSync("git", ["clone", "-q", "--no-local", "--filter=blob:none", `file://${history.repo}`, clone], {
+    stdio: "ignore",
+  });
+  const packs = () => readdirSync(join(clone, ".git/objects/pack")).filter((file) => file.endsWith(".pack")).length;
+  const before = packs();
+  const partial = expandRevisions(await analyzeRepository(clone));
+  assert.equal(partial.at(-1).components.find((c) => c.path === "pkg/plugin.json").plugins.plugins[0].name, "v11");
+  assert.equal(packs(), before + 1);
 });
 
 test("reads only the documented plugin shapes, and marks anything else unresolved", () => {

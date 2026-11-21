@@ -153,7 +153,7 @@ A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 22,
+  "schemaVersion": 23,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -389,7 +389,7 @@ Notes on this table:
 - Gemini CLI's `context.fileName` still decides only Gemini's reading of `GEMINI.md`.
 - Where no revision has Copilot configuration, `readers` is exactly as in version 14.
 - A file keeps its owner's label rather than becoming `shared`, so adopting Copilot does not move tokens out of the Claude or Gemini CLI totals.
-- `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot reads only hooks, gain no reader.
+- `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot then read only hooks, gain no reader. [Version 23](#version-23-agent-plugins) makes Copilot a reader of the root `.claude/settings.json`, for its plugin settings.
 
 The `copilot` label means at least one Copilot client (GitHub.com chat, the cloud agent, code review, Copilot CLI, or an IDE) is documented as reading the path; the report does not say which. Copilot has no `--precise` count: its files keep the report's measurement and their text is never sent. Reports from version 14 and earlier recognize no Copilot files and no `REVIEW.md`. [The Copilot adapter study](copilot-adapter.md) records the evidence for each pattern.
 
@@ -550,9 +550,11 @@ These stay separate because Git cannot show which plugins a session loaded:
 - Source URLs can name private repositories or carry credentials, so they are never read into a report.
 - Files inside a plugin are not added to the repository's stored or up-front totals.
 
-`plugin.json` and a root `marketplace.json` are common file names, so Strata reads them and tracks only the documented format: the Agent Plugins `$schema`, or a marketplace's required fields. A version that does not match counts as the file being absent. A path a Claude import reaches keeps its imported label, so it is not tracked twice.
+`plugin.json` and a root `marketplace.json` are common file names, so Strata reads them and tracks only the documented format: the Agent Plugins `$schema`, or a marketplace's required fields. A version that does not match counts as the file being absent. A confirmed package keeps its label while a Claude import reaches it, so it is not tracked twice, and the import still resolves to it.
 
-Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files.
+Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files, and the tools in their `readers` get no report tab of their own. A `plugin.json` already tracked inside an agent's folder keeps its label, and also names a plugin if it declares the Agent Plugins `$schema`.
+
+A manifest's history can hold thousands of versions. In a partial clone, Strata downloads the missing blobs it needs into `.git` in one request, with the command Git uses for its own on-demand fetches, instead of one request per blob.
 
 A comparison identifies a reference by its file and name. The same plugin defined in one file and enabled in another is two references, and a plugin that goes from enabled to turned off is a change rather than a removal and an addition.
 
