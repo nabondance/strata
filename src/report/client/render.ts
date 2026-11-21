@@ -54,5 +54,6 @@ export const renderScript = `    function render(index, dragging) {
       const mapTags = drawn.mapChanges !== revision.changes && (drawn.mapTagged || revision.changes.some((change) => change.kind !== 'removed'));
       if (drawn.map !== revision.components || drawn.mapImports !== revisions[selected].components || mapTags) renderMap();
       if (drawn.mcp !== revision.components) renderMcp();
+      if (drawn.plugins !== revision.components) renderPlugins();
       if (drawn.target !== revision.components || drawn.baseline !== baselineRevision().components) renderComparison();
     }`;

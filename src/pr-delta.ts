@@ -5,6 +5,8 @@ import {
   type ComponentDelta,
   compareRevisions,
   type McpServerRef,
+  type PluginComparisonRef,
+  type PluginStateChange,
 } from "./compare.js";
 import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
@@ -25,7 +27,8 @@ import {
 import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement } from "./measurement.js";
-import type { ClaudeImport } from "./model.js";
+import type { ClaudeImport, PluginCatalog, PluginState } from "./model.js";
+import { PluginLists } from "./plugins.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -96,7 +99,7 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 14;
+  schemaVersion: 15;
   base: string;
   head: string;
   /** The `--ignore` patterns, as given, when there were any: both trees leave out the paths they match. */
@@ -126,7 +129,8 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
-  const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
+  const pluginLists = new PluginLists();
+  const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, pluginLists, ...(text ? [text] : [])]);
   const files = ids.map((id, index) => trackedFiles(repo, id, imports[index]!, pass, ignored));
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
@@ -134,6 +138,7 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
   const listings = skills.listings;
   const rules = ruleLoading.upFront;
   const mcp = mcpLists.lists;
+  const plugins = pluginLists.lists;
   const configured = gemini.configured;
   const snapshots = files.map((snapshot) => {
     const settings = snapshot.find((file) => file.path === geminiSettingsPath);
@@ -151,6 +156,7 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
           imports[index]!.get(key),
           rules.get(key),
           mcp.get(key),
+          plugins.get(key),
         );
       })
       .sort(byPath);
@@ -172,7 +178,7 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 14,
+    schemaVersion: 15,
     base: ids[0],
     head: ids[1],
     ...(ignore.length ? { ignore: [...ignore] } : {}),
@@ -369,6 +375,52 @@ function mcpLines(delta: PullRequestDelta): string[] {
   return [parts.join(" "), ""];
 }
 
+const pluginStateLabels: Record<PluginState, string> = {
+  enabled: "enabled",
+  disabled: "turned off",
+  defined: "defined here",
+  catalog: "marketplace file",
+  marketplace: "registered marketplace",
+  "skills-folder": "loads from .claude/skills",
+};
+
+const pluginLabel = (state: PluginState, listed?: PluginCatalog) =>
+  listed
+    ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugins (${listed.local} in this repository)`
+    : pluginStateLabels[state];
+
+/**
+ * The plugins tracked files name at each commit, and what changed, when either commit has a file
+ * that names them. The same plugin named by two files is two references, each with its own state.
+ */
+function pluginLines(delta: PullRequestDelta): string[] {
+  const plugins = delta.comparison.plugins;
+  if (!plugins) return [];
+  const capped = <T>(refs: T[], line: (ref: T) => string) =>
+    refs.slice(0, 10).map(line).join(", ") + (refs.length > 10 ? `, and ${refs.length - 10} more` : "");
+  const entry = (ref: PluginComparisonRef) =>
+    `${cell(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${cell(ref.path)})`;
+  const parts = [
+    `Agent plugin references in tracked files: **${signed(plugins.deltaPlugins)}** (${plugins.beforePlugins} → ${plugins.afterPlugins}).`,
+  ];
+  if (plugins.added.length) parts.push(`Added: ${capped(plugins.added, entry)}.`);
+  if (plugins.removed.length) parts.push(`Removed: ${capped(plugins.removed, entry)}.`);
+  if (plugins.changed.length) {
+    const change = (ref: PluginStateChange) =>
+      `${cell(ref.name)}, ${pluginLabel(ref.before, ref.beforeListed)} → ${pluginLabel(ref.after, ref.afterListed)} (${cell(ref.path)})`;
+    parts.push(`Changed: ${capped(plugins.changed, change)}.`);
+  }
+  if (plugins.beforeUnresolved || plugins.afterUnresolved) {
+    parts.push(
+      `Files whose plugins could not be read, not counted: ${plugins.beforeUnresolved} → ${plugins.afterUnresolved}.`,
+    );
+  }
+  parts.push(
+    "Enabled is not installed, and defined is not active. Strata does not fetch or estimate what a plugin outside this repository adds.",
+  );
+  return [parts.join(" "), ""];
+}
+
 export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const comparison = delta.comparison;
   const skills = comparison.skillListing;
@@ -408,6 +460,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     ...listingLine,
     ...mcpLines(delta),
+    ...pluginLines(delta),
     ...upFrontLines(delta),
     ...providerLines(delta),
     // With no changed file, both tables would have headers only.

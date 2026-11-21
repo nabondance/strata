@@ -51,4 +51,45 @@ export const importsScript = `    // Imports are links between stored files, so 
         row.append(name, text('td', runs, 'kind'), text('td', component.path, 'path'), text('td', component.provider));
         body.append(row);
       }
+    }
+
+    const pluginStates = {
+      enabled: 'enabled',
+      disabled: 'turned off',
+      defined: 'defined here',
+      catalog: 'marketplace file',
+      marketplace: 'registered marketplace',
+      'skills-folder': 'loads from .claude/skills',
+    };
+    const pluginLabel = (state, listed) => pluginStates[state] + (listed ? ', ' + plural(listed.local + listed.external, 'plugin') + ' (' + fmt(listed.local) + ' in this repository)' : '');
+    const pluginState = (plugin) => pluginLabel(plugin.state, plugin.listed);
+
+    // Plugins follow the provider view, like the files that name them.
+    function renderPlugins() {
+      const components = viewRevisions[selected].components.filter((component) => component.plugins);
+      drawn.plugins = viewRevisions[selected].components;
+      $('plugins-panel').hidden = !components.length;
+      const rows = components.flatMap((component) => component.plugins.status === 'listed'
+        ? component.plugins.plugins.map((plugin) => ({ component, plugin }))
+        : [{ component, plugin: null }]);
+      const named = rows.filter((row) => row.plugin).length;
+      const unresolved = rows.length - named;
+      $('plugins-count').textContent = plural(named, 'reference') + ' · ' + plural(components.length, 'file') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
+      const body = $('plugins');
+      body.replaceChildren();
+      if (!rows.length) {
+        const row = document.createElement('tr');
+        const cell = text('td', 'The tracked files name no plugins at this revision.', 'empty');
+        cell.colSpan = 4;
+        row.append(cell);
+        body.append(row);
+      }
+      // Unreadable files come first, so a parse failure is not mistaken for no plugins.
+      const sorted = [...rows].sort((a, b) => Number(Boolean(a.plugin)) - Number(Boolean(b.plugin)) || a.component.path.localeCompare(b.component.path));
+      for (const { component, plugin } of capped('plugins', sorted, 25, renderPlugins)) {
+        const row = document.createElement('tr');
+        const name = text('td', plugin ? plugin.name : 'Could not read this file', plugin ? 'path' : 'kind');
+        row.append(name, text('td', plugin ? pluginState(plugin) : 'unresolved', 'kind'), text('td', component.path, 'path'), text('td', component.provider));
+        body.append(row);
+      }
     }`;

@@ -164,6 +164,10 @@ function claude(path: string, parts: string[]): Classification | null {
   if (path === ".mcp.json") {
     return { provider: "claude", readers: ["claude", "copilot"], category: "tools", instructionalText: false };
   }
+  // A plugin manifest or marketplace. It defines or lists a plugin; nothing enables it. See `src/plugins.ts`.
+  if (parts.at(-2) === ".claude-plugin" && (filename === "plugin.json" || filename === "marketplace.json")) {
+    return { provider: "claude", category: "settings", instructionalText: false };
+  }
   const index = parts.indexOf(".claude");
   if (index < 0) return null;
   const within = parts.slice(index + 1);

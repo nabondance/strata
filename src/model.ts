@@ -40,6 +40,35 @@ export interface McpServer {
  */
 export type McpServers = { status: "listed"; servers: McpServer[] } | { status: "unresolved" };
 
+/**
+ * What a tracked file says about an agent plugin: a settings file turns it on (`enabled`) or off
+ * (`disabled`) or registers a `marketplace`, a manifest `defined` it, `catalog` is a marketplace
+ * file, and `skills-folder` is a manifest in the root `.claude/skills`, which loads unless turned
+ * off. These are separate facts: enabled is not installed, and defined is not active.
+ */
+export type PluginState = "enabled" | "disabled" | "defined" | "catalog" | "marketplace" | "skills-folder";
+
+/**
+ * How many plugins a marketplace file lists: `local` has a path in the repository as its source and
+ * `external` anything else. Counts, because a marketplace can list hundreds of plugins in thousands
+ * of versions, and a source's URL is never stored.
+ */
+export interface PluginCatalog {
+  local: number;
+  external: number;
+}
+
+/** A plugin one file names. What a plugin outside Git contains is never fetched or estimated. */
+export interface PluginRef {
+  name: string;
+  state: PluginState;
+  /** On a `catalog`: the plugins the marketplace file lists. */
+  listed?: PluginCatalog;
+}
+
+/** The plugins one version of a file names, or `unresolved` when the file does not parse in its tool's format. */
+export type PluginRefs = { status: "listed"; plugins: PluginRef[] } | { status: "unresolved" };
+
 /** One version of one tracked file: a path together with the blob stored there. */
 export interface Component {
   path: string;
@@ -78,6 +107,8 @@ export interface Component {
   skill?: { root: string; role: "manifest" | "resource"; listing?: SkillListing };
   /** On an MCP configuration file, or a Gemini CLI or Codex settings file that mentions MCP servers. */
   mcp?: McpServers;
+  /** On a Claude settings file that names plugins, a plugin manifest, or a marketplace file. */
+  plugins?: PluginRefs;
 }
 
 export interface SkillGroup {
@@ -183,7 +214,7 @@ export interface Submodule {
 }
 
 export interface Report {
-  schemaVersion: 22;
+  schemaVersion: 23;
   repository: string;
   branch: string;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */

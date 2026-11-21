@@ -23,6 +23,8 @@ export const shareableConventions = {
     "settings.local.json",
     "mcp.json",
     "hooks.json",
+    "plugin.json",
+    "marketplace.json",
     "config.toml",
     "system.md",
     "copilot-instructions.md",
@@ -33,6 +35,7 @@ export const shareableConventions = {
     ".mcp.json",
     // Recognized folders.
     ".claude",
+    ".claude-plugin",
     ".codex",
     ".gemini",
     ".agents",
@@ -210,6 +213,12 @@ export function redactReport(report: Report): Report {
     ),
     "server",
   );
+  const plugins = sortedAliases(
+    report.components.flatMap((component) =>
+      component.plugins?.status === "listed" ? component.plugins.plugins.map((plugin) => plugin.name) : [],
+    ),
+    "plugin",
+  );
   const blobs = sortedAliases(
     report.components.map((component) => component.blob),
     "blob",
@@ -234,6 +243,14 @@ export function redactReport(report: Report): Report {
           mcp: {
             ...component.mcp,
             servers: component.mcp.servers.map((server) => ({ ...server, name: servers.get(server.name)! })),
+          },
+        }
+      : {}),
+    ...(component.plugins?.status === "listed"
+      ? {
+          plugins: {
+            ...component.plugins,
+            plugins: component.plugins.plugins.map((plugin) => ({ ...plugin, name: plugins.get(plugin.name)! })),
           },
         }
       : {}),

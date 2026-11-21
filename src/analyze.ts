@@ -22,6 +22,7 @@ import {
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
+import { PluginLists } from "./plugins.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -276,8 +277,18 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
+  const pluginLists = new PluginLists();
   const text = plan ? new TextCheck(countsLocally(plan)) : null;
-  const pass = new ContentPass([tokens, lineCounter, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
+  const pass = new ContentPass([
+    tokens,
+    lineCounter,
+    gemini,
+    skills,
+    ruleLoading,
+    mcpLists,
+    pluginLists,
+    ...(text ? [text] : []),
+  ]);
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
   const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body), ignored);
@@ -295,6 +306,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const listings = skills.listings;
   const rules = ruleLoading.upFront;
   const mcp = mcpLists.lists;
+  const plugins = pluginLists.lists;
   const counted = lineCounter.done();
   const ages = new LineAges(counted.lines, counted.weights);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
@@ -326,6 +338,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
             imports.get(key),
             rules.get(key),
             mcp.get(key),
+            plugins.get(key),
           ),
         ) - 1;
       tableIndex.set(key, index);
@@ -396,7 +409,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 22,
+    schemaVersion: 23,
     repository: basename(root),
     branch,
     shallow,

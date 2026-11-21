@@ -119,6 +119,14 @@ export const compareScript = `    // The selects list the first revision, the la
         $('compare-mcp').className = tone(mcp.deltaServers);
       }
       renderMcpNames(mcp);
+      const plugins = comparison.plugins;
+      $('compare-plugins-wrap').hidden = !plugins;
+      if (plugins) {
+        $('compare-plugins').textContent = signed(plugins.deltaPlugins) + ' (' + fmt(plugins.beforePlugins) + ' → ' + fmt(plugins.afterPlugins) + ')' +
+          (plugins.beforeUnresolved || plugins.afterUnresolved ? ' · unresolved ' + fmt(plugins.beforeUnresolved) + ' → ' + fmt(plugins.afterUnresolved) : '');
+        $('compare-plugins').className = tone(plugins.deltaPlugins);
+      }
+      renderPluginNames(plugins);
       for (const [id, groups] of [['compare-providers', comparison.byProvider], ['compare-categories', comparison.byCategory]]) {
         const body = $(id);
         body.replaceChildren();
@@ -156,11 +164,26 @@ export const compareScript = `    // The selects list the first revision, the la
 
     /** Added and removed servers, one line per name; a name defined in several files lists them in a disclosure. */
     function renderMcpNames(mcp) {
-      const list = $('compare-mcp-names');
+      renderNameGroups($('compare-mcp-names'), mcp ? [['MCP servers added', mcp.added], ['MCP servers removed', mcp.removed]] : [], 'more server');
+    }
+
+    /** Added, removed, and changed plugins, each with the state its file gives it. */
+    function renderPluginNames(plugins) {
+      const named = (refs) => refs.map((ref) => ({ name: ref.name + ', ' + pluginState(ref), path: ref.path }));
+      const changed = (refs) => refs.map((ref) => ({
+        name: ref.name + ', ' + pluginLabel(ref.before, ref.beforeListed) + ' → ' + pluginLabel(ref.after, ref.afterListed),
+        path: ref.path,
+      }));
+      renderNameGroups($('compare-plugin-names'), plugins
+        ? [['Plugins added', named(plugins.added)], ['Plugins removed', named(plugins.removed)], ['Plugins changed', changed(plugins.changed)]]
+        : [], 'more plugin');
+    }
+
+    function renderNameGroups(list, groups, moreNoun) {
       list.replaceChildren();
-      list.hidden = !mcp || (!mcp.added.length && !mcp.removed.length);
+      list.hidden = !groups.some(([, refs]) => refs.length);
       if (list.hidden) return;
-      for (const [heading, refs] of [['MCP servers added', mcp.added], ['MCP servers removed', mcp.removed]]) {
+      for (const [heading, refs] of groups) {
         if (!refs.length) continue;
         const files = new Map();
         for (const ref of refs) files.set(ref.name, [...(files.get(ref.name) ?? []), ref.path]);
@@ -179,7 +202,7 @@ export const compareScript = `    // The selects list the first revision, the la
           }
           names.append(item);
         }
-        if (files.size > 10) names.append(text('li', 'and ' + plural(files.size - 10, 'more server')));
+        if (files.size > 10) names.append(text('li', 'and ' + plural(files.size - 10, moreNoun)));
         const group = text('div', '', 'compare-mcp-group');
         group.append(text('span', heading + ' (' + fmt(refs.length) + ')', 'compare-mcp-heading'), names);
         list.append(group);

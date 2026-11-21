@@ -119,6 +119,12 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
       <div class="table-wrap"><table><thead><tr><th>Server</th><th title="Local starts a process on your machine; remote connects to a URL">Runs</th><th>Defined in</th><th>Provider</th></tr></thead><tbody id="mcp-servers"></tbody></table></div>
       <button class="more" id="mcp-servers-more" type="button" hidden></button>
     </details>
+    <details class="panel" id="plugins-panel" hidden>
+      <summary><h2>Agent plugins</h2><span class="summary-count" id="plugins-count"></span></summary>
+      <details class="notice"><summary>Named, not necessarily loaded</summary><p>Enabled does not mean installed, and a plugin defined in this repository does nothing until something enables it. Strata does not fetch a plugin or estimate what one outside Git adds.</p></details>
+      <div class="table-wrap"><table><thead><tr><th>Plugin</th><th>State</th><th>Named in</th><th>Provider</th></tr></thead><tbody id="plugins"></tbody></table></div>
+      <button class="more" id="plugins-more" type="button" hidden></button>
+    </details>
     <section class="panel" aria-labelledby="compare-heading">
       <h2 id="compare-heading">Compare revisions</h2>
       <div class="compare-controls">
@@ -131,9 +137,11 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
         <span>Tracked files<strong id="compare-files"></strong></span>
         <span id="compare-kept-wrap" hidden title="Instruction text at the baseline revision that is still present, line for line, at the target revision, across all files"><span id="compare-kept-label">Instruction text kept</span><strong id="compare-kept"></strong><small class="compare-kept-bytes" id="compare-kept-bytes"></small></span>
         <span id="compare-mcp-wrap" hidden>MCP servers<strong id="compare-mcp"></strong></span>
+        <span id="compare-plugins-wrap" hidden>Plugin references<strong id="compare-plugins"></strong></span>
         <span id="compare-listing-wrap" hidden><span id="compare-listing-label">Skill summary tokens</span><strong id="compare-listing"></strong></span>
       </div>
       <div class="muted compare-mcp-names" id="compare-mcp-names" hidden></div>
+      <div class="muted compare-mcp-names" id="compare-plugin-names" hidden></div>
       <div class="grid">
         <div class="compare-section"><h3>By provider</h3><div class="table-wrap"><table><thead><tr><th>Provider</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-providers"></tbody></table></div></div>
         <div class="compare-section"><h3>By category</h3><div class="table-wrap"><table><thead><tr><th>Category</th><th class="num">Δ files</th><th class="num">Δ tokens</th></tr></thead><tbody id="compare-categories"></tbody></table></div></div>

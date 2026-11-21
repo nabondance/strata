@@ -1,4 +1,4 @@
-import type { Component, RevisionSnapshot } from "./model.js";
+import type { Component, PluginCatalog, PluginState, RevisionSnapshot } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
 
 /** The part of a revision a comparison reads. */
@@ -68,6 +68,43 @@ export interface McpComparison {
   removed: McpServerRef[];
 }
 
+/** A plugin one side's files name, by name, the file that names it, and what that file says. */
+export interface PluginComparisonRef {
+  name: string;
+  path: string;
+  provider: Component["provider"];
+  state: PluginState;
+  listed?: PluginCatalog;
+}
+
+/** A plugin the same file names at both sides with a different state, or a marketplace whose counts moved. */
+export interface PluginStateChange {
+  name: string;
+  path: string;
+  provider: Component["provider"];
+  before: PluginState;
+  after: PluginState;
+  /** On a marketplace file: what it lists at each side. */
+  beforeListed?: PluginCatalog;
+  afterListed?: PluginCatalog;
+}
+
+/**
+ * The plugin references tracked files hold at each side. A reference is a file and a name, so the
+ * same plugin defined in one file and enabled in another is two. `beforeUnresolved` and
+ * `afterUnresolved` count files whose plugins could not be read; their plugins are not counted.
+ */
+export interface PluginComparison {
+  beforePlugins: number;
+  afterPlugins: number;
+  deltaPlugins: number;
+  beforeUnresolved: number;
+  afterUnresolved: number;
+  added: PluginComparisonRef[];
+  removed: PluginComparisonRef[];
+  changed: PluginStateChange[];
+}
+
 export interface Comparison {
   beforeTokens: number;
   afterTokens: number;
@@ -81,6 +118,8 @@ export interface Comparison {
   skillListing: ListingComparison;
   /** Present when either side has a component with `mcp`: an MCP file, or settings that mention MCP servers. */
   mcp?: McpComparison;
+  /** Present when either side has a component with `plugins`. */
+  plugins?: PluginComparison;
   components: ComponentDelta[];
 }
 
@@ -188,6 +227,35 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
   const serversBefore = servers(baseline);
   const serversAfter = servers(target);
   const byServer = (a: McpServerRef, b: McpServerRef) => a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
+  const pluginsAt = (revision: ComparedRevision) => {
+    const refs = new Map<string, PluginComparisonRef>();
+    let files = 0;
+    let unresolved = 0;
+    for (const component of revision.components) {
+      if (!component.plugins) continue;
+      files += 1;
+      if (component.plugins.status === "unresolved") {
+        unresolved += 1;
+        continue;
+      }
+      for (const plugin of component.plugins.plugins) {
+        // A marketplace and a plugin can share a name in one settings file, so the kind is in the key.
+        const kind = plugin.state === "marketplace" ? "marketplace" : "plugin";
+        refs.set(`${component.path}\0${kind}\0${plugin.name}`, {
+          name: plugin.name,
+          path: component.path,
+          provider: component.provider,
+          state: plugin.state,
+          ...(plugin.listed ? { listed: plugin.listed } : {}),
+        });
+      }
+    }
+    return { refs, files, unresolved };
+  };
+  const pluginsBefore = pluginsAt(baseline);
+  const pluginsAfter = pluginsAt(target);
+  const byPlugin = (a: { name: string; path: string }, b: { name: string; path: string }) =>
+    a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
   const listedBefore = listing(baseline);
   const listedAfter = listing(target);
   const deltaTokens = target.estimatedTokens - baseline.estimatedTokens;
@@ -224,6 +292,45 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
             removed: [...serversBefore.refs]
               .flatMap(([key, ref]) => (serversAfter.refs.has(key) ? [] : [ref]))
               .sort(byServer),
+          },
+        }
+      : {}),
+    ...(pluginsBefore.files || pluginsAfter.files
+      ? {
+          plugins: {
+            beforePlugins: pluginsBefore.refs.size,
+            afterPlugins: pluginsAfter.refs.size,
+            deltaPlugins: pluginsAfter.refs.size - pluginsBefore.refs.size,
+            beforeUnresolved: pluginsBefore.unresolved,
+            afterUnresolved: pluginsAfter.unresolved,
+            added: [...pluginsAfter.refs]
+              .flatMap(([key, ref]) => (pluginsBefore.refs.has(key) ? [] : [ref]))
+              .sort(byPlugin),
+            removed: [...pluginsBefore.refs]
+              .flatMap(([key, ref]) => (pluginsAfter.refs.has(key) ? [] : [ref]))
+              .sort(byPlugin),
+            changed: [...pluginsAfter.refs]
+              .flatMap(([key, ref]) => {
+                const before = pluginsBefore.refs.get(key);
+                if (!before) return [];
+                const same =
+                  before.state === ref.state &&
+                  before.listed?.local === ref.listed?.local &&
+                  before.listed?.external === ref.listed?.external;
+                if (same) return [];
+                return [
+                  {
+                    name: ref.name,
+                    path: ref.path,
+                    provider: ref.provider,
+                    before: before.state,
+                    after: ref.state,
+                    ...(before.listed ? { beforeListed: before.listed } : {}),
+                    ...(ref.listed ? { afterListed: ref.listed } : {}),
+                  },
+                ];
+              })
+              .sort(byPlugin),
           },
         }
       : {}),

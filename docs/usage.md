@@ -329,10 +329,10 @@ The skill-bundle and tracked-components tables are collapsed under their heading
 - **Carried-forward fields.** A revision leaves out every total that equals the previous revision's, `firstParent` when it is the previous revision's `id`, and `changes` when there are none, so a revision that changed nothing holds only `id` and `date` (and `geminiContextFiles`, while Gemini settings name context files). The first and the last revision keep every field, so `jq '.revisions[-1].estimatedTokens'` reads the latest total. To read another revision's total, take the nearest one at or before it, as the `foreach` example above does.
 - **Rebuilding a revision.** Replaying the changes in order rebuilds the files present at any revision. Together with the carried-forward fields, this keeps reports small on long histories.
 
-The bundled interpretation skill explains schema version 22 and these rules, and also:
+The bundled interpretation skill explains schema version 23 and these rules, and also:
 
-- up-front context, Claude imports, MCP servers, and instruction age;
+- up-front context, Claude imports, MCP servers, agent plugins, and instruction age;
 - stored-text measurement methods, source-only files, skill bundles, and shareable aliases;
 - the limits of what JSON can establish.
 
-It also covers the `strata diff` JSON (schema version 14) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.
+It also covers the `strata diff` JSON (schema version 15) and what its Markdown leaves out, reads the badge and SVG image, and maps each HTML report panel, including the configuration map, to the JSON it is drawn from.

@@ -279,7 +279,7 @@ strata diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --outp
 
 The last form writes both files from one comparison, as the Action does.
 
-The JSON delta has its own schema version, 14, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
+The JSON delta has its own schema version, 15, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
 
 ### What the delta contains
 

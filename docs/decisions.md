@@ -217,12 +217,13 @@ The second revision touched no recognized file, so it keeps only its `id` and `d
 
 ### Shareable reports
 
-`--shareable` produces schema version 22 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 23 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
 - folder names and file stems in component and change paths, `previousPath`s, import targets and `symlinkTarget`s (including targets no file has, such as a package name), skill roots, and submodule paths;
 - MCP server names;
+- plugin names;
 - blob IDs.
 
 Paths are aliased one segment at a time, so a shareable report keeps the folder tree: which folder holds the weight, how deep a skill sits, which files are nested `AGENTS.md`. `redactReport` in `src/privacy.ts` applies one rule to every path the report holds:
@@ -484,6 +485,10 @@ On two public repositories, analyzed with the estimate and Codex's local count:
 
 Compression already removed most of the repetition, so a served report transfers about as many bytes as before; the gain is in the file on disk and in the JSON a browser or a script has to parse.
 
+#### Version 23: agent plugins
+
+Version 23 recognizes `.claude-plugin/plugin.json` and `marketplace.json` as source-only Claude settings, and adds `plugins` to those files and to Claude settings that name plugins; see [Agent plugins](#agent-plugins). No token total changes. `strata diff` schema version 15 adds `comparison.plugins`.
+
 ## MCP servers
 
 An MCP file's JSON is configuration, not prompt text. Its size says nothing about the tool definitions a server sends once it starts, and Strata never starts a server, so it does not measure those. What the file does state is which servers the project defines.
@@ -525,6 +530,27 @@ A defined server is not a loaded one:
 - User and global configuration is outside Git.
 
 The HTML report lists the servers in a collapsed panel that follows the provider tab. The comparison counts servers by file and name, so a server moved to another file is a removal and an addition, and one server defined for two tools counts twice.
+
+## Agent plugins
+
+Strata records what tracked files say about Claude Code plugins, and no more. The evidence is in [the agent plugin study](plugin-study.md).
+
+Each file's `plugins` has a `status` of `listed`, with `name` and `state` for each entry, or `unresolved` when the file does not parse or its plugin fields do not have the documented shape. The states are:
+
+- `defined`: a `plugin.json` names it. Nothing enables it.
+- `skills-folder`: a manifest in the root `.claude/skills`, which Claude Code loads unless it is turned off.
+- `catalog`: a marketplace file, by its name, with `listed` counting its plugins whose source is a path in the repository (`local`) or anything else (`external`). It stores counts because a marketplace can list hundreds of plugins across thousands of versions.
+- `enabled` and `disabled`: `enabledPlugins` in a settings file.
+- `marketplace`: a name in `extraKnownMarketplaces`.
+
+These stay separate because Git cannot show which plugins a session loaded:
+
+- Enabled is not installed. A project setting turns a plugin on, and each person still installs it.
+- A plugin's content can be outside Git, so Strata does not fetch it or estimate it.
+- Source URLs can name private repositories or carry credentials, so they are never read into a report.
+- Files inside a plugin are not added to the repository's stored or up-front totals.
+
+A comparison identifies a reference by its file and name. The same plugin defined in one file and enabled in another is two references, and a plugin that goes from enabled to turned off is a change rather than a removal and an addition.
 
 ## Skill listings
 

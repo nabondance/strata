@@ -462,7 +462,7 @@ test("limits report a passed number and exit with 3, only when set", () => {
     const none = diff("--format", "json");
     assert.equal(none.status, 0);
     assert.equal(JSON.parse(none.stdout).limits, undefined);
-    assert.equal(JSON.parse(none.stdout).schemaVersion, 14);
+    assert.equal(JSON.parse(none.stdout).schemaVersion, 15);
 
     const over = diff(
       "--format",
@@ -692,7 +692,7 @@ test("the Action writes the summary, then annotates and fails or warns on a pass
     assert.match(plain.summary, /^## Strata configuration delta/);
     assert.doesNotMatch(plain.stdout + plain.stderr, /::/);
     const delta = JSON.parse(readFileSync(plain.outputs["json-file"], "utf8"));
-    assert.equal(delta.schemaVersion, 14);
+    assert.equal(delta.schemaVersion, 15);
     assert.deepEqual(
       { ...plain.outputs, "json-file": undefined },
       {
