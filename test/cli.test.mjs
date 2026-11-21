@@ -1031,6 +1031,7 @@ function actionRunner(temp, defaults) {
   const action = readFileSync("action.yml", "utf8");
   const script = action
     .split("    - name: Compare the commits")[1]
+    .split("\n    # Runs after a passed limit too")[0]
     .split("      run: |\n")[1]
     .split("\n")
     .map((line) => line.slice(8))
@@ -1054,6 +1055,8 @@ function actionRunner(temp, defaults) {
         STRATA_EVENT_BASE: "",
         STRATA_EVENT_HEAD: "",
         STRATA_EVENT_MERGE: "",
+        STRATA_EVENT_FORCED: "",
+        STRATA_IMAGE_BRANCH: "",
         STRATA_PRECISE: "false",
         STRATA_IGNORE: "",
         STRATA_LIMIT_TOKENS: "",
@@ -1081,6 +1084,83 @@ function actionRunner(temp, defaults) {
     return { ...result, summary: read(summary), outputs };
   };
 }
+
+test("the Action skips a force-push only when its earlier commit is known to be gone", {
+  skip: process.platform === "win32",
+}, () => {
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  const inRepo = (cwd, ...args) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  try {
+    put("CLAUDE.md", "Root.\n");
+    const head = commit("Add instructions");
+    const remote = join(temp, "remote.git");
+    inRepo(temp, "clone", "-q", "--bare", repo, remote);
+    inRepo(repo, "remote", "add", "origin", remote);
+    const run = actionRunner(temp, { GITHUB_WORKSPACE: repo });
+    const gone = "a".repeat(40);
+    const push = { STRATA_EVENT: "push", STRATA_EVENT_BASE: gone, STRATA_EVENT_HEAD: head };
+    const forcedPush = { ...push, STRATA_EVENT_FORCED: "true" };
+
+    // The server refuses the commit.
+    const forced = run({ ...forcedPush, STRATA_LIMIT_TOKENS: "1" });
+    assert.equal(forced.status, 0, forced.stdout + forced.stderr);
+    assert.match(forced.stdout, /::notice title=Strata::This force-push replaced commit a{40}/);
+    assert.equal(forced.summary, null);
+
+    // Without a force-push, a missing commit is still an error, as it is for commits given as inputs.
+    assert.equal(run(push).status, 1);
+    assert.equal(run({ ...forcedPush, STRATA_BASE: gone, STRATA_HEAD: head }).status, 1);
+    // A head that cannot be fetched is never skipped.
+    assert.equal(run({ ...forcedPush, STRATA_EVENT_HEAD: "b".repeat(40) }).status, 1);
+
+    // A private repository, from a checkout without credentials: Git cannot ask the server.
+    const realGit = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+    const stub = (name, error) => {
+      const bin = mkdtempSync(join(temp, `${name}-`));
+      writeFileSync(
+        join(bin, "git"),
+        `#!/bin/sh\nfor a in "$@"; do if [ "$a" = fetch ]; then echo "${error}" >&2; exit 128; fi; done\nexec "${realGit}" "$@"\n`,
+        { mode: 0o755 },
+      );
+      return { PATH: `${bin}:${process.env.PATH}` };
+    };
+    const noCredentials = stub("auth", "fatal: could not read Username for 'https://github.com': No such device");
+    const complete = run({ ...forcedPush, ...noCredentials, STRATA_LIMIT_TOKENS: "1" });
+    assert.equal(complete.status, 0, complete.stdout + complete.stderr);
+    assert.match(complete.stdout, /This force-push replaced commit/);
+
+    // A shallow checkout can lack the commit for another reason, so its limits still run.
+    const shallow = join(temp, "shallow");
+    inRepo(temp, "clone", "-q", "--depth=1", `file://${remote}`, shallow);
+    const partial = run({ ...forcedPush, ...noCredentials, GITHUB_WORKSPACE: shallow });
+    assert.equal(partial.status, 1, partial.stdout + partial.stderr);
+
+    // A network error says nothing about the commit, so it cannot skip the limits.
+    const offline = run({
+      ...forcedPush,
+      ...stub("network", "fatal: unable to access 'https://github.com/': Could not resolve host"),
+    });
+    assert.equal(offline.status, 1, offline.stdout + offline.stderr);
+    assert.match(offline.stdout, /keep actions\/checkout's persisted credentials/);
+    // image-branch refuses persisted credentials, so the error does not suggest them.
+    const withImage = run({
+      ...forcedPush,
+      ...stub("image", "fatal: unable to access 'https://github.com/': Could not resolve host"),
+      STRATA_IMAGE_BRANCH: "strata-image",
+    });
+    assert.equal(withImage.status, 1);
+    assert.match(withImage.stdout, /check out with fetch-depth: 0\./);
+    assert.doesNotMatch(withImage.stdout, /persisted credentials/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
 
 test("the analyze summary names the method in words and says where Strata looks when it finds nothing", () => {
   const { repo, put, commit } = fixture();

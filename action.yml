@@ -61,6 +61,14 @@ inputs:
       a warning and lets the step pass. Used only when a limit is set.
     required: false
     default: fail
+  image-branch:
+    description: >-
+      Branch to keep a README image and badge on, such as 'strata-image'. On a push to the default
+      branch, the Action draws the history and publishes it as that branch's single commit. It needs
+      'contents: write' and a checkout with 'fetch-depth: 0' and 'persist-credentials: false'. Strata then
+      runs in a job that can write to the repository. Other events never publish. Off when empty.
+    required: false
+    default: ""
 outputs:
   tokens:
     description: Stored instructional text at the head, in tokens, in the run's measurement.
@@ -80,9 +88,23 @@ outputs:
   install:
     description: "'npm' when Strata came from the published npm package, which happens when the Action's source matches a release's; 'source' when the Action built it from its own source."
     value: ${{ steps.install.outputs.install }}
+  image-file:
+    description: Path of the rendered SVG, on a run that draws the image.
+    value: ${{ steps.image.outputs.image-file }}
+  image-url:
+    description: URL of the published SVG for a README, on a run that publishes or finds the image current.
+    value: ${{ steps.publish.outputs.image-url }}
 runs:
   using: composite
   steps:
+    # Checked on every event and before Strata runs, so a wrong setup shows on the pull request that adds it.
+    - name: Check the image branch
+      if: ${{ inputs.image-branch != '' }}
+      shell: bash
+      env:
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
+        STRATA_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" check
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: "22"
@@ -155,6 +177,8 @@ runs:
         STRATA_EVENT: ${{ github.event_name }}
         STRATA_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         STRATA_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after }}
+        STRATA_EVENT_FORCED: ${{ github.event.forced }}
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
         # The commit that merges the pull request: what a pull_request checkout holds (also on its
         # review events), and on pull_request_target the payload's test merge, which can be missing.
         STRATA_EVENT_MERGE: ${{ github.event_name != 'pull_request_target' && github.sha || github.event.pull_request.merge_commit_sha }}
@@ -190,15 +214,37 @@ runs:
           fetching="${missing[*]}"
           # Strata reads only the two trees, so a shallow checkout stays shallow.
           if [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = true ]; then depth=(--depth=1); fi
-          git -C "$GITHUB_WORKSPACE" -c gc.auto=0 -c maintenance.auto=false \
-            fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}"
+          # In English, because base_replaced reads the error.
+          if ! fetch_error="$(LC_ALL=C git -C "$GITHUB_WORKSPACE" -c gc.auto=0 -c maintenance.auto=false \
+            fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}" 2>&1)"; then
+            printf '%s\n' "$fetch_error" >&2
+            return 1
+          fi
         }
         fetch_failed() {
-          fail "Could not fetch $fetching from origin. The checkout needs both commits: check out with fetch-depth: 0, or keep actions/checkout's persisted credentials so the Action can fetch them."
+          local fix="check out with fetch-depth: 0, or keep actions/checkout's persisted credentials so the Action can fetch them."
+          # image-branch refuses persisted credentials, so only the first fix applies.
+          if [ -n "$STRATA_IMAGE_BRANCH" ]; then fix="check out with fetch-depth: 0."; fi
+          fail "Could not fetch $fetching from origin. The checkout needs both commits: $fix"
+        }
+        # Whether a force-push left the earlier commit on no branch, so that there is nothing to
+        # compare. It is known when the server refuses the commit, or when a complete clone lacks it
+        # and has no credentials to ask. Any other failure, such as a network error, fails the step,
+        # so it cannot skip the limits.
+        base_replaced() {
+          if [ -z "$event_commits" ] || [ "$STRATA_EVENT" != push ] || [ "$STRATA_EVENT_FORCED" != true ]; then return 1; fi
+          git -C "$GITHUB_WORKSPACE" cat-file -e "$head^{commit}" 2>/dev/null || return 1
+          case "$fetch_error" in
+            *"not our ref $base"*) return 0 ;;
+            *"could not read Username"*) [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = false ] ;;
+            *) return 1 ;;
+          esac
         }
         base="$STRATA_BASE"
         head="$STRATA_HEAD"
+        event_commits=""
         if [ -z "$base" ] && [ -z "$head" ]; then
+          event_commits=true
           # A pull request's, merge queue entry's, or push's own commits.
           base="$STRATA_EVENT_BASE"
           head="$STRATA_EVENT_HEAD"
@@ -240,7 +286,13 @@ runs:
             fail "Base and head must be full Git commit IDs, not $id."
           fi
         done
-        fetch_missing "$base" "$head" || fetch_failed
+        if ! fetch_missing "$base" "$head"; then
+          if base_replaced; then
+            echo "::notice title=Strata::This force-push replaced commit $base, which is no longer on a branch, so there are no two commits to compare and Strata skips the delta and limits."
+            exit 0
+          fi
+          fetch_failed
+        fi
         # A directory per run, so a later run in the job leaves this one's output files alone.
         out="$(mktemp -d "$RUNNER_TEMP/strata-XXXXXX")"
         markdown="$out/strata-pr-delta.md"
@@ -288,3 +340,32 @@ runs:
           console.log(`json-file=${json}`);
         ' "$STRATA_DIST/limits.js" "$markdown" "$json" >> "$GITHUB_OUTPUT"
         exit "$status"
+    # Runs after a passed limit too: on events that do not publish, the summary says where the image is.
+    - name: Link the image
+      if: ${{ !cancelled() && inputs.image-branch != '' && (steps.compare.outcome == 'success' || steps.compare.outputs.limit-result == 'over') && !(github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+      shell: bash
+      env:
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
+        STRATA_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" link
+    # Runs after a passed limit too, so the image stays true; the Action still fails.
+    - name: Render the image
+      id: image
+      if: ${{ !cancelled() && inputs.image-branch != '' && steps.install.outcome == 'success' && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      shell: bash
+      env:
+        STRATA_DIST: ${{ steps.install.outputs.dist }}
+        STRATA_IGNORE: ${{ inputs.ignore }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" render
+    # The only step given the token. Earlier steps of this job can still affect it: see docs/pr-action.md.
+    - name: Publish the image
+      id: publish
+      if: ${{ !cancelled() && steps.image.outcome == 'success' }}
+      shell: bash
+      env:
+        STRATA_TOKEN: ${{ github.token }}
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
+        STRATA_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        STRATA_IMAGE_DIR: ${{ steps.image.outputs.image-dir }}
+        STRATA_IMAGE_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
+      run: bash "$GITHUB_ACTION_PATH/scripts/action-image.sh" publish

@@ -21,7 +21,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch from 
 
 ## Changes that affect analysis
 
-- Keep the target repository read-only. Analyze tracked Git blobs, not the working tree, and upload no repository content. The one exception is the Action, which may fetch commits a CI checkout lacks into its `.git`; it changes no working-tree file, branch, or tag.
+- Keep the target repository read-only. Analyze tracked Git blobs, not the working tree, and upload no repository content. The one exception is the Action, which may fetch commits a CI checkout lacks into its `.git`; it changes no working-tree file, branch, or tag. Only with `image-branch` set does it write, and then only to that branch (`scripts/action-image.sh`).
 - Distinguish stored instruction estimates from loaded context or billing tokens. Structured configuration and supporting resources stay source-only unless a change defines and documents a defensible text boundary.
 - Label conditional loading, renames, and inferred relationships accurately. Do not infer active context or a refactor from path changes alone.
 - Keep HTML usable offline and source text out of default HTML/JSON. Escape repository-derived strings before placing them in HTML.

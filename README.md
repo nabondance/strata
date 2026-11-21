@@ -197,7 +197,7 @@ Strata estimates tokens as UTF-8 bytes divided by four. Files Codex reads are al
 The GitHub Action [Strata agent context check](https://github.com/marketplace/actions/strata-agent-context-check), on the Marketplace ([guide](docs/pr-action.md)), shows what a pull request changes in your agent configuration. It writes this change (the _delta_) to the job summary. It runs only in workflows you add it to.
 
 - It is one step after `actions/checkout`. It finds the pull request's commits itself and fetches the ones the checkout is missing.
-- It needs only the `contents: read` permission and posts no comments.
+- It needs only the `contents: read` permission and posts no comments. The optional [`image-branch`](docs/pr-action.md#readme-image) also keeps a README image up to date, with `contents: write`.
 - Optional [limits](docs/pr-action.md#limits), such as `limit-up-front-tokens: claude=8000`, fail or warn when a figure passes a number you choose.
 - Its [outputs](docs/pr-action.md#outputs) give the totals to later steps.
 
