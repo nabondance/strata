@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -129,6 +129,77 @@ test("an older commit's run does not replace a newer image", (t) => {
   assert.equal(late.status, 0, late.stdout + late.stderr);
   assert.match(late.stdout, new RegExp(`newer commit \\(${newer}\\)`));
   assert.equal(tip(), before);
+});
+
+test("a slow run whose checkout lacks the newer commit does not replace its image", (t) => {
+  const { temp, remote, repo, commit, first, run, publish, tip } = setup(t);
+  const slow = join(temp, "slow");
+  git(temp, "clone", "-q", remote, slow);
+  const rendered = run("render", { GITHUB_WORKSPACE: slow, GITHUB_SHA: first });
+  assert.equal(rendered.status, 0, rendered.stdout + rendered.stderr);
+  const newer = commit(`${"Newer instructions. ".repeat(40)}\n`);
+  git(repo, "push", "-q", "origin", "main");
+  assert.equal(publish().status, 0);
+  const before = tip();
+  const late = run("publish", {
+    GITHUB_WORKSPACE: slow,
+    GITHUB_SHA: first,
+    STRATA_IMAGE_DIR: rendered.outputs["image-dir"],
+  });
+  assert.equal(late.status, 0, late.stdout + late.stderr);
+  assert.match(late.stdout, new RegExp(`newer commit \\(${newer}\\)`));
+  assert.equal(tip(), before);
+});
+
+test("after a rollback, the image follows the default branch", (t) => {
+  const { remote, repo, commit, first, run, publish, tip } = setup(t);
+  const removed = commit(`${"Instructions rolled back later. ".repeat(40)}\n`);
+  git(repo, "push", "-q", "origin", "main");
+  assert.equal(publish().status, 0);
+  git(repo, "push", "-q", "--force", "origin", `${first}:refs/heads/main`);
+  git(repo, "reset", "-q", "--hard", first);
+  const rolledBack = publish();
+  assert.equal(rolledBack.status, 0, rolledBack.stdout + rolledBack.stderr);
+  assert.equal(git(remote, "log", "-1", "--format=%s", "strata-image"), `Update Strata image for ${first}`);
+
+  // A late run for the removed commit publishes nothing.
+  const before = tip();
+  git(repo, "checkout", "-q", removed);
+  const rendered = run("render");
+  const late = run("publish", { STRATA_IMAGE_DIR: rendered.outputs["image-dir"] });
+  assert.equal(late.status, 0, late.stdout + late.stderr);
+  assert.match(late.stdout, /is no longer on main/);
+  assert.equal(tip(), before);
+});
+
+test("pushes nothing when the default branch cannot be read", (t) => {
+  const { run, tip } = setup(t);
+  const rendered = run("render");
+  const result = run("publish", { STRATA_IMAGE_DIR: rendered.outputs["image-dir"], STRATA_DEFAULT_BRANCH: "missing" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /Could not read the default branch/);
+  assert.equal(tip(), "");
+});
+
+test("check refuses a checkout that kept its credentials, without printing them", (t) => {
+  const { temp, repo, run } = setup(t);
+  const key = "http.https://github.com/.extraheader";
+  const refused = () => {
+    const result = run("check");
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /persist-credentials: false/);
+    assert.doesNotMatch(result.stdout + result.stderr, /c2VjcmV0/);
+  };
+  git(repo, "config", key, "AUTHORIZATION: basic c2VjcmV0");
+  refused();
+  git(repo, "config", "--unset", key);
+  assert.equal(run("check").status, 0);
+
+  // How actions/checkout keeps them: in a file outside the repository.
+  const file = join(temp, "credentials.config");
+  writeFileSync(file, '[http "https://github.com/"]\n\textraheader = AUTHORIZATION: basic c2VjcmV0\n');
+  git(repo, "config", `includeIf.gitdir:${join(realpathSync(repo), ".git")}.path`, file);
+  refused();
 });
 
 test("leaves a branch alone that is not Strata's image branch", (t) => {

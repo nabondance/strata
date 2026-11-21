@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # The GitHub Action's `image-branch` option, one command per step:
 #
-#   check    validates the branch name, on every event
-#   render   draws the image and badge from the pushed commit; it has no token
-#   publish  pushes them as the single commit of the branch; it runs only Git
+#   check    validates the setup before Strata runs, on every event
+#   render   draws the image and badge from the pushed commit
+#   publish  pushes them as the single commit of the branch
 #
-# The token reaches `publish` alone, so no Strata or dependency code runs in a
-# process that holds it. The branch is the only ref this script ever writes.
+# Only `publish` is given the token, but this is not isolation: Strata runs
+# earlier in the same job, and a step can affect later ones. docs/pr-action.md
+# says so. The branch is the only ref this script ever writes.
 
 set -eo pipefail
 
@@ -19,12 +20,17 @@ fail() {
 }
 
 check() {
-  local branch="$STRATA_IMAGE_BRANCH"
+  local branch="$STRATA_IMAGE_BRANCH" headers
   if ! [[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || ! git check-ref-format "refs/heads/$branch"; then
     fail "image-branch must be a plain branch name, such as strata-image, not '$branch'."
   fi
   if [ "$branch" = "$STRATA_DEFAULT_BRANCH" ]; then
     fail "image-branch cannot be the default branch ($branch): publishing replaces the branch's whole history. Use a dedicated branch, such as strata-image."
+  fi
+  # The value is a credential, so it is matched here and never printed.
+  if headers="$(git -C "$GITHUB_WORKSPACE" config --get-regexp '^http\..*\.extraheader$' 2>/dev/null)" &&
+    grep -qi 'authorization:' <<<"$headers"; then
+    fail "With image-branch the job can write, so the checkout must not keep its credentials while Strata runs. Set persist-credentials: false on actions/checkout."
   fi
 }
 
@@ -77,7 +83,7 @@ require_image_branch() {
 
 publish() {
   local branch="$STRATA_IMAGE_BRANCH" remote="$STRATA_IMAGE_REMOTE" workspace="$GITHUB_WORKSPACE"
-  local source url work basic attempt current published now error
+  local default="$STRATA_DEFAULT_BRANCH" source url work basic attempt current tip published now error
   source="$(git -C "$workspace" rev-parse HEAD)"
   url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/raw/$branch/strata.svg"
   # The token travels in the environment, not in a URL or on a command line.
@@ -99,16 +105,27 @@ publish() {
   for attempt in 1 2 3; do
     current="$(remote_tip "$work")" ||
       fail "Could not read branch $branch from the repository. Check the job's contents permission."
+    # The default branch as it is now decides which image is right. Without it,
+    # the order of the commits is unknown, so nothing is pushed.
+    git -C "$workspace" -c gc.auto=0 -c maintenance.auto=false fetch -q --no-tags "$remote" "refs/heads/$default" ||
+      fail "Could not read the default branch ($default), so the image was not published."
+    tip="$(git -C "$workspace" rev-parse FETCH_HEAD)"
+    if ! git -C "$workspace" merge-base --is-ancestor "$source" "$tip"; then
+      echo "::notice title=Strata image::Commit $source is no longer on $default, so its image was not published."
+      return 0
+    fi
     if [ -n "$current" ]; then
       git -C "$work" fetch -q --depth=2 --no-tags "$remote" "+refs/heads/$branch:refs/strata/published" ||
         fail "Could not fetch branch $branch from the repository."
       current="$(git -C "$work" rev-parse refs/strata/published)"
       require_image_branch "$work" "$current"
-      # Runs can finish out of order: an older commit must not replace a newer image.
+      # Runs can finish out of order: an older commit must not replace a newer
+      # image. A published commit that left the default branch is not newer.
       published="$(git -C "$work" log -1 --format=%s "$current")"
       published="${published##* }"
       if [[ "$published" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] && [ "$published" != "$source" ] &&
         git -C "$workspace" cat-file -e "$published^{commit}" 2>/dev/null &&
+        git -C "$workspace" merge-base --is-ancestor "$published" "$tip" &&
         git -C "$workspace" merge-base --is-ancestor "$source" "$published"; then
         echo "::notice title=Strata image::Branch $branch already shows a newer commit ($published), so it was left as it is."
         echo "image-url=$url" >>"$GITHUB_OUTPUT"

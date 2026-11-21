@@ -1007,7 +1007,8 @@ Fetching and outputs:
 The README image (`image-branch`):
 
 - It is off by default, and the only way the Action writes to a repository. It publishes on a push to the default branch and on no other event, as the single commit of the named branch.
-- One job cannot drop permissions partway through, so the boundary is the step: only the last step receives the token, through its environment, and that step runs `scripts/action-image.sh publish`, which calls Git and no Strata or dependency code. The token is never in a URL or on a command line. `persist-credentials: false` keeps it out of the checkout while Strata runs.
-- It refuses the default branch, and an existing branch with more than one commit or any file other than `strata.svg` and `strata-badge.json`, because a force push would destroy that work.
+- One job cannot drop permissions partway through. Only the last step is given the token, through its environment and never in a URL or on a command line, but that is not isolation: Strata and its dependencies run earlier in the same job and could change what that step runs. The docs state this, and the separate workflow in `docs/ci.md` remains the option that keeps write access away from Strata.
+- It refuses the default branch, and an existing branch with more than one commit or any file other than `strata.svg` and `strata-badge.json`, because a force push would destroy that work. It also stops before Strata runs if the checkout kept an authorization header, including through an `includeIf`.
 - The image needs the whole history, so a shallow checkout stops it rather than publishing a partial chart.
-- Each commit message records the source commit. A run whose commit is an ancestor of the published one leaves it alone, and the push uses a lease, so runs that finish out of order cannot replace a newer image.
+- Each commit message records the source commit, and each publish reads the default branch's current tip. It skips a commit no longer on that branch, and a commit older than a published commit that is still on it. A published commit that left the branch counts as stale. The push uses a lease, and if the default branch cannot be read, nothing is pushed.
+- After a force-push whose earlier commit cannot be fetched, the Action skips the delta and limits with a notice, since there are no two commits to compare.

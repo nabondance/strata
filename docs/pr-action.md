@@ -72,6 +72,10 @@ In these cases the Action compares the base tip with the pull request's head and
 
 A push that creates or deletes a branch or tag has no commit on one side. The Action adds a notice and skips it.
 
+### Force-pushes
+
+A force-push can replace the commit before it, so that a full clone no longer holds it. If the Action cannot fetch that commit, as in a private repository checked out with `persist-credentials: false`, it adds a notice and skips the delta and limits for that push. The [README image](#readme-image) is still updated.
+
 ### Other events
 
 On any other event, such as `workflow_dispatch` or `schedule`, set both inputs to full commit IDs (40 hexadecimal characters, or 64 in a SHA-256 repository). Setting them on the events above also overrides the event's commits.
@@ -237,12 +241,12 @@ What it does:
 - It publishes even when a limit is passed, so the image stays true, and the step still fails.
 - It honors `ignore`.
 
-What protects your repository:
+What to know about write access:
 
-- Only the final publish step receives the token. It runs Git and no Strata or dependency code.
-- `persist-credentials: false` keeps the token out of the checkout while Strata runs. With `fetch-depth: 0` the Action does not need those credentials on ordinary events.
+- **Strata runs in a job that can write to your repository.** Only the final publish step is given the token, but a step cannot be isolated from earlier steps of its job. A compromised Strata package or dependency could reach the token and change your repository. At a release, the Action first verifies the package's signatures and provenance, and installs it without running install scripts. If that is not enough for your repository, use the [separate image workflow](ci.md#publish-it-from-a-workflow), which keeps write access in a job that runs no Strata code.
+- The checkout must use `persist-credentials: false`. The Action stops before running Strata if the checkout kept its credentials.
 - It refuses the default branch, and any existing branch with more than one commit or with other files.
-- A run for an older commit does not replace a newer image.
+- The current default branch decides which image is right. A slow run for an older commit does not replace a newer image, a commit no longer on the branch is not published, and after a rollback the next run replaces the removed commit's image.
 
 `contents: write` also applies to the workflow's pull request runs from your own branches, although the Action does not use it there. Pull requests from forks stay read-only.
 
