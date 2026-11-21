@@ -389,7 +389,7 @@ Notes on this table:
 - Gemini CLI's `context.fileName` still decides only Gemini's reading of `GEMINI.md`.
 - Where no revision has Copilot configuration, `readers` is exactly as in version 14.
 - A file keeps its owner's label rather than becoming `shared`, so adopting Copilot does not move tokens out of the Claude or Gemini CLI totals.
-- `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot then read only hooks, gain no reader. [Version 23](#version-23-agent-plugins) makes Copilot a reader of the root `.claude/settings.json`, for its plugin settings.
+- `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot then read only hooks, gain no reader. [Version 23](#version-23-agent-plugins) makes Copilot a reader of the root `.claude/settings.json` and `.claude/settings.local.json`, for their plugin settings.
 
 The `copilot` label means at least one Copilot client (GitHub.com chat, the cloud agent, code review, Copilot CLI, or an IDE) is documented as reading the path; the report does not say which. Copilot has no `--precise` count: its files keep the report's measurement and their text is never sent. Reports from version 14 and earlier recognize no Copilot files and no `REVIEW.md`. [The Copilot adapter study](copilot-adapter.md) records the evidence for each pattern.
 
@@ -554,7 +554,7 @@ These stay separate because Git cannot show which plugins a session loaded:
 
 Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files, and the tools in their `readers` get no report tab of their own. A `plugin.json` already tracked inside an agent's folder keeps its label, and also names a plugin if it declares the Agent Plugins `$schema`.
 
-A manifest's history can hold thousands of versions. In a partial clone, Strata downloads the missing blobs it needs into `.git` in one request, with the command Git uses for its own on-demand fetches, instead of one request per blob. A `plugin.json` that cannot be downloaded counts as not being a package, so an unrelated file cannot stop the analysis.
+A manifest's history can hold thousands of versions. In a partial clone, Strata downloads the missing blobs it needs into `.git` in one request, with the command Git uses for its own on-demand fetches, instead of one request per blob. A `plugin.json` that cannot be downloaded counts as not being a package, and this download never waits for a login, so an unrelated file cannot stop the analysis.
 
 A comparison identifies a reference by its file and name. The same plugin defined in one file and enabled in another is two references, and a plugin that goes from enabled to turned off is a change rather than a removal and an addition. A file unreadable at either commit is left out of the counts and lists at both, because it may still name the plugins it named, and is counted only as unresolved.
 
@@ -958,7 +958,7 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 `strata diff` compares two supplied commits, each any revision Git resolves to a commit (`git rev-parse --verify --end-of-options <rev>^{commit}`, which is read-only), by reading their tracked Git trees directly. Its output names both by full commit ID. It does not check out revisions or write into the target repository, apart from downloading a partial clone's missing blobs into `.git`. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
-Its JSON has its own schema version, currently 14. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
+Its JSON has its own schema version, currently 15. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
 | Version | Adds                                                                                                                                                                                                                                                                                                                                                    |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

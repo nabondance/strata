@@ -52,7 +52,14 @@ export function viewRevision(
     view === "shared" || view === "unknown"
       ? entry.provider === view
       : providerReads(entry, view, at?.geminiContextFiles, at === revision ? configuredNow : configuredBefore);
-  const components = revision.components.filter((component) => includes(component, revision));
+  // A plugin manifest inside a Claude skill folder is only one of the skill's files to any other tool.
+  const components = revision.components
+    .filter((component) => includes(component, revision))
+    .map((component) => {
+      if (view === "claude" || !component.skill || !component.plugins) return component;
+      const { plugins: _plugins, ...skillFile } = component;
+      return skillFile;
+    });
   const before = new Map(previous?.components.map((component) => [component.path, component]));
   const after = new Map(revision.components.map((component) => [component.path, component]));
   const categoryTotals = Object.fromEntries(

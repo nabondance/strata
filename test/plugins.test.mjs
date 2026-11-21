@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -10,6 +10,7 @@ import { importLinks } from "../dist/import-links.js";
 import { pluginRefs } from "../dist/plugins.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
+import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
 import { loadReportUi } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
@@ -316,6 +317,74 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   );
   execFileSync("git", ["-C", offline, "remote", "set-url", "origin", `file://${history.repo}-gone`]);
   assert.deepEqual(expandRevisions(await analyzeRepository(offline)).at(-1).components, []);
+
+  // Git before 2.44 ignores GIT_NO_LAZY_FETCH: a local manifest survives a missing one, and nothing prompts.
+  const mixed = syntheticRepo("strata-plugins-mixed-");
+  t.after(mixed.cleanup);
+  mixed.git("config", "uploadpack.allowFilter", "true");
+  mixed.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  mixed.put("a/plugin.json", manifest("local"));
+  mixed.put("b/plugin.json", manifest("gone"));
+  mixed.commit("Two manifests");
+  const mixedClone = `${mixed.repo}-clone`;
+  const bin = `${mixed.repo}-bin`;
+  t.after(() => {
+    rmSync(mixedClone, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  });
+  execFileSync(
+    "git",
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${mixed.repo}`, mixedClone],
+    {
+      stdio: "ignore",
+    },
+  );
+  execFileSync("git", ["-C", mixedClone, "cat-file", "-p", "HEAD:a/plugin.json"], { stdio: "ignore" });
+  execFileSync("git", ["-C", mixedClone, "remote", "set-url", "origin", `file://${mixed.repo}-gone`]);
+  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  mkdirSync(bin);
+  const prompts = join(bin, "prompts");
+  writeFileSync(
+    join(bin, "git"),
+    `#!/bin/sh\nunset GIT_NO_LAZY_FETCH\ncase " $* " in *" fetch "*) echo "$GIT_TERMINAL_PROMPT" >> "${prompts}";; esac\nexec "${realGit}" "$@"\n`,
+    { mode: 0o755 },
+  );
+  const path = process.env.PATH;
+  process.env.PATH = `${bin}:${path}`;
+  try {
+    const kept = expandRevisions(await analyzeRepository(mixedClone)).at(-1).components;
+    assert.deepEqual(
+      kept.map((component) => component.path),
+      ["a/plugin.json"],
+    );
+  } finally {
+    process.env.PATH = path;
+  }
+  assert.match(readFileSync(prompts, "utf8"), /^0\n/);
+
+  // A settings file saved in another encoding may still name its plugins.
+  const encoded = syntheticRepo("strata-plugins-encoded-");
+  t.after(encoded.cleanup);
+  const settings = '{"enabledPlugins":{"fmt@tools":true}}';
+  encoded.put(".claude/settings.json", settings);
+  const utf8 = encoded.commit("UTF-8");
+  encoded.put(".claude/settings.json", Buffer.from(`\uFEFF${settings}`, "utf16le"));
+  const utf16 = encoded.commit("UTF-16");
+  const reencoded = compareGitCommits(encoded.repo, utf8, utf16).comparison.plugins;
+  assert.deepEqual([reencoded.removed.length, reencoded.afterUnresolved], [0, 1]);
+
+  // Only Claude Code loads a plugin from a skill folder.
+  const skillFolder = syntheticRepo("strata-plugins-skill-");
+  t.after(skillFolder.cleanup);
+  skillFolder.put(".cursor/rules/a.mdc", "---\nalwaysApply: true\n---\nRule.\n");
+  skillFolder.put(".claude/skills/pack/.claude-plugin/plugin.json", '{"name":"pack"}\n');
+  skillFolder.commit("A plugin in a skill folder");
+  const folderReport = await analyzeRepository(skillFolder.repo);
+  const latest = expandRevisions(folderReport).at(-1);
+  const inView = (view) =>
+    viewRevision(latest, view, undefined, folderReport.components).components.find((component) => component.skill);
+  assert.ok(inView("claude").plugins);
+  assert.ok(inView("cursor") && !inView("cursor").plugins);
 });
 
 test("reads only the documented plugin shapes, and marks anything else unresolved", () => {

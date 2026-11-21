@@ -142,6 +142,43 @@ export function listTree(repo: string, revision: string, env?: NodeJS.ProcessEnv
   return entries;
 }
 
+/** The environment for a fetch nobody asked for, which must fail rather than wait for a login. */
+const withoutPrompts = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "true",
+  SSH_ASKPASS: "true",
+  SSH_ASKPASS_REQUIRE: "force",
+});
+
+/**
+ * Sizes of those blobs this clone already holds, fetching none. Git older than 2.44 ignores
+ * `GIT_NO_LAZY_FETCH`, and its check can fail as a whole on one missing blob, so the fallback lists
+ * the objects stored locally, which never fetches.
+ */
+function localBlobSizes(repo: string, blobs: string[]): Map<string, number> {
+  const wanted = new Set(blobs);
+  const sizes = new Map<string, number>();
+  let output: string;
+  try {
+    output = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`, {
+      ...withoutPrompts(),
+      GIT_NO_LAZY_FETCH: "1",
+    }).toString("utf8");
+  } catch {
+    try {
+      output = git(repo, ["cat-file", "--batch-all-objects", "--batch-check", "--unordered"]).toString("utf8");
+    } catch {
+      return sizes;
+    }
+  }
+  for (const line of output.split("\n")) {
+    const [blob, type, size] = line.split(" ");
+    if (blob && type === "blob" && size && wanted.has(blob)) sizes.set(blob, Number(size));
+  }
+  return sizes;
+}
+
 /**
  * In a partial clone, download the missing blobs in one request. Git would otherwise fetch each on
  * demand, with one pack and one round trip per blob, which is slow and can fail on a long history.
@@ -158,13 +195,10 @@ function fetchMissingBlobs(repo: string, blobs: string[]): void {
     return; // No promisor remote, so nothing can be missing.
   }
   if (!remote) return;
+  const local = localBlobSizes(repo, blobs);
+  const missing = blobs.filter((blob) => !local.has(blob));
+  if (!missing.length) return;
   try {
-    const known = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`, {
-      ...process.env,
-      GIT_NO_LAZY_FETCH: "1",
-    }).toString("utf8");
-    const missing = known.split("\n").flatMap((line) => (line.endsWith(" missing") ? [line.split(" ")[0]!] : []));
-    if (!missing.length) return;
     // The command Git itself runs for a lazy fetch, given every object at once.
     git(
       repo,
@@ -185,6 +219,7 @@ function fetchMissingBlobs(repo: string, blobs: string[]): void {
         remote,
       ],
       `${missing.join("\n")}\n`,
+      withoutPrompts(),
     );
   } catch {
     // The read below fetches on demand or names what is unavailable.
@@ -208,27 +243,13 @@ export function blobSizes(repo: string, blobs: string[]): Map<string, number> {
 
 /**
  * Sizes of the blobs that can be read, for files that may not matter: one a partial clone cannot
- * fetch, as when its remote is unreachable, is left out rather than stopping the analysis. Git older
- * than 2.44 ignores `GIT_NO_LAZY_FETCH` and fails as a whole, which leaves all of them out.
+ * fetch, as when its remote is unreachable or needs a login, is left out rather than stopping the
+ * analysis or waiting for a person.
  */
 export function availableBlobSizes(repo: string, blobs: string[]): Map<string, number> {
-  const sizes = new Map<string, number>();
-  if (!blobs.length) return sizes;
+  if (!blobs.length) return new Map();
   fetchMissingBlobs(repo, blobs);
-  let output: string;
-  try {
-    output = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`, {
-      ...process.env,
-      GIT_NO_LAZY_FETCH: "1",
-    }).toString("utf8");
-  } catch {
-    return sizes;
-  }
-  for (const line of output.split("\n")) {
-    const [blob, type, size] = line.split(" ");
-    if (blob && type === "blob" && size) sizes.set(blob, Number(size));
-  }
-  return sizes;
+  return localBlobSizes(repo, blobs);
 }
 
 /** Read blob contents in batches bounded by the known sizes, so memory stays flat on large histories. */

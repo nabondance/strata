@@ -174,7 +174,8 @@ export function pluginRefs(text: string, format: PluginFormat): PluginRefs | nul
 /**
  * The plugins every distinct version of a settings, manifest, or marketplace file names, keyed by
  * path and blob, found as the shared content pass reads them. Only names and states are kept. A
- * file that is not valid UTF-8 is unresolved, except a settings file, which may have no plugins.
+ * file that is not valid UTF-8 is unresolved, except a `plugin.json` in an agent folder, which only
+ * names a plugin if it declares the Agent Plugins schema.
  */
 export class PluginLists implements ContentUse {
   readonly lists = new Map<string, PluginRefs>();
@@ -187,8 +188,7 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const optional = format === "settings" || format === "codex-config" || format === "agent-manifest";
-      const plugins = text === null ? (optional ? null : unresolved) : pluginRefs(text, format);
+      const plugins = text === null ? (format === "agent-manifest" ? null : unresolved) : pluginRefs(text, format);
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
   }
