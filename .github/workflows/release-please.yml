@@ -160,7 +160,11 @@ jobs:
           warn() {
             echo "::warning::$1 The release PR stays blocked until its waiting runs are approved: gh api -X POST repos/$GH_REPO/actions/runs/<id>/approve for each of its runs marked action_required."
           }
-          if ! branch="$(gh pr list --state open --base main --label 'autorelease: pending' --json headRefName --jq '.[0].headRefName // empty')"; then
+          # Not `gh pr list --label`: it uses GitHub's search, which can miss a pull request opened
+          # seconds ago, and this step runs right after release-please opens it.
+          # shellcheck disable=SC2016 # $repo is a jq variable.
+          if ! branch="$(gh api --paginate "repos/$GH_REPO/pulls?state=open&base=main&per_page=100" |
+            jq -rn --arg repo "$GH_REPO" '[inputs[] | select(.head.repo.full_name == $repo and any(.labels[]; .name == "autorelease: pending"))][0].head.ref // empty')"; then
             warn "Could not look up the release PR."
             exit 1
           fi
