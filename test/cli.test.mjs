@@ -1031,6 +1031,7 @@ function actionRunner(temp, defaults) {
   const action = readFileSync("action.yml", "utf8");
   const script = action
     .split("    - name: Compare the commits")[1]
+    .split("\n    # Runs after a passed limit too")[0]
     .split("      run: |\n")[1]
     .split("\n")
     .map((line) => line.slice(8))
@@ -1054,6 +1055,7 @@ function actionRunner(temp, defaults) {
         STRATA_EVENT_BASE: "",
         STRATA_EVENT_HEAD: "",
         STRATA_EVENT_MERGE: "",
+        STRATA_EVENT_FORCED: "",
         STRATA_PRECISE: "false",
         STRATA_IGNORE: "",
         STRATA_LIMIT_TOKENS: "",
@@ -1081,6 +1083,35 @@ function actionRunner(temp, defaults) {
     return { ...result, summary: read(summary), outputs };
   };
 }
+
+test("the Action skips a force-push whose earlier commit cannot be fetched", {
+  skip: process.platform === "win32",
+}, () => {
+  const { repo, put, commit } = fixture();
+  const temp = mkdtempSync(join(tmpdir(), "strata-action-"));
+  try {
+    put("CLAUDE.md", "Root.\n");
+    const head = commit("Add instructions");
+    const run = actionRunner(temp, { GITHUB_WORKSPACE: repo });
+    const gone = "a".repeat(40);
+    const push = { STRATA_EVENT: "push", STRATA_EVENT_BASE: gone, STRATA_EVENT_HEAD: head };
+
+    const forced = run({ ...push, STRATA_EVENT_FORCED: "true", STRATA_LIMIT_TOKENS: "1" });
+    assert.equal(forced.status, 0, forced.stdout + forced.stderr);
+    assert.match(forced.stdout, /::notice title=Strata::This force-push replaced commit a{40}/);
+    assert.equal(forced.summary, null);
+
+    // Without a force-push, a missing commit is still an error, as it is for commits given as inputs.
+    assert.equal(run(push).status, 1);
+    assert.equal(run({ ...push, STRATA_EVENT_FORCED: "true", STRATA_BASE: gone, STRATA_HEAD: head }).status, 1);
+    // A head that cannot be fetched is never skipped.
+    const noHead = run({ ...push, STRATA_EVENT_FORCED: "true", STRATA_EVENT_HEAD: "b".repeat(40) });
+    assert.equal(noHead.status, 1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
 
 test("the analyze summary names the method in words and says where Strata looks when it finds nothing", () => {
   const { repo, put, commit } = fixture();

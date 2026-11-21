@@ -15,7 +15,7 @@ What the Action does:
 
 What it does not do:
 
-- It changes no working-tree file, branch, or tag.
+- It changes no working-tree file, branch, or tag, unless you set [`image-branch`](#readme-image), which writes to that one branch.
 - It posts no comment on the pull request.
 - Token growth never fails it unless you set a [limit](#limits).
 - It sends no source text anywhere, unless you set `precise: 'true'` as described under [Measurement](#measurement).
@@ -39,7 +39,7 @@ jobs:
 
 The summary contains commit IDs, file paths, category deltas, and up to 25 changed components. It contains no source text. Anyone who can see the workflow run can read those names and paths, so check that this is acceptable before you enable it in a sensitive repository.
 
-The Action needs only the `contents: read` permission. It does not need `pull-requests: write`, and Strata's process needs no token.
+The Action needs only the `contents: read` permission, or `contents: write` with [`image-branch`](#readme-image). It does not need `pull-requests: write`, and Strata's process needs no token.
 
 ## Commits
 
@@ -71,6 +71,10 @@ In these cases the Action compares the base tip with the pull request's head and
 ### Pushes that create or delete a branch or tag
 
 A push that creates or deletes a branch or tag has no commit on one side. The Action adds a notice and skips it.
+
+### Force-pushes
+
+A force-push can replace the commit before it, so that a full clone no longer holds it. If the Action cannot fetch that commit, as in a private repository checked out with `persist-credentials: false`, it adds a notice and skips the delta and limits for that push. The [README image](#readme-image) is still updated.
 
 ### Other events
 
@@ -123,6 +127,8 @@ At a release, the Action runs that version of the `context-strata` npm package, 
 | `summary-file` | Path of the Markdown delta, the same text as the job summary                                                                                                     |
 | `json-file`    | Path of the [JSON delta](#local-use), for anything the other outputs leave out                                                                                   |
 | `install`      | `npm` when Strata came from the published npm package, `source` when the Action built it from its own source                                                     |
+| `image-file`   | Path of the rendered SVG, on a run that draws the [image](#readme-image)                                                                                         |
+| `image-url`    | URL of the published SVG for a README, on a run that publishes the image or finds it current                                                                     |
 
 The outputs are set whenever the summary is written. That includes runs where a limit fails the step, so a later step with `if: always()` can still read them. They are empty when the step skips a push that creates or deletes a branch or tag. If a job runs the Action more than once, each run writes its own files.
 
@@ -195,6 +201,57 @@ How results are reported:
 - A session-start limit that applied to no agent adds a warning but never fails the step.
 
 The limits work like `strata diff`'s [limit flags](usage.md#limits): they use the comparison's measurement, never the precise counts. Being over a limit means the configuration passed a number your workflow chose, not that it got worse.
+
+## README image
+
+The same step can keep a history image and badge up to date for your README. Set `image-branch`, run the workflow on pushes to your default branch as well, and give it write access:
+
+```yaml
+name: Agent context
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  strata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: nabondance/strata@v0
+        with:
+          limit-up-front-tokens: 8000
+          image-branch: strata-image
+```
+
+After the first push to the default branch, display the image:
+
+```markdown
+![Agent context through time](https://github.com/<owner>/<repository>/raw/strata-image/strata.svg)
+```
+
+What it does:
+
+- On a push to the default branch, it draws the whole history and publishes `strata.svg` and `strata-badge.json` as the single commit of that branch. It pushes nothing when the image is unchanged.
+- Pull requests and other events never publish. They run the delta and limits as usual.
+- The job summary ends with a **README image** section: the image's link and state, and the Markdown to paste into a README. On a pull request, it links the current image and says the next push to the default branch updates it.
+- It publishes even when a limit is passed, so the image stays true, and the step still fails.
+- It honors `ignore`.
+
+What to know about write access:
+
+- **Strata runs in a job that can write to your repository.** Only the final publish step is given the token, but a step cannot be isolated from earlier steps of its job. A compromised Strata package or dependency could reach the token and change your repository. At a release, the Action first verifies the package's signatures and provenance, and installs it without running install scripts. If that is not enough for your repository, use the [separate image workflow](ci.md#publish-it-from-a-workflow), which keeps write access in a job that runs no Strata code.
+- The checkout must use `persist-credentials: false`. The Action stops before running Strata if the checkout kept its credentials.
+- It refuses the default branch, and any existing branch with more than one commit or with other files.
+- The current default branch decides which image is right. A slow run for an older commit does not replace a newer image, a commit no longer on the branch is not published, and after a rollback the next run replaces the removed commit's image.
+
+`contents: write` also applies to the workflow's pull request runs from your own branches, although the Action does not use it there. Pull requests from forks stay read-only.
+
+The image shows the repository and branch names, dates, category labels, and totals, but no paths or file contents. In a private repository the file is served only to signed-in people with access, and the Shields.io badge cannot read it.
 
 ## Leaving paths out
 
