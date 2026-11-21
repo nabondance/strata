@@ -60,7 +60,7 @@ export const importsScript = `    // Imports are links between stored files, so 
       defined: 'defined here',
       catalog: 'marketplace file',
       marketplace: 'registered marketplace',
-      'skills-folder': 'loads from .claude/skills',
+      'skills-folder': 'in .claude/skills, loads unless turned off',
     };
     const pluginLabel = (state, listed) => pluginStates[state] + (listed ? ', ' + plural(listed.local + listed.external, 'plugin') + ' (' + fmt(listed.local) + ' in this repository)' : '');
     const pluginState = (plugin) => pluginLabel(plugin.state, plugin.listed);

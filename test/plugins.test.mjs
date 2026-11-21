@@ -7,7 +7,7 @@ import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
 import { importLinks } from "../dist/import-links.js";
-import { pluginRefs } from "../dist/plugins.js";
+import { pluginFormat, pluginRefs } from "../dist/plugins.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
@@ -325,6 +325,9 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const lacking = compareGitCommits(clone, oldCommit, newCommit).comparison.plugins;
   assert.deepEqual([lacking.beforePlugins, lacking.afterPlugins, lacking.added.length], [1, 1, 0]);
 
+  // A file left out keeps no plugin entry even if a Claude import reaches it.
+  assert.equal(pluginFormat("plugin.json", { provider: "unknown", category: "other", imported: true }), null);
+
   // Git also marks a partial clone with `extensions.partialClone`.
   inClone("config", "--unset", "remote.origin.promisor");
   inClone("config", "core.repositoryformatversion", "1");
@@ -409,6 +412,15 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
     { local: 1, external: 0 },
   );
   assert.deepEqual(pluginRefs('[plugins.""]\nenabled = true\n', "codex-config"), unresolved);
+  // A source resolves from the marketplace's root, so it can climb to a sibling inside the repository.
+  const nested = (source) =>
+    pluginRefs(
+      `{"name":"m","plugins":[{"name":"p","source":"${source}"}]}`,
+      "marketplace",
+      "packages/tool/.claude-plugin/marketplace.json",
+    ).plugins[0].listed;
+  assert.deepEqual(nested("../shared"), { local: 1, external: 0 });
+  assert.deepEqual(nested("../../../outside"), { local: 0, external: 1 });
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
     pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),

@@ -418,7 +418,7 @@ const pluginStateLabels: Record<PluginState, string> = {
   defined: "defined here",
   catalog: "marketplace file",
   marketplace: "registered marketplace",
-  "skills-folder": "loads from .claude/skills",
+  "skills-folder": "in .claude/skills, loads unless turned off",
 };
 
 const pluginLabel = (state: PluginState, listed?: PluginCatalog) =>

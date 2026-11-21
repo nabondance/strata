@@ -22,6 +22,8 @@ type PluginFormat =
 
 /** The plugin format of a recognized file, or null when the file cannot name a plugin. */
 export function pluginFormat(path: string, classification: Classification): PluginFormat | null {
+  // A file tracked only because a Claude import reaches it is not read as a plugin file.
+  if (classification.imported) return null;
   const parts = path.split("/");
   const name = parts.at(-1) ?? "";
   // A manifest saved inside a Claude skill folder stays that skill's resource, so it has no package label.
@@ -102,10 +104,20 @@ function manifestPlugin(text: string, format: "manifest" | "skills-folder"): Plu
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** Whether a marketplace source is a relative path that stays inside the repository, not a URL or a path elsewhere. */
-function isRepositoryPath(source: string): boolean {
+/** How many folders a marketplace's root is below the repository root; its sources resolve from there. */
+function marketplaceDepth(path: string): number {
+  const parts = path.split("/");
+  if (parts.length === 1) return 0;
+  return parts.length - (parts.at(-2) === "plugin" || parts.at(-2) === "plugins" ? 3 : 2);
+}
+
+/**
+ * Whether a marketplace source is a relative path that stays inside the repository, not a URL or a
+ * path elsewhere, resolved from a marketplace root `base` folders below the repository root.
+ */
+function isRepositoryPath(source: string, base: number): boolean {
   if (/^[a-z][a-z0-9+.-]*:/i.test(source) || /^[^/]+@[^/]+:/.test(source) || /^[/\\~]/.test(source)) return false;
-  let depth = 0;
+  let depth = base;
   for (const part of source.split(/[/\\]/)) {
     if (part === "..") depth -= 1;
     else if (part && part !== ".") depth += 1;
@@ -115,7 +127,7 @@ function isRepositoryPath(source: string): boolean {
 }
 
 /** A marketplace file, by its name and how many plugins it lists. A source's URL is never kept. */
-function marketplacePlugins(text: string): PluginRefs {
+function marketplacePlugins(text: string, base: number): PluginRefs {
   const marketplace = parsed(text);
   if (!isObject(marketplace) || !isName(marketplace.name) || !Array.isArray(marketplace.plugins)) return unresolved;
   const counted = { local: 0, external: 0 };
@@ -129,7 +141,7 @@ function marketplacePlugins(text: string): PluginRefs {
       (isObject(source) && (source.source === "local" || source.source === undefined))
     ) {
       if (!isName(path)) return unresolved;
-      counted[isRepositoryPath(path) ? "local" : "external"] += 1;
+      counted[isRepositoryPath(path, base) ? "local" : "external"] += 1;
     } else if (isObject(source) && isName(source.source)) counted.external += 1;
     else return unresolved;
   }
@@ -204,14 +216,14 @@ function codexPlugins(text: string): PluginRefs | null {
 }
 
 /** The plugins one version of a file names, or null when a settings file names none. */
-export function pluginRefs(text: string, format: PluginFormat): PluginRefs | null {
+export function pluginRefs(text: string, format: PluginFormat, path = ""): PluginRefs | null {
   if (format === "settings" || format === "copilot-settings") return settingsPlugins(text, format === "settings");
   if (format === "codex-config") return codexPlugins(text);
   if (format === "agent-manifest") {
     const manifest = parsed(text);
     return isAgentManifest(manifest) ? listed([{ name: manifest.name, state: "defined" }]) : null;
   }
-  return format === "marketplace" ? marketplacePlugins(text) : manifestPlugin(text, format);
+  return format === "marketplace" ? marketplacePlugins(text, marketplaceDepth(path)) : manifestPlugin(text, format);
 }
 
 /**
@@ -231,7 +243,8 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const plugins = text === null ? (format === "agent-manifest" ? null : unresolved) : pluginRefs(text, format);
+      const plugins =
+        text === null ? (format === "agent-manifest" ? null : unresolved) : pluginRefs(text, format, file.path);
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
   }
