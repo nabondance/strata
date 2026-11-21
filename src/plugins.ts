@@ -1,6 +1,6 @@
 import { type Classification, pluginCandidate } from "./adapters.js";
 import { type ContentUse, utf8Text } from "./content-pass.js";
-import { availableBlobSizes, readBlobs } from "./git.js";
+import { localBlobSizes, readBlobs } from "./git.js";
 import { type TrackedFile, versionKey } from "./inventory.js";
 import { assignmentAt, keyParts, tomlLines } from "./mcp-servers.js";
 import type { PluginRef, PluginRefs } from "./model.js";
@@ -102,13 +102,17 @@ function manifestPlugin(text: string, format: "manifest" | "skills-folder"): Plu
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** Whether a marketplace source names a path inside the repository rather than a URL or a path outside it. */
-const isRepositoryPath = (source: string) =>
-  source.length > 0 &&
-  !/^[a-z][a-z0-9+.-]*:/i.test(source) &&
-  !/^[^/]+@[^/]+:/.test(source) &&
-  !/^[/\\]/.test(source) &&
-  !source.split(/[/\\]/).includes("..");
+/** Whether a marketplace source is a relative path that stays inside the repository, not a URL or a path elsewhere. */
+function isRepositoryPath(source: string): boolean {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(source) || /^[^/]+@[^/]+:/.test(source) || /^[/\\~]/.test(source)) return false;
+  let depth = 0;
+  for (const part of source.split(/[/\\]/)) {
+    if (part === "..") depth -= 1;
+    else if (part && part !== ".") depth += 1;
+    if (depth < 0) return false;
+  }
+  return true;
+}
 
 /** A marketplace file, by its name and how many plugins it lists. A source's URL is never kept. */
 function marketplacePlugins(text: string): PluginRefs {
@@ -166,6 +170,7 @@ function codexPlugins(text: string): PluginRefs | null {
       if (parts[0] === "plugins") {
         if (line.startsWith("[[")) return unresolved;
         mentioned = true;
+        if (parts[1] === "") return unresolved;
         if (parts[1] !== undefined) entry(parts[1]);
       }
       table = parts;
@@ -181,7 +186,7 @@ function codexPlugins(text: string): PluginRefs | null {
     const path = [...table, ...key];
     if (path[0] !== "plugins") continue;
     mentioned = true;
-    if (path.length < 3) return unresolved;
+    if (path.length < 3 || path[1] === "") return unresolved;
     entry(path[1]!);
     if (path.length === 3 && path[2] === "enabled") {
       const value = line.slice(equals + 1).trim();
@@ -240,8 +245,8 @@ export interface PackageCheck {
   /** Version keys of the candidates whose content confirms them as plugin packages. */
   confirmed: Set<string>;
   /**
-   * Paths with a version a partial clone could not download. Each is left out at every commit, since
-   * a missing version would otherwise read as the file being added or removed.
+   * Paths with a version a partial clone does not hold. Strata downloads nothing for them, and leaves
+   * each out at every commit, since a missing version would otherwise read as an added or removed file.
    */
   unavailable: Set<string>;
 }
@@ -256,7 +261,7 @@ export function checkPackages(repo: string, files: TrackedFile[]): PackageCheck 
   const confirmed = new Set<string>();
   const unavailable = new Set<string>();
   if (!files.length) return { confirmed, unavailable };
-  const sizes = availableBlobSizes(repo, [...new Set(files.map((file) => file.blob))]);
+  const sizes = localBlobSizes(repo, [...new Set(files.map((file) => file.blob))]);
   for (const file of files) if (!sizes.has(file.blob)) unavailable.add(file.path);
   const candidates = files.filter((file) => pluginCandidate(file.path) && !unavailable.has(file.path));
   const readable = [...new Set(candidates.map((file) => file.blob))].filter(
@@ -280,8 +285,8 @@ export function checkPackages(repo: string, files: TrackedFile[]): PackageCheck 
   return { confirmed, unavailable };
 }
 
-/** The line that says plugin files were left out because a partial clone could not download them. */
+/** The line that says files that may be plugins were left out because a partial clone lacks them. */
 export const unavailablePackagesNotice = (count: number) =>
-  `${count} plugin ${count === 1 ? "file" : "files"} could not be downloaded from this partial clone's remote, so ${
+  `${count} possible plugin ${count === 1 ? "file is" : "files are"} not stored in this partial clone, so ${
     count === 1 ? "it is" : "they are"
-  } left out of the plugin results. Fetch the missing objects to include ${count === 1 ? "it" : "them"}.`;
+  } left out of the plugin results. A full clone includes ${count === 1 ? "it" : "them"}.`;

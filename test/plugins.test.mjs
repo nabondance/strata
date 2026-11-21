@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
@@ -285,105 +285,71 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     .children.map((tab) => tab.textContent);
   assert.ok(!tabs.some((tab) => tab.startsWith("Copilot")), tabs.join(", "));
 
-  // A partial clone gets its missing blobs in one fetch, not one pack per version.
-  const history = syntheticRepo("strata-plugins-partial-");
-  t.after(history.cleanup);
-  for (let version = 0; version < 12; version += 1) {
-    history.put("pkg/plugin.json", manifest(`v${version}`));
-    history.commit(`Version ${version}`);
-  }
-  history.git("config", "uploadpack.allowFilter", "true");
-  history.git("config", "uploadpack.allowAnySHA1InWant", "true");
-  const clone = `${history.repo}-partial`;
-  t.after(() => rmSync(clone, { recursive: true, force: true }));
-  execFileSync("git", ["clone", "-q", "--no-local", "--filter=blob:none", `file://${history.repo}`, clone], {
-    stdio: "ignore",
-  });
-  const packs = () => readdirSync(join(clone, ".git/objects/pack")).filter((file) => file.endsWith(".pack")).length;
-  const before = packs();
-  const partial = expandRevisions(await analyzeRepository(clone));
-  assert.equal(partial.at(-1).components.find((c) => c.path === "pkg/plugin.json").plugins.plugins[0].name, "v11");
-  assert.equal(packs(), before + 1);
-
-  // A plugin.json the clone cannot download counts as absent and does not stop the analysis.
-  const offline = `${history.repo}-offline`;
-  t.after(() => rmSync(offline, { recursive: true, force: true }));
-  execFileSync(
-    "git",
-    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${history.repo}`, offline],
-    {
-      stdio: "ignore",
-    },
-  );
-  execFileSync("git", ["-C", offline, "remote", "set-url", "origin", `file://${history.repo}-gone`]);
-  assert.deepEqual(expandRevisions(await analyzeRepository(offline)).at(-1).components, []);
-
-  // Git before 2.44 ignores GIT_NO_LAZY_FETCH: a local manifest survives a missing one, and nothing prompts.
-  const mixed = syntheticRepo("strata-plugins-mixed-");
-  t.after(mixed.cleanup);
-  mixed.git("config", "uploadpack.allowFilter", "true");
-  mixed.git("config", "uploadpack.allowAnySHA1InWant", "true");
-  mixed.put("a/plugin.json", manifest("local"));
-  mixed.put("b/plugin.json", manifest("gone"));
-  mixed.commit("Two manifests");
-  const mixedClone = `${mixed.repo}-clone`;
-  const bin = `${mixed.repo}-bin`;
+  // A partial clone is read as it is: nothing is downloaded, and plugin files it lacks are left out with a notice.
+  const remote = syntheticRepo("strata-plugins-partial-");
+  t.after(remote.cleanup);
+  remote.git("config", "uploadpack.allowFilter", "true");
+  remote.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  remote.put("CLAUDE.md", "Memory.\n");
+  remote.put("a/plugin.json", manifest("held"));
+  remote.put("b/plugin.json", manifest("old"));
+  const oldCommit = remote.commit("First");
+  remote.put("b/plugin.json", manifest("new"));
+  const newCommit = remote.commit("Second");
+  const clone = `${remote.repo}-clone`;
+  const bin = `${remote.repo}-bin`;
   t.after(() => {
-    rmSync(mixedClone, { recursive: true, force: true });
+    rmSync(clone, { recursive: true, force: true });
     rmSync(bin, { recursive: true, force: true });
   });
+  const inClone = (...args) => execFileSync("git", ["-C", clone, ...args], { stdio: "ignore" });
   execFileSync(
     "git",
-    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${mixed.repo}`, mixedClone],
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${remote.repo}`, clone],
     {
       stdio: "ignore",
     },
   );
-  execFileSync("git", ["-C", mixedClone, "cat-file", "-p", "HEAD:a/plugin.json"], { stdio: "ignore" });
-  execFileSync("git", ["-C", mixedClone, "remote", "set-url", "origin", `file://${mixed.repo}-gone`]);
+  for (const file of ["CLAUDE.md", "a/plugin.json", "b/plugin.json"]) inClone("cat-file", "-p", `${newCommit}:${file}`);
+  const packs = () => readdirSync(join(clone, ".git/objects/pack")).filter((file) => file.endsWith(".pack")).length;
+  const held = packs();
+  const paths = async (notices) =>
+    expandRevisions(await analyzeRepository(clone, { onNotice: (line) => notices.push(line) }))
+      .at(-1)
+      .components.map((component) => component.path);
+  const notices = [];
+  assert.deepEqual(await paths(notices), ["a/plugin.json", "CLAUDE.md"]);
+  assert.equal(packs(), held);
+  assert.match(notices[0], /1 possible plugin file is not stored in this partial clone/);
+  // Left out at both commits, so a version the clone lacks is not reported as an added file.
+  const lacking = compareGitCommits(clone, oldCommit, newCommit).comparison.plugins;
+  assert.deepEqual([lacking.beforePlugins, lacking.afterPlugins, lacking.added.length], [1, 1, 0]);
+
+  // Git also marks a partial clone with `extensions.partialClone`.
+  inClone("config", "--unset", "remote.origin.promisor");
+  inClone("config", "core.repositoryformatversion", "1");
+  inClone("config", "extensions.partialClone", "origin");
+  assert.deepEqual(await paths([]), ["a/plugin.json", "CLAUDE.md"]);
+  assert.equal(packs(), held);
+
+  // Git before 2.45 cannot check without downloading, so every plugin package is left out.
   const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
   mkdirSync(bin);
-  const prompts = join(bin, "prompts");
   writeFileSync(
     join(bin, "git"),
-    `#!/bin/sh\nunset GIT_NO_LAZY_FETCH\ncase " $* " in *" version "*) echo "git version 2.43.0"; exit 0;; *" fetch "*) echo "$GIT_TERMINAL_PROMPT" >> "${prompts}";; esac\nexec "${realGit}" "$@"\n`,
+    `#!/bin/sh\ncase " $* " in *" version "*) echo "git version 2.44.4"; exit 0;; esac\nexec "${realGit}" "$@"\n`,
     { mode: 0o755 },
   );
   const path = process.env.PATH;
   process.env.PATH = `${bin}:${path}`;
   try {
-    const kept = expandRevisions(await analyzeRepository(mixedClone)).at(-1).components;
-    assert.deepEqual(
-      kept.map((component) => component.path),
-      ["a/plugin.json"],
-    );
+    const older = [];
+    assert.deepEqual(await paths(older), ["CLAUDE.md"]);
+    assert.match(older[0], /2 possible plugin files are not stored/);
   } finally {
     process.env.PATH = path;
   }
-  assert.match(readFileSync(prompts, "utf8"), /^0\n/);
-
-  // A version that cannot be downloaded leaves its file out at both commits, with a notice.
-  const unchecked = syntheticRepo("strata-plugins-unchecked-");
-  t.after(unchecked.cleanup);
-  unchecked.git("config", "uploadpack.allowFilter", "true");
-  unchecked.git("config", "uploadpack.allowAnySHA1InWant", "true");
-  unchecked.put("pkg/plugin.json", manifest("old"));
-  const oldVersion = unchecked.commit("Old version");
-  unchecked.put("pkg/plugin.json", manifest("new"));
-  const newVersion = unchecked.commit("New version");
-  const uncheckedClone = `${unchecked.repo}-clone`;
-  t.after(() => rmSync(uncheckedClone, { recursive: true, force: true }));
-  execFileSync(
-    "git",
-    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${unchecked.repo}`, uncheckedClone],
-    { stdio: "ignore" },
-  );
-  execFileSync("git", ["-C", uncheckedClone, "cat-file", "-p", `${newVersion}:pkg/plugin.json`], { stdio: "ignore" });
-  execFileSync("git", ["-C", uncheckedClone, "remote", "set-url", "origin", `file://${unchecked.repo}-gone`]);
-  const notices = [];
-  const leftOut = compareGitCommits(uncheckedClone, oldVersion, newVersion, { onNotice: (line) => notices.push(line) });
-  assert.equal(leftOut.comparison.plugins, undefined);
-  assert.match(notices[0], /1 plugin file could not be downloaded/);
+  assert.equal(packs(), held);
 
   // An imported file that happens to be called plugin.json is not reported as renamed.
   const importedMove = syntheticRepo("strata-plugins-imported-move-");
@@ -434,10 +400,15 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   ]);
   assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "copilot-settings"), unresolved);
   // A URL is not a path in this repository, whichever way it is written.
-  for (const source of ['"https://example.invalid/p.git"', '"git@example.invalid:o/p.git"', '"../outside"']) {
+  for (const source of ['"https://example.invalid/p.git"', '"git@example.invalid:o/p.git"', '"../outside"', '"~/p"']) {
     const catalog = pluginRefs(`{"name":"m","plugins":[{"name":"p","source":${source}}]}`, "marketplace");
     assert.deepEqual(catalog.plugins[0].listed, { local: 0, external: 1 }, source);
   }
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"./a/../b"}]}', "marketplace").plugins[0].listed,
+    { local: 1, external: 0 },
+  );
+  assert.deepEqual(pluginRefs('[plugins.""]\nenabled = true\n', "codex-config"), unresolved);
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
     pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),

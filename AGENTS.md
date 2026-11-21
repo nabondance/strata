@@ -8,7 +8,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch from 
 
 ## Code map
 
-- **Analysis.** `src/analyze.ts` replays first-parent history into revisions, `src/inventory.ts` measures them, and `src/model.ts` holds the report types. `src/adapters.ts` recognizes provider paths. `src/git.ts` runs read-only Git commands, plus one fetch that adds a partial clone's missing blobs to `.git`. `src/content-pass.ts` reads each blob once and hands it to every step that needs it; each step is a `ContentUse`. `providerReads` in `src/provider-view.ts` is the single rule for whether a provider reads a component. The other measurement modules are named for what they measure (skill listings, rule loading, up-front context, MCP servers, agent plugins, Gemini settings, Claude imports, instruction age, submodules).
+- **Analysis.** `src/analyze.ts` replays first-parent history into revisions, `src/inventory.ts` measures them, and `src/model.ts` holds the report types. `src/adapters.ts` recognizes provider paths. `src/git.ts` runs read-only Git commands. `src/content-pass.ts` reads each blob once and hands it to every step that needs it; each step is a `ContentUse`. `providerReads` in `src/provider-view.ts` is the single rule for whether a provider reads a component. The other measurement modules are named for what they measure (skill listings, rule loading, up-front context, MCP servers, agent plugins, Gemini settings, Claude imports, instruction age, submodules).
 - **Token counts.** `src/precise.ts` chooses each provider's counting methods: Codex is counted locally on every run, Claude and Gemini only with `--precise`. `src/provider-counting.ts` runs them with fallback for both `analyze` and `diff`.
 - **Reports store no per-revision file list.** `src/expand.ts` rebuilds each revision's inventory from the component table and per-revision changes.
 - **`strata diff`** is `src/pr-delta.ts`, sharing the inventory code. `src/limits.ts` handles `--limit-*` and `src/ignore.ts` handles `--ignore`, for both commands.
@@ -21,7 +21,7 @@ Unless the user says otherwise, work in a new Git worktree on a new branch from 
 
 ## Changes that affect analysis
 
-- Keep the target repository read-only. Analyze tracked Git blobs, not the working tree, and upload no repository content. The one exception is the Action, which may fetch commits a CI checkout lacks into its `.git`; it changes no working-tree file, branch, or tag. In a partial clone, Strata also downloads the blobs it reads into `.git`, as Git would on demand. Only with `image-branch` set does it write, and then only to that branch (`scripts/action-image.sh`).
+- Keep the target repository read-only. Analyze tracked Git blobs, not the working tree, and upload no repository content. The one exception is the Action, which may fetch commits a CI checkout lacks into its `.git`; it changes no working-tree file, branch, or tag. Only with `image-branch` set does it write, and then only to that branch (`scripts/action-image.sh`).
 - Distinguish stored instruction estimates from loaded context or billing tokens. Structured configuration and supporting resources stay source-only unless a change defines and documents a defensible text boundary.
 - Label conditional loading, renames, and inferred relationships accurately. Do not infer active context or a refactor from path changes alone.
 - Keep HTML usable offline and source text out of default HTML/JSON. Escape repository-derived strings before placing them in HTML.

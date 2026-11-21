@@ -310,7 +310,7 @@ Strata finds them by listing that commit's tree in the submodule's own checkout.
 Safeguards:
 
 - The checkout must resolve inside the parent, and its top level must be the submodule directory itself, so an empty directory is not mistaken for the parent repository.
-- These Git commands run without the parent's `GIT_DIR`-style variables and with `GIT_NO_LAZY_FETCH=1`, so with Git 2.44 or newer a partial clone is never fetched from. Older Git ignores that variable.
+- These Git commands run without the parent's `GIT_DIR`-style variables and with `GIT_NO_LAZY_FETCH=1`, so with Git 2.45 or newer a partial clone is never fetched from. Older Git ignores that variable.
 
 The count says only that the submodule holds files matching the path rules. Strata does not analyze them; the user can run Strata on the submodule instead. The result depends on which submodules are checked out, so the same commit can give different counts on different machines.
 
@@ -556,7 +556,7 @@ These stay separate because Git cannot show which plugins a session loaded:
 
 Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files, and the tools in their `readers` get no report tab of their own. A `plugin.json` already tracked inside an agent's folder keeps its label, and also names a plugin if it declares the Agent Plugins `$schema`.
 
-A manifest's history can hold thousands of versions. In a partial clone, Strata downloads the missing blobs it needs into `.git` in one request, with the command Git uses for its own on-demand fetches, instead of one request per blob. The download can use the caller's credential helpers and askpass programs, but never waits at a terminal. A plugin file with a version that still cannot be read is left out at every commit, with a notice, because a missing version would otherwise read as the file being added or removed.
+A partial clone may not hold every version of a plugin file. Strata downloads nothing for these files, so plugin support adds no network use, login prompt, or write to `.git`. A file with a version the clone lacks is left out at every commit, with a notice, because a missing version would otherwise read as the file being added or removed. Git before 2.45 cannot check a partial clone without downloading, so there every plugin package is left out. An import of such a file still reads it as any imported file.
 
 A comparison identifies a reference by its file and name. The same plugin defined in one file and enabled in another is two references, and a plugin that goes from enabled to turned off is a change rather than a removal and an addition. A file unreadable at either commit is left out of the counts and lists at both, because it may still name the plugins it named, and is counted only as unresolved.
 
@@ -958,7 +958,7 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 ## Pull-request comparison
 
-`strata diff` compares two supplied commits, each any revision Git resolves to a commit (`git rev-parse --verify --end-of-options <rev>^{commit}`, which is read-only), by reading their tracked Git trees directly. Its output names both by full commit ID. It does not check out revisions or write into the target repository, apart from downloading a partial clone's missing blobs into `.git`. It uses the same path classification, instructional-text boundary, and measurement as the history report.
+`strata diff` compares two supplied commits, each any revision Git resolves to a commit (`git rev-parse --verify --end-of-options <rev>^{commit}`, which is read-only), by reading their tracked Git trees directly. Its output names both by full commit ID. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
 Its JSON has its own schema version, currently 15. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 

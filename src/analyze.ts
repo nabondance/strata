@@ -262,7 +262,7 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
   return read;
 }
 
-/** Leave a path out of every commit, for a plugin file with a version that could not be downloaded. */
+/** Leave a path out of every commit, for a plugin file with a version a partial clone does not hold. */
 function dropPaths(deltas: CommitDelta[], paths: ReadonlySet<string>): void {
   for (const delta of deltas) {
     delta.written = delta.written.filter((file) => !paths.has(file.path));
@@ -360,7 +360,13 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   }
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
-  const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body), ignored);
+  const imports = await addImportedFiles(
+    root,
+    deltas,
+    (blob, body) => pass.offer(blob, body),
+    ignored,
+    packageCheck.unavailable,
+  );
 
   addPluginPackages(deltas, packageCheck.confirmed);
 
