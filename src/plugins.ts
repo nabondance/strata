@@ -1,6 +1,6 @@
 import type { Classification } from "./adapters.js";
 import { type ContentUse, utf8Text } from "./content-pass.js";
-import { blobSizes, readBlobs } from "./git.js";
+import { availableBlobSizes, readBlobs } from "./git.js";
 import { type TrackedFile, versionKey } from "./inventory.js";
 import { assignmentAt, keyParts, tomlLines } from "./mcp-servers.js";
 import type { PluginRef, PluginRefs } from "./model.js";
@@ -201,12 +201,12 @@ const maxPackageBytes = 10 * 1024 * 1024;
  * The candidates that really are plugin packages: a `plugin.json` that declares the Agent Plugins
  * `$schema`, which Copilot, Codex, and Cursor share, or a root `marketplace.json` with the required
  * `name`, `owner`, and `plugins`. Another `plugin.json`, including Copilot's legacy form, cannot be
- * told apart from any other project's file, so it is left out.
+ * told apart from any other project's file, so it is left out, as is one that cannot be read.
  */
 export function confirmedPackages(repo: string, files: TrackedFile[]): TrackedFile[] {
   if (!files.length) return [];
   const blobs = [...new Set(files.map((file) => file.blob))];
-  const sizes = blobSizes(repo, blobs);
+  const sizes = availableBlobSizes(repo, blobs);
   const readable = blobs.filter((blob) => (sizes.get(blob) ?? Number.POSITIVE_INFINITY) <= maxPackageBytes);
   const manifests = new Set<string>();
   const catalogs = new Set<string>();

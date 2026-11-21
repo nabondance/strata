@@ -262,7 +262,7 @@ Strata recognizes configuration tracked in the repository, at the root or in nes
 
 ## Questions
 
-**Does it read my working tree or uncommitted files?** No. Strata reads the files stored in Git history, using read-only Git commands. It cannot see untracked, ignored, or uncommitted files.
+**Does it read my working tree or uncommitted files?** No. Strata reads the files stored in Git history, using read-only Git commands. In a partial clone, it also downloads the blobs it needs into `.git`, as Git does on demand. It cannot see untracked, ignored, or uncommitted files.
 
 **How accurate is "bytes divided by four"?** It is an estimate for comparison. It is good enough to see growth and find the largest files, and it stays consistent across revisions. For more exact counts:
 

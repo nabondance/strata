@@ -22,7 +22,10 @@ function failure(args: string[], stderr: string, error?: unknown): Error {
   return new Error(`Git failed (${args[command] ?? args[0]}): ${detail}`);
 }
 
-/** Run a read-only Git command in a repository and return its raw output. */
+/**
+ * Run a Git command in a repository and return its raw output. Strata's commands are read-only,
+ * except the fetch in `fetchMissingBlobs`, which adds a partial clone's missing blobs to `.git`.
+ */
 export function git(repo: string, args: string[], input?: string, env?: NodeJS.ProcessEnv): Buffer {
   try {
     return execFileSync("git", ["-C", repo, ...args], {
@@ -199,6 +202,31 @@ export function blobSizes(repo: string, blobs: string[]): Map<string, number> {
     const [blob, type, size] = line.split(" ");
     if (!blob || type !== "blob" || !size) throw new Error(`Git object is unavailable or not a blob: ${line}`);
     sizes.set(blob, Number(size));
+  }
+  return sizes;
+}
+
+/**
+ * Sizes of the blobs that can be read, for files that may not matter: one a partial clone cannot
+ * fetch, as when its remote is unreachable, is left out rather than stopping the analysis. Git older
+ * than 2.44 ignores `GIT_NO_LAZY_FETCH` and fails as a whole, which leaves all of them out.
+ */
+export function availableBlobSizes(repo: string, blobs: string[]): Map<string, number> {
+  const sizes = new Map<string, number>();
+  if (!blobs.length) return sizes;
+  fetchMissingBlobs(repo, blobs);
+  let output: string;
+  try {
+    output = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`, {
+      ...process.env,
+      GIT_NO_LAZY_FETCH: "1",
+    }).toString("utf8");
+  } catch {
+    return sizes;
+  }
+  for (const line of output.split("\n")) {
+    const [blob, type, size] = line.split(" ");
+    if (blob && type === "blob" && size) sizes.set(blob, Number(size));
   }
   return sizes;
 }

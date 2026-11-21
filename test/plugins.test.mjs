@@ -88,16 +88,19 @@ test("shows Claude plugins through time by state, without their sources or conte
     assert.ok(!JSON.stringify(report).includes(secret));
 
     const change = compareRevisions(revisions[1], revisions[2]).plugins;
-    assert.deepEqual([change.beforePlugins, change.afterPlugins, change.afterUnresolved], [8, 5, 1]);
+    assert.deepEqual([change.beforePlugins, change.afterPlugins, change.afterUnresolved], [7, 5, 1]);
     assert.deepEqual(
       change.changed.map((ref) => `${ref.name}:${ref.before}>${ref.after}`),
       ["fmt@tools:enabled>disabled"],
     );
 
+    // A file that stops parsing may still name its plugins, so none of them count as removed.
+    assert.ok(!change.removed.some((ref) => ref.path === ".claude-plugin/marketplace.json"));
+
     const delta = compareGitCommits(repo, second, third);
     assert.equal(delta.schemaVersion, 15);
     const markdown = renderPullRequestDelta(delta);
-    assert.match(markdown, /Agent plugin references in tracked files: \*\*-3\*\* \(8 → 5\)/);
+    assert.match(markdown, /Agent plugin references in tracked files: \*\*-2\*\* \(7 → 5\)/);
     assert.match(markdown, /Changed: fmt@tools, enabled → turned off \(\.claude\/settings\.json\)/);
     assert.match(markdown, /Enabled is not installed, and defined is not active/);
     assert.ok(!markdown.includes("\u001b"));
@@ -205,6 +208,7 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
 
     // `strata diff` confirms packages the same way.
     assert.equal(compareGitCommits(repo, first, second).comparison.plugins.afterPlugins, 11);
+    assert.match(renderPullRequestDelta(compareGitCommits(repo, first, second)), /marketplace file, 1 plugin \(/);
     const dropped = compareGitCommits(repo, second, third).comparison.plugins;
     assert.deepEqual(
       dropped.removed.map((ref) => ref.path),
@@ -299,6 +303,19 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const partial = expandRevisions(await analyzeRepository(clone));
   assert.equal(partial.at(-1).components.find((c) => c.path === "pkg/plugin.json").plugins.plugins[0].name, "v11");
   assert.equal(packs(), before + 1);
+
+  // A plugin.json the clone cannot download counts as absent and does not stop the analysis.
+  const offline = `${history.repo}-offline`;
+  t.after(() => rmSync(offline, { recursive: true, force: true }));
+  execFileSync(
+    "git",
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${history.repo}`, offline],
+    {
+      stdio: "ignore",
+    },
+  );
+  execFileSync("git", ["-C", offline, "remote", "set-url", "origin", `file://${history.repo}-gone`]);
+  assert.deepEqual(expandRevisions(await analyzeRepository(offline)).at(-1).components, []);
 });
 
 test("reads only the documented plugin shapes, and marks anything else unresolved", () => {

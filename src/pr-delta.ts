@@ -393,7 +393,7 @@ const pluginStateLabels: Record<PluginState, string> = {
 
 const pluginLabel = (state: PluginState, listed?: PluginCatalog) =>
   listed
-    ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugins (${listed.local} in this repository)`
+    ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugin${listed.local + listed.external === 1 ? "" : "s"} (${listed.local} in this repository)`
     : pluginStateLabels[state];
 
 /**
@@ -419,7 +419,7 @@ function pluginLines(delta: PullRequestDelta): string[] {
   }
   if (plugins.beforeUnresolved || plugins.afterUnresolved) {
     parts.push(
-      `Files whose plugins could not be read, not counted: ${plugins.beforeUnresolved} → ${plugins.afterUnresolved}.`,
+      `Files whose plugins could not be read at either commit, left out of this comparison: ${plugins.beforeUnresolved} → ${plugins.afterUnresolved}.`,
     );
   }
   parts.push(

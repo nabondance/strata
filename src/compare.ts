@@ -92,7 +92,8 @@ export interface PluginStateChange {
 /**
  * The plugin references tracked files hold at each side. A reference is a file and a name, so the
  * same plugin defined in one file and enabled in another is two. `beforeUnresolved` and
- * `afterUnresolved` count files whose plugins could not be read; their plugins are not counted.
+ * `afterUnresolved` count files whose plugins could not be read. A file unreadable at either side
+ * is left out of the counts and lists at both, since it may still name the plugins it named.
  */
 export interface PluginComparison {
   beforePlugins: number;
@@ -229,13 +230,13 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
   const byServer = (a: McpServerRef, b: McpServerRef) => a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
   const pluginsAt = (revision: ComparedRevision) => {
     const refs = new Map<string, PluginComparisonRef>();
+    const unreadable = new Set<string>();
     let files = 0;
-    let unresolved = 0;
     for (const component of revision.components) {
       if (!component.plugins) continue;
       files += 1;
       if (component.plugins.status === "unresolved") {
-        unresolved += 1;
+        unreadable.add(component.path);
         continue;
       }
       for (const plugin of component.plugins.plugins) {
@@ -250,10 +251,16 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
         });
       }
     }
-    return { refs, files, unresolved };
+    return { refs, files, unreadable };
   };
   const pluginsBefore = pluginsAt(baseline);
   const pluginsAfter = pluginsAt(target);
+  const comparable = (refs: Map<string, PluginComparisonRef>) =>
+    new Map(
+      [...refs].filter(([, ref]) => !pluginsBefore.unreadable.has(ref.path) && !pluginsAfter.unreadable.has(ref.path)),
+    );
+  const refsBefore = comparable(pluginsBefore.refs);
+  const refsAfter = comparable(pluginsAfter.refs);
   const byPlugin = (a: { name: string; path: string }, b: { name: string; path: string }) =>
     a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
   const listedBefore = listing(baseline);
@@ -298,20 +305,16 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
     ...(pluginsBefore.files || pluginsAfter.files
       ? {
           plugins: {
-            beforePlugins: pluginsBefore.refs.size,
-            afterPlugins: pluginsAfter.refs.size,
-            deltaPlugins: pluginsAfter.refs.size - pluginsBefore.refs.size,
-            beforeUnresolved: pluginsBefore.unresolved,
-            afterUnresolved: pluginsAfter.unresolved,
-            added: [...pluginsAfter.refs]
-              .flatMap(([key, ref]) => (pluginsBefore.refs.has(key) ? [] : [ref]))
-              .sort(byPlugin),
-            removed: [...pluginsBefore.refs]
-              .flatMap(([key, ref]) => (pluginsAfter.refs.has(key) ? [] : [ref]))
-              .sort(byPlugin),
-            changed: [...pluginsAfter.refs]
+            beforePlugins: refsBefore.size,
+            afterPlugins: refsAfter.size,
+            deltaPlugins: refsAfter.size - refsBefore.size,
+            beforeUnresolved: pluginsBefore.unreadable.size,
+            afterUnresolved: pluginsAfter.unreadable.size,
+            added: [...refsAfter].flatMap(([key, ref]) => (refsBefore.has(key) ? [] : [ref])).sort(byPlugin),
+            removed: [...refsBefore].flatMap(([key, ref]) => (refsAfter.has(key) ? [] : [ref])).sort(byPlugin),
+            changed: [...refsAfter]
               .flatMap(([key, ref]) => {
-                const before = pluginsBefore.refs.get(key);
+                const before = refsBefore.get(key);
                 if (!before) return [];
                 const same =
                   before.state === ref.state &&
