@@ -4,6 +4,7 @@
 #   check    validates the setup before Strata runs, on every event
 #   render   draws the image and badge from the pushed commit
 #   publish  pushes them as the single commit of the branch
+#   link     says in the job summary where the image is, on events that do not publish
 #
 # Only `publish` is given the token, but this is not isolation: Strata runs
 # earlier in the same job, and a step can affect later ones. docs/pr-action.md
@@ -58,6 +59,33 @@ render() {
   } >>"$GITHUB_OUTPUT"
 }
 
+image_url() {
+  printf '%s/%s/raw/%s/strata.svg' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$STRATA_IMAGE_BRANCH"
+}
+
+# Adds the image's state to the job summary, after the delta. With `snippet`,
+# also the Markdown to paste into a README.
+summarize() {
+  {
+    printf '\n### README image\n\n%s\n' "$1"
+    if [ "${2:-}" = snippet ]; then
+      printf '\nTo show it in a README:\n\n```markdown\n![Agent context through time](%s)\n```\n' "$(image_url)"
+    fi
+  } >>"$GITHUB_STEP_SUMMARY"
+}
+
+link() {
+  local branch="$STRATA_IMAGE_BRANCH" default="$STRATA_DEFAULT_BRANCH" state
+  # A full checkout lists every branch, so this needs no token.
+  if git -C "$GITHUB_WORKSPACE" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}" >/dev/null; then
+    state="Current image on \`$branch\`: [strata.svg]($(image_url)). The next push to \`$default\` updates it."
+  else
+    state="The next push to \`$default\` publishes the image to \`$branch\`."
+  fi
+  echo "$state"
+  summarize "$state" snippet
+}
+
 # The commit the branch holds, or nothing when the branch does not exist.
 remote_tip() {
   local line
@@ -85,7 +113,7 @@ publish() {
   local branch="$STRATA_IMAGE_BRANCH" remote="$STRATA_IMAGE_REMOTE" workspace="$GITHUB_WORKSPACE"
   local default="$STRATA_DEFAULT_BRANCH" source url work basic attempt current tip published now error
   source="$(git -C "$workspace" rev-parse HEAD)"
-  url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/raw/$branch/strata.svg"
+  url="$(image_url)"
   # The token travels in the environment, not in a URL or on a command line.
   if [ -n "$STRATA_TOKEN" ]; then
     basic="$(printf 'x-access-token:%s' "$STRATA_TOKEN" | base64 | tr -d '\n')"
@@ -112,6 +140,7 @@ publish() {
     tip="$(git -C "$workspace" rev-parse FETCH_HEAD)"
     if ! git -C "$workspace" merge-base --is-ancestor "$source" "$tip"; then
       echo "::notice title=Strata image::Commit $source is no longer on $default, so its image was not published."
+      summarize "Not published, because this commit is no longer on \`$default\`."
       return 0
     fi
     if [ -n "$current" ]; then
@@ -129,11 +158,13 @@ publish() {
         git -C "$workspace" merge-base --is-ancestor "$source" "$published"; then
         echo "::notice title=Strata image::Branch $branch already shows a newer commit ($published), so it was left as it is."
         echo "image-url=$url" >>"$GITHUB_OUTPUT"
+        summarize "\`$branch\` already shows a newer commit: [strata.svg]($url)." snippet
         return 0
       fi
       if [ "$(git -C "$work" rev-parse "$current^{tree}")" = "$(git -C "$work" rev-parse "HEAD^{tree}")" ]; then
         echo "The image on $branch is unchanged, so nothing was pushed."
         echo "image-url=$url" >>"$GITHUB_OUTPUT"
+        summarize "Unchanged on \`$branch\`: [strata.svg]($url)." snippet
         return 0
       fi
     fi
@@ -141,6 +172,7 @@ publish() {
     if error="$(git -C "$work" push -q --force-with-lease="refs/heads/$branch:$current" "$remote" "HEAD:refs/heads/$branch" 2>&1)"; then
       echo "Published the image to $branch."
       echo "image-url=$url" >>"$GITHUB_OUTPUT"
+      summarize "Published to \`$branch\`: [strata.svg]($url)." snippet
       return 0
     fi
     now="$(remote_tip "$work")" || now="$current"
@@ -155,5 +187,6 @@ case "${1:-}" in
 check) check ;;
 render) render ;;
 publish) publish ;;
+link) link ;;
 *) fail "Unknown image command: ${1:-none}." ;;
 esac

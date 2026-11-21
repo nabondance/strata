@@ -38,8 +38,11 @@ function setup(t) {
   git(repo, "push", "-q", "origin", "main");
 
   const run = (command, extra = {}) => {
-    const output = join(temp, `output-${Math.random().toString(36).slice(2)}`);
+    const id = Math.random().toString(36).slice(2);
+    const output = join(temp, `output-${id}`);
+    const summary = join(temp, `summary-${id}`);
     writeFileSync(output, "");
+    writeFileSync(summary, "");
     const result = spawnSync("bash", ["--noprofile", "--norc", script, command], {
       encoding: "utf8",
       env: {
@@ -47,6 +50,7 @@ function setup(t) {
         GITHUB_WORKSPACE: repo,
         GITHUB_SHA: git(repo, "rev-parse", "HEAD"),
         GITHUB_OUTPUT: output,
+        GITHUB_STEP_SUMMARY: summary,
         GITHUB_SERVER_URL: "https://github.example",
         GITHUB_REPOSITORY: "owner/repo",
         RUNNER_TEMP: temp,
@@ -65,7 +69,7 @@ function setup(t) {
         .filter(Boolean)
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
-    return { ...result, outputs };
+    return { ...result, outputs, summary: readFileSync(summary, "utf8") };
   };
   const publish = (extra = {}) => {
     const rendered = run("render", extra);
@@ -131,6 +135,44 @@ test("an older commit's run does not replace a newer image", (t) => {
   assert.equal(tip(), before);
 });
 
+test("the job summary links the image and says what happened to it", (t) => {
+  const { repo, commit, first, run, publish } = setup(t);
+  const url = "https://github.example/owner/repo/raw/strata-image/strata.svg";
+  const snippet = `![Agent context through time](${url})`;
+
+  // Before the first publish, a pull request says what the next push does.
+  const before = run("link");
+  assert.equal(before.status, 0, before.stdout + before.stderr);
+  assert.match(before.summary, /### README image/);
+  assert.match(before.summary, /The next push to `main` publishes the image to `strata-image`\./);
+  assert.ok(before.summary.includes(snippet));
+  assert.doesNotMatch(before.summary, /\[strata\.svg\]/);
+
+  const published = publish();
+  assert.ok(published.summary.includes(`Published to \`strata-image\`: [strata.svg](${url}).`));
+  assert.ok(published.summary.includes(snippet));
+  const unchanged = publish();
+  assert.ok(unchanged.summary.includes(`Unchanged on \`strata-image\`: [strata.svg](${url}).`));
+
+  // Once it exists, a pull request links it.
+  git(repo, "fetch", "-q", "origin", "+refs/heads/strata-image:refs/remotes/origin/strata-image");
+  const current = run("link");
+  assert.ok(
+    current.summary.includes(
+      `Current image on \`strata-image\`: [strata.svg](${url}). The next push to \`main\` updates it.`,
+    ),
+  );
+
+  // An older commit's late run names the newer image.
+  const rendered = run("render");
+  commit(`${"Newer instructions. ".repeat(40)}\n`);
+  git(repo, "push", "-q", "origin", "main");
+  assert.equal(publish().status, 0);
+  git(repo, "checkout", "-q", first);
+  const late = run("publish", { STRATA_IMAGE_DIR: rendered.outputs["image-dir"] });
+  assert.ok(late.summary.includes(`\`strata-image\` already shows a newer commit: [strata.svg](${url}).`));
+});
+
 test("a slow run whose checkout lacks the newer commit does not replace its image", (t) => {
   const { temp, remote, repo, commit, first, run, publish, tip } = setup(t);
   const slow = join(temp, "slow");
@@ -169,6 +211,8 @@ test("after a rollback, the image follows the default branch", (t) => {
   const late = run("publish", { STRATA_IMAGE_DIR: rendered.outputs["image-dir"] });
   assert.equal(late.status, 0, late.stdout + late.stderr);
   assert.match(late.stdout, /is no longer on main/);
+  assert.match(late.summary, /Not published, because this commit is no longer on `main`\./);
+  assert.doesNotMatch(late.summary, /strata\.svg/);
   assert.equal(tip(), before);
 });
 

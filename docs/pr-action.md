@@ -238,6 +238,7 @@ What it does:
 
 - On a push to the default branch, it draws the whole history and publishes `strata.svg` and `strata-badge.json` as the single commit of that branch. It pushes nothing when the image is unchanged.
 - Pull requests and other events never publish. They run the delta and limits as usual.
+- The job summary ends with a **README image** section: the image's link and state, and the Markdown to paste into a README. On a pull request, it links the current image and says the next push to the default branch updates it.
 - It publishes even when a limit is passed, so the image stays true, and the step still fails.
 - It honors `ignore`.
 
