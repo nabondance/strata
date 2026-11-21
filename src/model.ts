@@ -107,7 +107,9 @@ export interface Component {
   skill?: { root: string; role: "manifest" | "resource"; listing?: SkillListing };
   /** On an MCP configuration file, or a Gemini CLI or Codex settings file that mentions MCP servers. */
   mcp?: McpServers;
-  /** On a Claude settings file that names plugins, a plugin manifest, or a marketplace file. */
+  /** On a plugin manifest or marketplace file: it packages a plugin, so it does not show the repository uses that tool. */
+  pluginPackage?: true;
+  /** On a settings file that names plugins, a plugin manifest, or a marketplace file. */
   plugins?: PluginRefs;
 }
 

@@ -121,6 +121,97 @@ test("shows Claude plugins through time by state, without their sources or conte
   }
 });
 
+test("covers every tool's plugin files, and only confirmed ones among common file names", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-plugins-tools-");
+  const schema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+  const states = (revision) =>
+    Object.fromEntries(
+      revision.components
+        .filter((component) => component.plugins?.status === "listed")
+        .map((component) => [
+          component.path,
+          component.plugins.plugins.map((plugin) =>
+            [plugin.name, plugin.state, ...(plugin.listed ? [plugin.listed.local, plugin.listed.external] : [])].join(
+              ":",
+            ),
+          ),
+        ]),
+    );
+  try {
+    put("AGENTS.md", "Shared instructions.\n");
+    // Other projects use these names too, so without the documented format they are not plugins.
+    put("plugin.json", '{"name":"webpack-thing"}\n');
+    put("src/plugin.json", "not json\n");
+    const first = commit("No plugins");
+
+    const owner = { name: "Example" };
+    put(
+      ".github/plugin/marketplace.json",
+      JSON.stringify({ name: "co", owner, plugins: [{ name: "x", source: { source: "github", repo: "o/r" } }] }),
+    );
+    put(".github/copilot/settings.json", '{"enabledPlugins":{"x@co":true}}\n');
+    put(
+      ".agents/plugins/marketplace.json",
+      JSON.stringify({ name: "local-repo", plugins: [{ name: "a", source: { source: "local", path: "./a" } }] }),
+    );
+    put(".codex/config.toml", '[plugins."a@local-repo"]\nenabled = true\n\n[plugins."b@other"]\nenabled = false\n');
+    put("a/.codex-plugin/plugin.json", '{"name":"a"}\n');
+    put(
+      ".cursor-plugin/marketplace.json",
+      JSON.stringify({ name: "cur", owner, plugins: [{ name: "c", source: { path: "./c" } }] }),
+    );
+    put("c/.cursor-plugin/plugin.json", '{"name":"c"}\n');
+    put("ext/gemini-extension.json", '{"name":"ext"}\n');
+    put("std/plugin.json", JSON.stringify({ $schema: schema, name: "std" }));
+    put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: [] }));
+    const second = commit("Add each tool's plugins");
+
+    put("std/plugin.json", '{"name":"std"}\n');
+    const third = commit("Drop the schema");
+
+    const report = await analyzeRepository(repo);
+    const revisions = expandRevisions(report);
+    assert.deepEqual(states(revisions[0]), {});
+    assert.deepEqual(states(revisions[1]), {
+      ".agents/plugins/marketplace.json": ["local-repo:catalog:1:0"],
+      ".codex/config.toml": ["a@local-repo:enabled", "b@other:disabled"],
+      ".cursor-plugin/marketplace.json": ["cur:catalog:1:0"],
+      ".github/copilot/settings.json": ["x@co:enabled"],
+      ".github/plugin/marketplace.json": ["co:catalog:0:1"],
+      "a/.codex-plugin/plugin.json": ["a:defined"],
+      "c/.cursor-plugin/plugin.json": ["c:defined"],
+      "ext/gemini-extension.json": ["ext:defined"],
+      "marketplace.json": ["root:catalog:0:0"],
+      "std/plugin.json": ["std:defined"],
+    });
+    const paths = (revision) => revision.components.map((component) => component.path);
+    assert.ok(!paths(revisions[1]).includes("plugin.json") && !paths(revisions[1]).includes("src/plugin.json"));
+    // A file that stops being a package leaves the inventory.
+    assert.ok(!paths(revisions[2]).includes("std/plugin.json"));
+    assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
+
+    // Packaging a Cursor plugin does not show the repository uses Cursor; Copilot's settings do.
+    const agents = revisions[1].components.find((component) => component.path === "AGENTS.md");
+    assert.ok(agents.readers.includes("copilot") && !agents.readers.includes("cursor"));
+    assert.deepEqual(revisions[1].components.find((c) => c.path === "std/plugin.json").readers, [
+      "codex",
+      "copilot",
+      "cursor",
+    ]);
+
+    // `strata diff` confirms packages the same way.
+    assert.equal(compareGitCommits(repo, first, second).comparison.plugins.afterPlugins, 11);
+    const dropped = compareGitCommits(repo, second, third).comparison.plugins;
+    assert.deepEqual(
+      dropped.removed.map((ref) => ref.path),
+      ["std/plugin.json"],
+    );
+    assert.ok(redactReport(report).components.every((component) => component.path !== "std/plugin.json"));
+  } finally {
+    cleanup();
+  }
+});
+
 test("reads only the documented plugin shapes, and marks anything else unresolved", () => {
   const unresolved = { status: "unresolved" };
   assert.equal(pluginRefs('{"theme":"enabledPlugins"}', "settings"), null);
@@ -128,4 +219,7 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   assert.deepEqual(pluginRefs('{"enabledPlugins":[]}', "settings"), unresolved);
   assert.deepEqual(pluginRefs('{"version":"1"}', "manifest"), unresolved);
   assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "marketplace"), unresolved);
+  assert.equal(pluginRefs('model = "plugins"\n', "codex-config"), null);
+  assert.deepEqual(pluginRefs('[plugins."a@b"]\nversion = "1"\n', "codex-config"), unresolved);
+  assert.deepEqual(pluginRefs('[plugins]\n"a@b" = { enabled = true }\n', "codex-config"), unresolved);
 });

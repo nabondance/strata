@@ -89,7 +89,7 @@ export const importsScript = `    // Imports are links between stored files, so 
       for (const { component, plugin } of capped('plugins', sorted, 25, renderPlugins)) {
         const row = document.createElement('tr');
         const name = text('td', plugin ? plugin.name : 'Could not read this file', plugin ? 'path' : 'kind');
-        row.append(name, text('td', plugin ? pluginState(plugin) : 'unresolved', 'kind'), text('td', component.path, 'path'), text('td', component.provider));
+        row.append(name, text('td', plugin ? pluginState(plugin) : 'unresolved', 'kind'), text('td', component.path, 'path'), text('td', (component.readers ?? [component.provider]).join(', ')));
         body.append(row);
       }
     }`;

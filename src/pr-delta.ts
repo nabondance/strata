@@ -17,6 +17,7 @@ import {
   byPath,
   distinctBlobs,
   measureBlobs,
+  pluginCandidateFile,
   summarize,
   TokenCounts,
   type TrackedFile,
@@ -28,7 +29,7 @@ import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement } from "./measurement.js";
 import type { ClaudeImport, PluginCatalog, PluginState } from "./model.js";
-import { PluginLists } from "./plugins.js";
+import { confirmedPackages, PluginLists } from "./plugins.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -79,7 +80,14 @@ function trackedFiles(
   pass.add(recognized);
   const imported = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
   pass.add(imported);
-  return [...recognized, ...imported];
+  // A file Claude imports keeps that label, as it does in `strata analyze`.
+  const importedPaths = new Set(imported.map((file) => file.path));
+  const candidates = tree.flatMap(({ mode, blob, path }) =>
+    importedPaths.has(path) ? [] : (pluginCandidateFile(mode, blob, path) ?? []),
+  );
+  const packages = confirmedPackages(repo, candidates);
+  pass.add(packages);
+  return [...recognized, ...imported, ...packages];
 }
 
 export interface ProviderTotalDelta {

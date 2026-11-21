@@ -122,7 +122,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
     <details class="panel" id="plugins-panel" hidden>
       <summary><h2>Agent plugins</h2><span class="summary-count" id="plugins-count"></span></summary>
       <details class="notice"><summary>Named, not necessarily loaded</summary><p>Enabled does not mean installed, and a plugin defined in this repository does nothing until something enables it. Strata does not fetch a plugin or estimate what one outside Git adds.</p></details>
-      <div class="table-wrap"><table><thead><tr><th>Plugin</th><th>State</th><th>Named in</th><th>Provider</th></tr></thead><tbody id="plugins"></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Plugin</th><th>State</th><th>Named in</th><th>For</th></tr></thead><tbody id="plugins"></tbody></table></div>
       <button class="more" id="plugins-more" type="button" hidden></button>
     </details>
     <section class="panel" aria-labelledby="compare-heading">

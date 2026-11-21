@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
-import { classify, conditionalReaders, withoutReader } from "./adapters.js";
+import { classify, conditionalReaders, pluginCandidate, withoutReader } from "./adapters.js";
 import { addImportedFiles, type SymlinkEvent } from "./claude-imports.js";
 import { ContentPass } from "./content-pass.js";
 import { compactRevisions } from "./expand.js";
@@ -12,6 +12,7 @@ import {
   byPath,
   distinctBlobs,
   measureBlobs,
+  pluginCandidateFile,
   summarize,
   TokenCounts,
   type TrackedFile,
@@ -22,7 +23,7 @@ import {
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
-import { PluginLists } from "./plugins.js";
+import { confirmedPackages, PluginLists } from "./plugins.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -57,6 +58,8 @@ interface CommitDelta {
   removed: string[];
   written: TrackedFile[];
   renames: Map<string, string>;
+  /** Files that may be plugin packages, in the order this commit changed them; see `addPluginPackages`. */
+  candidates: Array<TrackedFile | { removed: string }>;
   /** Recognized paths that became, stayed, or stopped being a symlink, for following Claude imports. */
   links?: SymlinkEvent[];
 }
@@ -121,6 +124,7 @@ async function readHistory(
         const source = paths[0]!;
         if ((status === "D" || status[0] === "R") && !ignored(source)) {
           if (classify(source)) current.removed.push(source);
+          if (pluginCandidate(source)) current.candidates.push({ removed: source });
           submodules.delete(source);
           if (links.delete(source)) linkEvent(current, source, null);
         }
@@ -129,7 +133,9 @@ async function readHistory(
           else submodules.delete(path);
           const file = trackedFile(mode, blob, path);
           if (file) current.written.push(file);
-          else if (classify(path)) current.removed.push(path);
+          if (pluginCandidate(path)) {
+            current.candidates.push(pluginCandidateFile(mode, blob, path) ?? { removed: path });
+          } else if (classify(path)) current.removed.push(path);
           if (file && status[0] === "R" && classify(source) && !ignored(source)) current.renames.set(source, path);
           // An import may name a recognized path that is a symlink; only links are kept.
           if (mode === symlinkMode && classify(path)) {
@@ -151,6 +157,7 @@ async function readHistory(
           removed: [],
           written: [],
           renames: new Map(),
+          candidates: [],
         };
         deltas.push(current);
         onCommit(deltas.length);
@@ -247,6 +254,34 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
   return read;
 }
 
+/**
+ * Add the plugin packages whose names alone could not show them, once their content confirms them.
+ * A version that is not a package counts as the file being absent. A path Claude imports keeps that
+ * label instead, so one file is never tracked twice.
+ */
+function addPluginPackages(root: string, deltas: CommitDelta[]): void {
+  const imported = new Set<string>();
+  for (const delta of deltas) {
+    for (const file of delta.written) if (file.classification.imported) imported.add(file.path);
+  }
+  const files = deltas.flatMap((delta) =>
+    delta.candidates.flatMap((entry) => ("removed" in entry || imported.has(entry.path) ? [] : [entry])),
+  );
+  const confirmed = new Set(confirmedPackages(root, files).map((file) => versionKey(file.path, file.blob)));
+  const present = new Set<string>();
+  for (const delta of deltas) {
+    for (const entry of delta.candidates) {
+      if (!("removed" in entry) && confirmed.has(versionKey(entry.path, entry.blob))) {
+        present.add(entry.path);
+        delta.written.push(entry);
+      } else {
+        const path = "removed" in entry ? entry.removed : entry.path;
+        if (present.delete(path)) delta.removed.push(path);
+      }
+    }
+  }
+}
+
 export async function analyzeRepository(repoPath: string, options: AnalysisOptions = {}): Promise<Report> {
   const { onProgress, onNotice } = options;
   const plan = options.providerPlan;
@@ -293,10 +328,15 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   // Files Claude imports join the deltas here, so every later step treats them as components.
   const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body), ignored);
 
+  addPluginPackages(root, deltas);
+
   const written = deltas.flatMap((delta) => delta.written);
+  // A plugin package is written for others to install, so it does not show the repository uses a tool.
   for (const reader of conditionalReaders) {
-    if (written.some((file) => file.classification.provider === reader)) continue;
-    for (const file of written) withoutReader(file.classification, reader);
+    if (written.some((file) => file.classification.provider === reader && !file.classification.pluginPackage)) {
+      continue;
+    }
+    for (const file of written) if (!file.classification.pluginPackage) withoutReader(file.classification, reader);
   }
   pass.add(written);
   const sizes = blobSizes(root, distinctBlobs(written));
