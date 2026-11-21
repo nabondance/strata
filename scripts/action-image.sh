@@ -29,18 +29,19 @@ check() {
     fail "image-branch cannot be the default branch ($branch): publishing replaces the branch's whole history. Use a dedicated branch, such as strata-image."
   fi
   # The value is a credential, so it is matched here and never printed.
-  if headers="$(git -C "$GITHUB_WORKSPACE" config --get-regexp '^http\..*\.extraheader$' 2>/dev/null)" &&
+  if headers="$(git -C "$GITHUB_WORKSPACE" config --get-regexp '^http\.(.*\.)?extraheader$' 2>/dev/null)" &&
     grep -qi 'authorization:' <<<"$headers"; then
     fail "With image-branch the job can write, so the checkout must not keep its credentials while Strata runs. Set persist-credentials: false on actions/checkout."
+  fi
+  # Without a repository this passes, and the compare step names the missing checkout.
+  if [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+    fail "The image shows the whole history, but this checkout is shallow. Set fetch-depth: 0 on actions/checkout."
   fi
 }
 
 render() {
   local workspace="$GITHUB_WORKSPACE" head out pattern
   local ignore=()
-  if [ "$(git -C "$workspace" rev-parse --is-shallow-repository)" = true ]; then
-    fail "The image shows the whole history, but this checkout is shallow. Set fetch-depth: 0 on actions/checkout."
-  fi
   head="$(git -C "$workspace" rev-parse HEAD)"
   if [ "$head" != "$GITHUB_SHA" ]; then
     fail "The image must show the pushed commit ($GITHUB_SHA), but the checkout is at $head."
@@ -88,9 +89,15 @@ link() {
 
 # The commit the branch holds, or nothing when the branch does not exist.
 remote_tip() {
-  local line
-  line="$(git -C "$1" ls-remote --heads "$STRATA_IMAGE_REMOTE" "refs/heads/$STRATA_IMAGE_BRANCH")" || return 1
-  printf '%s' "${line%%$'\t'*}"
+  local lines id ref
+  lines="$(git -C "$1" ls-remote --heads "$STRATA_IMAGE_REMOTE" "refs/heads/$STRATA_IMAGE_BRANCH")" || return 1
+  # The pattern also matches a longer name that ends the same way, such as refs/heads/x/refs/heads/<branch>.
+  while IFS=$'\t' read -r id ref; do
+    if [ "$ref" = "refs/heads/$STRATA_IMAGE_BRANCH" ]; then
+      printf '%s' "$id"
+      return 0
+    fi
+  done <<<"$lines"
 }
 
 # Strata's branch is one commit holding only the files it publishes. Anything
@@ -135,7 +142,7 @@ publish() {
       fail "Could not read branch $branch from the repository. Check the job's contents permission."
     # The default branch as it is now decides which image is right. Without it,
     # the order of the commits is unknown, so nothing is pushed.
-    git -C "$workspace" -c gc.auto=0 -c maintenance.auto=false fetch -q --no-tags "$remote" "refs/heads/$default" ||
+    git -C "$workspace" -c gc.auto=0 -c maintenance.auto=false fetch -q --no-tags --no-recurse-submodules "$remote" "refs/heads/$default" ||
       fail "Could not read the default branch ($default), so the image was not published."
     tip="$(git -C "$workspace" rev-parse FETCH_HEAD)"
     if ! git -C "$workspace" merge-base --is-ancestor "$source" "$tip"; then

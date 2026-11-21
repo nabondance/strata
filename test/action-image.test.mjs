@@ -239,6 +239,12 @@ test("check refuses a checkout that kept its credentials, without printing them"
   git(repo, "config", "--unset", key);
   assert.equal(run("check").status, 0);
 
+  // A header for every host has no URL in its key.
+  git(repo, "config", "http.extraheader", "AUTHORIZATION: basic c2VjcmV0");
+  refused();
+  git(repo, "config", "--unset", "http.extraheader");
+  assert.equal(run("check").status, 0);
+
   // How actions/checkout keeps them: in a file outside the repository.
   const file = join(temp, "credentials.config");
   writeFileSync(file, '[http "https://github.com/"]\n\textraheader = AUTHORIZATION: basic c2VjcmV0\n');
@@ -247,13 +253,14 @@ test("check refuses a checkout that kept its credentials, without printing them"
 });
 
 test("leaves a branch alone that is not Strata's image branch", (t) => {
-  const { repo, run, publish, tip } = setup(t);
+  const { repo, commit, run, publish, tip } = setup(t);
   // More than one commit.
-  git(repo, "push", "-q", "origin", "main:refs/heads/strata-image");
+  commit("A second commit.\n");
+  git(repo, "push", "-q", "origin", "main", "main:refs/heads/strata-image");
   const history = tip();
   const refused = publish();
   assert.equal(refused.status, 1);
-  assert.match(refused.stdout, /more than one commit|holds other files/);
+  assert.match(refused.stdout, /more than one commit/);
   assert.equal(tip(), history);
 
   // One commit, holding someone's file.
@@ -272,6 +279,47 @@ test("leaves a branch alone that is not Strata's image branch", (t) => {
   assert.equal(tip("notes"), notes);
 });
 
+test("a longer branch name ending in the image branch's is not mistaken for it", (t) => {
+  const { repo, publish, tip } = setup(t);
+  const lookalike = "mirror/refs/heads/strata-image";
+  git(repo, "push", "-q", "origin", `main:refs/heads/${lookalike}`);
+  const before = git(repo, "rev-parse", "main");
+  const result = publish();
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Published the image/);
+  assert.ok(tip());
+  assert.equal(git(repo, "ls-remote", "origin", `refs/heads/${lookalike}`).split("\t")[0], before);
+});
+
+test("publishing does not fetch the repository's submodules", (t) => {
+  const { temp, repo, publish, tip } = setup(t);
+  const library = join(temp, "library");
+  git(temp, "init", "-q", "-b", "main", library);
+  git(
+    library,
+    "-c",
+    "user.name=Strata test",
+    "-c",
+    "user.email=strata-test@example.invalid",
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "Library",
+  );
+  git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", library, "library");
+  git(repo, "commit", "-q", "-m", "Add a submodule");
+  git(repo, "push", "-q", "origin", "main");
+  // A submodule the job cannot reach, as a private one is without credentials.
+  git(repo, "config", "fetch.recurseSubmodules", "true");
+  rmSync(library, { recursive: true, force: true });
+  const result = publish();
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.ok(tip());
+});
+
 test("names the fix when the push is refused", (t) => {
   const { temp, remote, run } = setup(t);
   const hook = join(remote, "hooks", "pre-receive");
@@ -288,7 +336,8 @@ test("refuses a shallow checkout and a checkout of another commit", (t) => {
   git(repo, "push", "-q", "origin", "main");
   const shallow = join(temp, "shallow");
   git(temp, "clone", "-q", "--depth=1", `file://${remote}`, shallow);
-  const refused = run("render", { GITHUB_WORKSPACE: shallow, GITHUB_SHA: git(shallow, "rev-parse", "HEAD") });
+  // Checked before Strata runs, so a pull request shows it.
+  const refused = run("check", { GITHUB_WORKSPACE: shallow });
   assert.equal(refused.status, 1);
   assert.match(refused.stdout, /fetch-depth: 0/);
 

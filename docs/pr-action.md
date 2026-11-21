@@ -74,7 +74,7 @@ A push that creates or deletes a branch or tag has no commit on one side. The Ac
 
 ### Force-pushes
 
-A force-push can replace the commit before it, so that a full clone no longer holds it. If the Action cannot fetch that commit, as in a private repository checked out with `persist-credentials: false`, it adds a notice and skips the delta and limits for that push. The [README image](#readme-image) is still updated.
+A force-push can replace the commit before it, so that no branch holds it. The Action then adds a notice and skips the delta and limits for that push, and the [README image](#readme-image) is still updated. It does this only when the commit is known to be gone: GitHub refuses it, or a `fetch-depth: 0` checkout lacks it and has no credentials to ask. Any other fetch failure, such as a network error, fails the step.
 
 ### Other events
 
@@ -104,7 +104,7 @@ By default `actions/checkout` makes a shallow checkout: it downloads only the on
 
 It changes no working-tree file, branch, or tag, and Strata itself only reads.
 
-If the fetch fails, the step says so. This can happen in a private repository checked out with `persist-credentials: false`. To fix it, check out with `fetch-depth: 0`, or keep the persisted credentials. On `pull_request_target`, a fork's commits are not on any branch that `fetch-depth: 0` downloads, so that event needs the credentials.
+If the fetch fails, the step says so. This can happen in a private repository checked out with `persist-credentials: false`. To fix it, check out with `fetch-depth: 0`, or keep the persisted credentials, which `image-branch` does not allow. On `pull_request_target`, a fork's commits are not on any branch that `fetch-depth: 0` downloads, so that event needs the credentials.
 
 Strata's own [pull-request workflow](../.github/workflows/strata-pr-delta.yml) runs this way, from a default shallow checkout. It uses `uses: ./` so it tests the code under review.
 
@@ -130,7 +130,7 @@ At a release, the Action runs that version of the `context-strata` npm package, 
 | `image-file`   | Path of the rendered SVG, on a run that draws the [image](#readme-image)                                                                                         |
 | `image-url`    | URL of the published SVG for a README, on a run that publishes the image or finds it current                                                                     |
 
-The outputs are set whenever the summary is written. That includes runs where a limit fails the step, so a later step with `if: always()` can still read them. They are empty when the step skips a push that creates or deletes a branch or tag. If a job runs the Action more than once, each run writes its own files.
+The outputs are set whenever the summary is written. That includes runs where a limit fails the step, so a later step with `if: always()` can still read them. The delta outputs are empty when the step skips a push that creates or deletes a branch or tag, or a [force-push](#force-pushes) whose earlier commit is gone. `image-file` and `image-url` are still set on such a force-push to the default branch. If a job runs the Action more than once, each run writes its own files.
 
 ```yaml
       - uses: nabondance/strata@v0
@@ -236,7 +236,7 @@ After the first push to the default branch, display the image:
 
 What it does:
 
-- On a push to the default branch, it draws the whole history and publishes `strata.svg` and `strata-badge.json` as the single commit of that branch. It pushes nothing when the image is unchanged.
+- On a push to the default branch, it draws the whole history and publishes `strata.svg` and `strata-badge.json` as the single commit of that branch. It pushes nothing when both files are identical, as on a rerun. The image shows the number of revisions, so a new commit usually updates it.
 - Pull requests and other events never publish. They run the delta and limits as usual.
 - The job summary ends with a **README image** section: the image's link and state, and the Markdown to paste into a README. On a pull request, it links the current image and says the next push to the default branch updates it.
 - It publishes even when a limit is passed, so the image stays true, and the step still fails.
@@ -245,11 +245,11 @@ What it does:
 What to know about write access:
 
 - **Strata runs in a job that can write to your repository.** Only the final publish step is given the token, but a step cannot be isolated from earlier steps of its job. A compromised Strata package or dependency could reach the token and change your repository. At a release, the Action first verifies the package's signatures and provenance, and installs it without running install scripts. If that is not enough for your repository, use the [separate image workflow](ci.md#publish-it-from-a-workflow), which keeps write access in a job that runs no Strata code.
-- The checkout must use `persist-credentials: false`. The Action stops before running Strata if the checkout kept its credentials.
+- The checkout must use `fetch-depth: 0` and `persist-credentials: false`. The Action stops before running Strata if the checkout is shallow or kept its credentials.
 - It refuses the default branch, and any existing branch with more than one commit or with other files.
 - The current default branch decides which image is right. A slow run for an older commit does not replace a newer image, a commit no longer on the branch is not published, and after a rollback the next run replaces the removed commit's image.
 
-`contents: write` also applies to the workflow's pull request runs from your own branches, although the Action does not use it there. Pull requests from forks stay read-only.
+`contents: write` also applies to the workflow's pull request runs from your own branches, although the Action does not use it there. Pull requests from forks stay read-only. To keep your own read-only too, use two jobs in the workflow: one on `pull_request` with `contents: read`, and one on `push` with `contents: write`. Give both `image-branch`, so the pull request summary still links the image.
 
 The image shows the repository and branch names, dates, category labels, and totals, but no paths or file contents. In a private repository the file is served only to signed-in people with access, and the Shields.io badge cannot read it.
 

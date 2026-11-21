@@ -177,9 +177,10 @@ runs:
         STRATA_EVENT: ${{ github.event_name }}
         STRATA_EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         STRATA_EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after }}
+        STRATA_EVENT_FORCED: ${{ github.event.forced }}
+        STRATA_IMAGE_BRANCH: ${{ inputs.image-branch }}
         # The commit that merges the pull request: what a pull_request checkout holds (also on its
         # review events), and on pull_request_target the payload's test merge, which can be missing.
-        STRATA_EVENT_FORCED: ${{ github.event.forced }}
         STRATA_EVENT_MERGE: ${{ github.event_name != 'pull_request_target' && github.sha || github.event.pull_request.merge_commit_sha }}
         STRATA_PRECISE: ${{ inputs.precise }}
         STRATA_IGNORE: ${{ inputs.ignore }}
@@ -213,11 +214,31 @@ runs:
           fetching="${missing[*]}"
           # Strata reads only the two trees, so a shallow checkout stays shallow.
           if [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = true ]; then depth=(--depth=1); fi
-          git -C "$GITHUB_WORKSPACE" -c gc.auto=0 -c maintenance.auto=false \
-            fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}"
+          # In English, because base_replaced reads the error.
+          if ! fetch_error="$(LC_ALL=C git -C "$GITHUB_WORKSPACE" -c gc.auto=0 -c maintenance.auto=false \
+            fetch --quiet --no-tags --no-recurse-submodules "${depth[@]}" origin "${missing[@]}" 2>&1)"; then
+            printf '%s\n' "$fetch_error" >&2
+            return 1
+          fi
         }
         fetch_failed() {
-          fail "Could not fetch $fetching from origin. The checkout needs both commits: check out with fetch-depth: 0, or keep actions/checkout's persisted credentials so the Action can fetch them."
+          local fix="check out with fetch-depth: 0, or keep actions/checkout's persisted credentials so the Action can fetch them."
+          # image-branch refuses persisted credentials, so only the first fix applies.
+          if [ -n "$STRATA_IMAGE_BRANCH" ]; then fix="check out with fetch-depth: 0."; fi
+          fail "Could not fetch $fetching from origin. The checkout needs both commits: $fix"
+        }
+        # Whether a force-push left the earlier commit on no branch, so that there is nothing to
+        # compare. It is known when the server refuses the commit, or when a complete clone lacks it
+        # and has no credentials to ask. Any other failure, such as a network error, fails the step,
+        # so it cannot skip the limits.
+        base_replaced() {
+          if [ -z "$event_commits" ] || [ "$STRATA_EVENT" != push ] || [ "$STRATA_EVENT_FORCED" != true ]; then return 1; fi
+          git -C "$GITHUB_WORKSPACE" cat-file -e "$head^{commit}" 2>/dev/null || return 1
+          case "$fetch_error" in
+            *"not our ref $base"*) return 0 ;;
+            *"could not read Username"*) [ "$(git -C "$GITHUB_WORKSPACE" rev-parse --is-shallow-repository)" = false ] ;;
+            *) return 1 ;;
+          esac
         }
         base="$STRATA_BASE"
         head="$STRATA_HEAD"
@@ -266,11 +287,8 @@ runs:
           fi
         done
         if ! fetch_missing "$base" "$head"; then
-          # A force-push can replace a commit that no clone holds any more, and that a checkout
-          # without credentials cannot fetch from a private repository.
-          if [ -n "$event_commits" ] && [ "$STRATA_EVENT" = push ] && [ "$STRATA_EVENT_FORCED" = true ] &&
-            git -C "$GITHUB_WORKSPACE" cat-file -e "$head^{commit}" 2>/dev/null; then
-            echo "::notice title=Strata::This force-push replaced commit $base, which could not be fetched, so there are no two commits to compare and Strata skips the delta and limits."
+          if base_replaced; then
+            echo "::notice title=Strata::This force-push replaced commit $base, which is no longer on a branch, so there are no two commits to compare and Strata skips the delta and limits."
             exit 0
           fi
           fetch_failed
