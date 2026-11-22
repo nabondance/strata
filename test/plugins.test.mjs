@@ -676,10 +676,36 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   );
   // The Agent Plugins schema limits names, and clients must refuse a manifest that breaks the rule.
   const schemaUrl = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
-  for (const format of ["manifest", "agent-manifest"]) {
-    assert.deepEqual(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "My Plugin" }), format), unresolved);
-    assert.equal(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "my-plugin" }), format).status, "listed");
-  }
+  assert.deepEqual(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "My Plugin" }), "agent-manifest"), unresolved);
+  assert.equal(
+    pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "my-plugin" }), "agent-manifest").status,
+    "listed",
+  );
+  // Claude reads an alias for the marketplace key, and the canonical key wins.
+  const marketplace = { source: { source: "github", repo: "o/r" } };
+  assert.deepEqual(pluginRefs(JSON.stringify({ additionalMarketplaces: { alias: marketplace } }), "settings").plugins, [
+    { name: "alias", state: "marketplace" },
+  ]);
+  assert.deepEqual(
+    pluginRefs(
+      JSON.stringify({ additionalMarketplaces: { alias: marketplace }, extraKnownMarketplaces: { main: marketplace } }),
+      "settings",
+    ).plugins,
+    [{ name: "main", state: "marketplace" }],
+  );
+  // The Agent Plugins name rule is for root manifests, and a long source path is still a path.
+  assert.equal(
+    pluginRefs(
+      JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "My_Plugin" }),
+      "manifest",
+    ).status,
+    "listed",
+  );
+  assert.deepEqual(
+    pluginRefs(JSON.stringify({ name: "m", plugins: [{ name: "p", source: `./${"d/".repeat(200)}x` }] }), "marketplace")
+      .plugins[0].listed,
+    { local: 1, external: 0 },
+  );
   // A long value is file text, not a name, and stays out of the report.
   assert.deepEqual(pluginRefs(JSON.stringify({ name: "x".repeat(257) }), "manifest"), unresolved);
   assert.deepEqual(pluginRefs(JSON.stringify({ enabledPlugins: { ["x".repeat(257)]: true } }), "settings"), unresolved);

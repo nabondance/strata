@@ -440,7 +440,9 @@ function codeSpan(value: string): string {
   let longest = 0;
   for (const [run] of text.matchAll(/`+/g)) longest = Math.max(longest, run.length);
   const fence = "`".repeat(longest + 1);
-  const padded = text.startsWith("`") || text.endsWith("`") ? ` ${text} ` : text;
+  // CommonMark strips one space from each end when both ends have one, so those are padded too.
+  const spaced = text.startsWith(" ") && text.endsWith(" ") && text.trim().length > 0;
+  const padded = text.startsWith("`") || text.endsWith("`") || spaced ? ` ${text} ` : text;
   return `${fence}${padded}${fence}`;
 }
 

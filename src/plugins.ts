@@ -9,9 +9,9 @@ import type { PluginRef, PluginRefs } from "./model.js";
 /**
  * How a file names plugins: `settings`, `copilot-settings`, and `codex-config` turn them on or off, `manifest` defines
  * one, `skills-folder` defines one in the root `.claude/skills`, which Claude Code loads without a
- * settings entry, and `marketplace` is a catalog of them. `agent-manifest` is a `plugin.json` already
- * tracked inside an agent's folder, where a marketplace can place a plugin: it defines one only if
- * it declares the Agent Plugins schema. `codex-manifest` is an overlay beside a root manifest, which
+ * settings entry, and `marketplace` is a catalog of them. `agent-manifest` is a `plugin.json` at a
+ * plugin's root or inside an agent's folder, where a marketplace can place one: it defines a plugin
+ * only if it declares the Agent Plugins schema, whose name rule then applies. `codex-manifest` is an overlay beside a root manifest, which
  * `compareRevisions` and the report leave to that manifest.
  */
 type PluginFormat =
@@ -40,7 +40,10 @@ export function pluginFormat(path: string, classification: Classification): Plug
       : null;
   }
   if (classification.pluginPackage) {
-    if (name !== "marketplace.json") return classification.provider === "codex" ? "codex-manifest" : "manifest";
+    if (name !== "marketplace.json") {
+      if (classification.provider === "shared") return "agent-manifest";
+      return classification.provider === "codex" ? "codex-manifest" : "manifest";
+    }
     if (classification.provider === "cursor") return "cursor-marketplace";
     return classification.provider === "codex" ? "codex-marketplace" : "marketplace";
   }
@@ -101,7 +104,7 @@ const unresolved: PluginRefs = { status: "unresolved" };
  */
 function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null {
   // A key can also be written with JSON escapes, so only a file with neither is skipped unparsed.
-  const mentioned = /enabledPlugins|extraKnownMarketplaces/.test(text);
+  const mentioned = /enabledPlugins|extraKnownMarketplaces|additionalMarketplaces/.test(text);
   if (!mentioned && !text.includes("\\u")) return null;
   // Copilot documents its settings as JSON with comments.
   const settings = parsed(text, !allowsLists);
@@ -109,7 +112,8 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
   if (settings === undefined) return unresolved;
   if (!isObject(settings)) return mentioned ? unresolved : null;
   const enabled = settings.enabledPlugins;
-  const marketplaces = settings.extraKnownMarketplaces;
+  // Claude Code reads `additionalMarketplaces` as an alias, and the canonical key wins when both are set.
+  const marketplaces = settings.extraKnownMarketplaces ?? (allowsLists ? settings.additionalMarketplaces : undefined);
   if (enabled === undefined && marketplaces === undefined) return null;
   const plugins: PluginRef[] = [];
   if (enabled !== undefined) {
@@ -136,13 +140,6 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
 function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "skills-folder"): PluginRefs {
   const manifest = parsed(text);
   if (!isObject(manifest) || !isName(manifest.name)) return unresolved;
-  if (
-    format !== "skills-folder" &&
-    declaresAgentSchema(manifest, Buffer.alloc(0)) &&
-    !isAgentPluginName(manifest.name)
-  ) {
-    return unresolved;
-  }
   if (format !== "skills-folder") return listed([{ name: manifest.name, state: "defined" }]);
   const name = `${manifest.name}@skills-dir`;
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
@@ -167,7 +164,8 @@ function entrySource(entry: unknown, format: string): "local" | "external" | nul
       (source.source === "local" || (source.source === undefined && format === "cursor-marketplace")))
   ) {
     const path = typeof source === "string" ? source : source.path;
-    if (!isName(path)) return null;
+    // A source is never stored, so it has no length limit.
+    if (typeof path !== "string" || !path) return null;
     return isRelativePath(path) ? "local" : "external";
   }
   return isObject(source) && isName(source.source) ? "external" : null;

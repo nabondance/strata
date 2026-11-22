@@ -271,7 +271,7 @@ function leaveOutPackages(deltas: CommitDelta[]): Set<string> {
   const paths = new Set<string>();
   for (const delta of deltas) {
     for (const file of delta.written) if (file.classification.pluginPackage) paths.add(file.path);
-    for (const { path } of delta.candidates) paths.add(path);
+    for (const { path, file } of delta.candidates) if (file) paths.add(path);
   }
   for (const delta of deltas) {
     delta.written = delta.written.filter((file) => !paths.has(file.path));
