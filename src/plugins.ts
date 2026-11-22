@@ -128,9 +128,11 @@ function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "s
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** Whether a marketplace source is a path relative to the marketplace, not a URL, a `host/path`, or an absolute path. */
+/** Whether a marketplace source is a path relative to the marketplace, not a URL, a known Git host, or an absolute path. */
 const isRelativePath = (source: string) =>
-  !/^[^/\\]*:/.test(source) && !/^[/\\~]/.test(source) && !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+\//i.test(source);
+  !/^[^/\\]*:/.test(source) &&
+  !/^[/\\~]/.test(source) &&
+  !/^(?:github\.com|gitlab\.com|bitbucket\.org)\//i.test(source);
 
 /** Whether a marketplace entry's source is a relative path or something else, or null when the entry is invalid. */
 function entrySource(entry: unknown, format: string): "local" | "external" | null {
@@ -139,7 +141,11 @@ function entrySource(entry: unknown, format: string): "local" | "external" | nul
   // Cursor documents only `name` as required, so an entry without a source still counts, as not a path.
   if (source === undefined) return format === "cursor-marketplace" ? "external" : null;
   // A path is a string, Codex's `{ source: "local", path }`, or Cursor's `{ path }`.
-  if (typeof source === "string" || (isObject(source) && (source.source === "local" || source.source === undefined))) {
+  if (
+    typeof source === "string" ||
+    (isObject(source) &&
+      (source.source === "local" || (source.source === undefined && format === "cursor-marketplace")))
+  ) {
     const path = typeof source === "string" ? source : source.path;
     if (!isName(path)) return null;
     return isRelativePath(path) ? "local" : "external";

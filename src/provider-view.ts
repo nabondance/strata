@@ -57,11 +57,16 @@ export function viewRevision(
     view === "shared" || view === "unknown"
       ? entry.provider === view
       : providerReads(entry, view, at?.geminiContextFiles, at === revision ? configuredNow : configuredBefore);
-  // A plugin manifest inside a Claude skill folder is only one of the skill's files to any other tool.
+  // A manifest in a Claude skill folder is only a file to other tools, and an Agent Plugins manifest in an
+  // agent's folder is a plugin only to the tools that read that format.
   const components = revision.components
     .filter((component) => includes(component, revision))
     .map((component) => {
-      if (view === "claude" || !component.skill || !component.plugins) return component;
+      if (!component.plugins) return component;
+      const othersFile = component.skill
+        ? view !== "claude"
+        : component.category === "other" && !component.readers?.includes(view);
+      if (!othersFile) return component;
       const { plugins: _plugins, ...skillFile } = component;
       return skillFile;
     });
