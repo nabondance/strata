@@ -380,17 +380,29 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   catalog.put("marketplace.json", '{"name":"market","plugins":[{"name":"a","source":"./a"}],}');
   const catalogDamaged = compareGitCommits(catalog.repo, catalogBase, catalog.commit("Damaged")).comparison.plugins;
   assert.deepEqual([catalogDamaged.removed.length, catalogDamaged.afterUnresolved], [0, 1]);
-  catalog.put("marketplace.json", '{"name":"market","plugins":[]}');
-  const catalogEmptied = compareGitCommits(catalog.repo, catalogBase, catalog.commit("Emptied")).comparison.plugins;
-  assert.deepEqual(
-    catalogEmptied.changed.map((ref) => ref.name),
-    ["market"],
+  // An ownerless file with an empty list could be anything, so it is not a marketplace.
+  catalog.put("marketplace.json", '{"name":"Acme store","plugins":[]}');
+  assert.equal(
+    compareGitCommits(catalog.repo, catalogBase, catalog.commit("App data")).comparison.plugins.afterPlugins,
+    0,
   );
   catalog.put("marketplace.json", '{"name":"shop","plugins":["payments"]}');
   assert.equal(
     compareGitCommits(catalog.repo, catalogBase, catalog.commit("Unrelated")).comparison.plugins.afterPlugins,
     0,
   );
+
+  // A Codex overlay beside a root manifest adds no identity of its own; alone, it must name the plugin.
+  const overlay = syntheticRepo("strata-plugins-overlay-");
+  t.after(overlay.cleanup);
+  overlay.put("tool/plugin.json", manifest("real-identity"));
+  overlay.put("tool/.codex-plugin/plugin.json", '{"name":"overlay-name"}\n');
+  overlay.put("alone/.codex-plugin/plugin.json", '{"name":"kept"}\n');
+  const overlayBase = overlay.commit("Overlay and standalone");
+  overlay.put("alone/.codex-plugin/plugin.json", '{"version":"1.0.1"}\n');
+  const overlayDelta = compareGitCommits(overlay.repo, overlayBase, overlay.commit("Lost its name")).comparison.plugins;
+  assert.deepEqual([overlayDelta.removed.length, overlayDelta.afterUnresolved], [0, 1]);
+  assert.equal(overlayDelta.afterPlugins, 1);
 
   // A partial clone whose only configuration is a plugin does not claim it has none.
   const onlyPlugin = syntheticRepo("strata-plugins-only-");
@@ -585,6 +597,7 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   assert.equal(pluginRefs('{"theme":"enabledPlugins"}', "settings"), null);
   assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@b":"yes"}}', "settings"), unresolved);
   assert.deepEqual(pluginRefs('{"enabledPlugins":[]}', "settings"), unresolved);
+  assert.deepEqual(pluginRefs('{"extraKnownMarketplaces":{"m":{}}}', "settings"), unresolved);
   // Claude's schema allows a list of strings, which Copilot does not document.
   assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "settings").plugins, [
     { name: "a@m", state: "configured" },
@@ -670,8 +683,8 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   const commented = '// team defaults\n{"enabledPlugins":{"a@b":true,},}';
   assert.deepEqual(pluginRefs(commented, "copilot-settings").plugins, [{ name: "a@b", state: "enabled" }]);
   assert.deepEqual(pluginRefs(commented, "settings"), unresolved);
-  // A Codex overlay can leave identity to the root manifest, and Codex skips an entry it cannot resolve.
-  assert.deepEqual(pluginRefs('{"extensions":{}}', "codex-manifest"), { status: "listed", plugins: [] });
+  // A standalone Codex manifest needs a name, and Codex skips a marketplace entry it cannot resolve.
+  assert.deepEqual(pluginRefs('{"extensions":{}}', "codex-manifest"), unresolved);
   assert.deepEqual(
     pluginRefs(
       '{"name":"m","plugins":[{"name":"ok","source":"./ok"},{"name":"bad","source":{"source":"local"}}]}',

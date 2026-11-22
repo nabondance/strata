@@ -231,8 +231,14 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
   const pluginsAt = (revision: ComparedRevision) => {
     const refs = new Map<string, PluginComparisonRef>();
     const unreadable = new Set<string>();
+    // A Codex overlay beside a root manifest adds settings; that manifest is the plugin's identity.
+    const overlay = ".codex-plugin/plugin.json";
+    const tracked = new Set(revision.components.map((component) => component.path));
     for (const component of revision.components) {
       if (!component.plugins) continue;
+      if (component.path.endsWith(overlay) && tracked.has(`${component.path.slice(0, -overlay.length)}plugin.json`)) {
+        continue;
+      }
       if (component.plugins.status === "unresolved") {
         unreadable.add(component.path);
         continue;

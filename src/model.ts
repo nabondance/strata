@@ -58,8 +58,8 @@ export type PluginState =
   | "skills-folder";
 
 /**
- * How many plugins a marketplace file lists: `local` has a path relative to the marketplace as its
- * source and `external` anything else, such as a URL. Counts, because a marketplace can list hundreds of plugins in thousands
+ * How many plugins a marketplace file lists: `local` has a relative path as its source, resolved
+ * from the marketplace or the repository root depending on the tool, and `external` anything else. Counts, because a marketplace can list hundreds of plugins in thousands
  * of versions, and a source's URL is never stored.
  */
 export interface PluginCatalog {

@@ -11,7 +11,8 @@ import type { PluginRef, PluginRefs } from "./model.js";
  * one, `skills-folder` defines one in the root `.claude/skills`, which Claude Code loads without a
  * settings entry, and `marketplace` is a catalog of them. `agent-manifest` is a `plugin.json` already
  * tracked inside an agent's folder, where a marketplace can place a plugin: it defines one only if
- * it declares the Agent Plugins schema. `codex-manifest` can be an overlay with no identity of its own.
+ * it declares the Agent Plugins schema. `codex-manifest` is an overlay beside a root manifest, which
+ * `compareRevisions` and the report leave to that manifest.
  */
 type PluginFormat =
   | "settings"
@@ -120,7 +121,7 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
   if (marketplaces !== undefined) {
     if (!isObject(marketplaces)) return unresolved;
     for (const [name, value] of Object.entries(marketplaces)) {
-      if (!name || !isObject(value)) return unresolved;
+      if (!name || !isObject(value) || !isObject(value.source)) return unresolved;
       plugins.push({ name, state: "marketplace" });
     }
   }
@@ -130,8 +131,6 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
 /** The plugin a manifest defines. In `.claude/skills` its ID is `<name>@skills-dir`, as settings name it. */
 function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "skills-folder"): PluginRefs {
   const manifest = parsed(text);
-  // Codex's `.codex-plugin/plugin.json` can be an overlay of settings, identified by the root manifest.
-  if (format === "codex-manifest" && isObject(manifest) && manifest.name === undefined) return listed([]);
   if (!isObject(manifest) || !isName(manifest.name)) return unresolved;
   if (
     format !== "skills-folder" &&
@@ -145,7 +144,7 @@ function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "s
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** Whether a marketplace source is a path relative to the marketplace, not a URL, a known Git host, or an absolute path. */
+/** Whether a marketplace source is a relative path, whose base depends on the tool, not a URL, a known Git host, or an absolute path. */
 const isRelativePath = (source: string) =>
   !/^[^/\\]*:/.test(source) &&
   !/^[/\\~]/.test(source) &&
@@ -332,7 +331,7 @@ export class PluginLists implements ContentUse {
 
 /**
  * Whether a root `marketplace.json` is a plugin marketplace, even with a damaged field: `plugins`
- * beside `owner`, or a list of objects beside `name`. A file that no longer parses needs those keys.
+ * beside `owner`, or a non-empty list of objects beside `name`. A file that no longer parses needs those keys.
  */
 function readsLikeCatalog(value: unknown, body: Buffer): boolean {
   if (value === undefined) {
@@ -341,7 +340,7 @@ function readsLikeCatalog(value: unknown, body: Buffer): boolean {
   }
   if (!isObject(value) || !("plugins" in value)) return false;
   if ("owner" in value) return true;
-  return "name" in value && Array.isArray(value.plugins) && value.plugins.every(isObject);
+  return "name" in value && Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.every(isObject);
 }
 
 /**
