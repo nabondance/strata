@@ -78,7 +78,7 @@ export const importsScript = `    // Imports are links between stored files, so 
     // Plugins follow the provider view, like the files that name them.
     function renderPlugins() {
       // A Codex overlay beside a root manifest adds settings; that manifest is the plugin's identity.
-      const manifests = new Set(revisions[selected].components.filter((component) => component.pluginPackage && component.plugins).map((component) => component.path));
+      const manifests = new Set(viewRevisions[selected].components.filter((component) => component.pluginPackage && component.plugins && component.readers?.includes('codex')).map((component) => component.path));
       const overlay = '.codex-plugin/plugin.json';
       const components = viewRevisions[selected].components.filter((component) => component.plugins &&
         !(component.path.endsWith(overlay) && manifests.has(component.path.slice(0, -overlay.length) + 'plugin.json')));

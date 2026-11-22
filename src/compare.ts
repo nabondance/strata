@@ -234,7 +234,9 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
     // A Codex overlay beside a root manifest adds settings; that manifest is the plugin's identity.
     const overlay = ".codex-plugin/plugin.json";
     const manifests = new Set(
-      revision.components.filter((component) => component.pluginPackage && component.plugins).map(({ path }) => path),
+      revision.components
+        .filter((component) => component.pluginPackage && component.plugins && component.readers?.includes("codex"))
+        .map(({ path }) => path),
     );
     for (const component of revision.components) {
       if (!component.plugins) continue;

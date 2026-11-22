@@ -290,6 +290,24 @@ export const isPluginPackageFile = (file: TrackedFile) => {
   return format !== null && !isSettingsFormat(format);
 };
 
+/** A file that cannot be decoded is unresolved only if its bytes show it may name a plugin. */
+function undecodedRefs(body: Buffer, format: PluginFormat): PluginRefs | null {
+  if (format === "agent-manifest") return declaresAgentSchema(undefined, body) ? unresolved : null;
+  if (!isSettingsFormat(format)) return unresolved;
+  const raw = rawText(body);
+  const keys = format === "codex-config" ? /plugins/ : /enabledPlugins|extraKnownMarketplaces|additionalMarketplaces/;
+  return keys.test(raw) ? unresolved : null;
+}
+
+/** A file too deep or long for a parser is unresolved rather than stopping the analysis. */
+function safeRefs(text: string, format: PluginFormat): PluginRefs | null {
+  try {
+    return pluginRefs(text, format);
+  } catch {
+    return unresolved;
+  }
+}
+
 /**
  * The plugins every distinct version of a settings, manifest, or marketplace file names, keyed by
  * path and blob, found as the shared content pass reads them. Only names and states are kept. A
@@ -320,12 +338,7 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const plugins =
-        text !== null
-          ? pluginRefs(text, format)
-          : format !== "agent-manifest" || declaresAgentSchema(undefined, body)
-            ? unresolved
-            : null;
+      const plugins = text === null ? undecodedRefs(body, format) : safeRefs(text, format);
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
   }

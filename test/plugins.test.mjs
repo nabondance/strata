@@ -424,6 +424,27 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     ["real-codex-plugin"],
   );
 
+  // Only an Agent Plugins root manifest supersedes a Codex overlay, not a Copilot-only one.
+  const copilotSibling = syntheticRepo("strata-plugins-copilot-sibling-");
+  t.after(copilotSibling.cleanup);
+  copilotSibling.put("CLAUDE.md", "Memory.\n");
+  const noPlugins = copilotSibling.commit("No plugins");
+  copilotSibling.put("pkg/.plugin/plugin.json", '{"name":"copilot-one"}\n');
+  copilotSibling.put("pkg/.plugin/.codex-plugin/plugin.json", '{"name":"codex-one"}\n');
+  const bothAdded = compareGitCommits(copilotSibling.repo, noPlugins, copilotSibling.commit("Both")).comparison.plugins;
+  assert.deepEqual(bothAdded.added.map((ref) => ref.name).sort(), ["codex-one", "copilot-one"]);
+
+  // A settings file in another encoding that names no plugins raises nothing, and a parser failure stops nothing.
+  const latin = syntheticRepo("strata-plugins-latin-");
+  t.after(latin.cleanup);
+  latin.put("CLAUDE.md", "Memory.\n");
+  const beforeLatin = latin.commit("Memory");
+  latin.put(".claude/settings.json", Buffer.from('{"note":"caf\xe9"}', "latin1"));
+  latin.put(".codex/config.toml", Buffer.from('note = "caf\xe9"\n', "latin1"));
+  assert.equal(compareGitCommits(latin.repo, beforeLatin, latin.commit("Latin-1")).comparison.plugins, undefined);
+  latin.put(".codex/config.toml", `# plugins\n"${"k".repeat(20_000_000)}" = 1\n`);
+  assert.doesNotThrow(() => compareGitCommits(latin.repo, beforeLatin, latin.commit("A huge key")));
+
   // A partial clone whose only configuration is a plugin does not claim it has none.
   const onlyPlugin = syntheticRepo("strata-plugins-only-");
   const onlyClone = `${onlyPlugin.repo}-clone`;
