@@ -331,6 +331,7 @@ function readsLikeCatalog(value: unknown, body: Buffer): boolean {
   if (!isObject(value) || !("plugins" in value)) return false;
   if ("owner" in value) return true;
   return (
+    isName(value.name) &&
     Array.isArray(value.plugins) &&
     value.plugins.length > 0 &&
     value.plugins.every((entry) => isObject(entry) && "name" in entry)

@@ -431,6 +431,17 @@ const pluginStateLabels: Record<PluginState, string> = {
   "skills-folder": "in .claude/skills, loads unless turned off",
 };
 
+/**
+ * Repository text as a Markdown code span, which GitHub never turns into a link or a mention, as it
+ * can with escaped text. The fence is longer than any run of backticks in the value.
+ */
+function codeSpan(value: string): string {
+  const text = value.replace(/\p{Cc}/gu, " ");
+  const fence = "`".repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+  const padded = text.startsWith("`") || text.endsWith("`") ? ` ${text} ` : text;
+  return `${fence}${padded}${fence}`;
+}
+
 const pluginLabel = (state: PluginState, listed?: PluginCatalog) =>
   listed
     ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugin${listed.local + listed.external === 1 ? "" : "s"} (${listed.local} by relative path)`
@@ -445,14 +456,8 @@ function pluginLines(delta: PullRequestDelta): string[] {
   if (!plugins) return [];
   const capped = <T>(refs: T[], line: (ref: T) => string) =>
     refs.slice(0, 10).map(line).join(", ") + (refs.length > 10 ? `, and ${refs.length - 10} more` : "");
-  // Names and paths are repository text, so they must not become links or mentions in the job summary.
-  const name = (value: string) =>
-    cell(value)
-      .replace(/:\/\//g, ":\\/\\/")
-      .replace(/(www)\./gi, "$1\\.")
-      .replace(/@/g, "\\@");
   const entry = (ref: PluginComparisonRef) =>
-    `${name(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${name(ref.path)})`;
+    `${codeSpan(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${codeSpan(ref.path)})`;
   const parts = [
     `Agent plugin references in tracked files: **${signed(plugins.deltaPlugins)}** (${plugins.beforePlugins} → ${plugins.afterPlugins}).`,
   ];
@@ -460,7 +465,7 @@ function pluginLines(delta: PullRequestDelta): string[] {
   if (plugins.removed.length) parts.push(`Removed: ${capped(plugins.removed, entry)}.`);
   if (plugins.changed.length) {
     const change = (ref: PluginStateChange) =>
-      `${name(ref.name)}, ${pluginLabel(ref.before, ref.beforeListed)} → ${pluginLabel(ref.after, ref.afterListed)} (${name(ref.path)})`;
+      `${codeSpan(ref.name)}, ${pluginLabel(ref.before, ref.beforeListed)} → ${pluginLabel(ref.after, ref.afterListed)} (${codeSpan(ref.path)})`;
     parts.push(`Changed: ${capped(plugins.changed, change)}.`);
   }
   if (plugins.beforeUnresolved || plugins.afterUnresolved) {

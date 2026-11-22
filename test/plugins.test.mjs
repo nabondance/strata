@@ -103,11 +103,11 @@ test("shows Claude plugins through time by state, without their sources or conte
     assert.equal(delta.schemaVersion, 15);
     const markdown = renderPullRequestDelta(delta);
     assert.match(markdown, /Agent plugin references in tracked files: \*\*-2\*\* \(7 → 5\)/);
-    assert.match(markdown, /Changed: fmt\\@tools, enabled → turned off \(\.claude\/settings\.json\)/);
+    assert.match(markdown, /Changed: `fmt@tools`, enabled → turned off \(`\.claude\/settings\.json`\)/);
     assert.match(markdown, /Enabled is not installed, and defined is not active/);
     assert.ok(!markdown.includes("\u001b"));
     assert.equal(compareGitCommits(repo, first, first).comparison.plugins, undefined);
-    assert.match(renderPullRequestDelta(compareGitCommits(repo, first, second)), /a\\\|b&lt;i&gt;/);
+    assert.ok(renderPullRequestDelta(compareGitCommits(repo, first, second)).includes("`a|b<i> [31m@tools`"));
 
     // A shareable export aliases names, the same name to the same alias.
     const shared = JSON.stringify(redactReport(report));
@@ -444,8 +444,9 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     '{"enabledPlugins":{"https://evil.example/x":true,"a@evil.example":true,"_www.evil.example":true}}',
   );
   const withLink = renderPullRequestDelta(compareGitCommits(linked.repo, unlinked, linked.commit("A link")));
-  assert.ok(withLink.includes("https:\\/\\/evil.example/x") && withLink.includes("a\\@evil.example"));
-  assert.ok(withLink.includes("www\\.evil.example"));
+  for (const value of ["https://evil.example/x", "a@evil.example", "_www.evil.example"]) {
+    assert.ok(withLink.includes(`\`${value}\``), value);
+  }
   // Escaping stays linear on a long name.
   const manyAts = syntheticRepo("strata-plugins-long-name-");
   t.after(manyAts.cleanup);
