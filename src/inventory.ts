@@ -1,4 +1,4 @@
-import { type Classification, categories, classify, pluginCandidate, type UpFront } from "./adapters.js";
+import { type Classification, categories, classify, type Provider, pluginCandidate, type UpFront } from "./adapters.js";
 import type { ContentUse } from "./content-pass.js";
 import type { Measurer } from "./measurement.js";
 import type { CategoryTotals, ClaudeImport, Component, FilledRevision, McpServers, PluginRefs } from "./model.js";
@@ -105,15 +105,18 @@ export function toComponent(
 ): Component {
   const { classification } = file;
   const upFront = classification.upFront ?? ruleUpFront;
+  // A `plugin.json` kept in an agent's folder that declares the Agent Plugins schema is that shared format.
+  const agentManifest = classification.category === "other" && Boolean(plugins);
+  const readers = agentManifest ? (["codex", "copilot", "cursor"] satisfies Provider[]) : classification.readers;
   return {
     path: file.path,
     blob: file.blob,
     provider: classification.provider,
-    ...(classification.readers ? { readers: classification.readers } : {}),
+    ...(readers ? { readers } : {}),
     ...(classification.contextFile ? { contextFile: classification.contextFile } : {}),
     category: classification.category,
     ...(classification.legacy ? { legacy: true as const } : {}),
-    ...(classification.pluginPackage ? { pluginPackage: true as const } : {}),
+    ...(classification.pluginPackage || agentManifest ? { pluginPackage: true as const } : {}),
     ...(classification.imported ? { imported: true as const } : {}),
     ...(imports?.length ? { imports, ...(classification.importRoot ? { importRoot: true as const } : {}) } : {}),
     ...(upFront ? { upFront } : {}),

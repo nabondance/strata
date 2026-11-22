@@ -184,6 +184,13 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const fieldBroken = compareGitCommits(repo, second, badField).comparison.plugins;
     assert.deepEqual([fieldBroken.removed.length, fieldBroken.afterUnresolved], [0, 1]);
 
+    // A root marketplace with a damaged field is unknown too, not removed.
+    put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: { a: {} } }));
+    const badCatalog = commit("Break the catalog");
+    const catalogBroken = compareGitCommits(repo, second, badCatalog).comparison.plugins;
+    assert.ok(!catalogBroken.removed.some((ref) => ref.path === "marketplace.json"));
+    put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: [] }));
+
     put("std/plugin.json", '{"name":"std"}\n');
     const third = commit("Drop the schema");
 
@@ -205,7 +212,7 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const paths = (revision) => revision.components.map((component) => component.path);
     assert.ok(!paths(revisions[1]).includes("plugin.json") && !paths(revisions[1]).includes("src/plugin.json"));
     // A file that stops being a package leaves the inventory.
-    assert.ok(!paths(revisions[4]).includes("std/plugin.json"));
+    assert.ok(!paths(revisions[5]).includes("std/plugin.json"));
     assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
 
     // Packaging a Cursor plugin does not show the repository uses Cursor; Copilot's settings do.
@@ -259,7 +266,13 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const report = await analyzeRepository(repo);
   const revisions = expandRevisions(report);
   // A package keeps its label while an import reaches it, and `strata diff` agrees.
-  assert.deepEqual(revisions.map(packaged), [["plugin.json"], ["plugin.json"], ["plugin.json"], ["sub/plugin.json"]]);
+  const agent = ".agents/plugins/foo/plugin.json";
+  assert.deepEqual(revisions.map(packaged), [
+    [agent, "plugin.json"],
+    [agent, "plugin.json"],
+    [agent, "plugin.json"],
+    [agent, "sub/plugin.json"],
+  ]);
   const reached = revisions[1].components.find((component) => component.path === "plugin.json");
   assert.ok(!reached.imported && reached.plugins.status === "listed");
   const links = importLinks(revisions[1].components);
@@ -280,6 +293,12 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     status: "listed",
     plugins: [{ name: "foo", state: "defined" }],
   });
+  // It is the shared format, so it is for those tools whichever folder holds it.
+  assert.deepEqual(revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json").readers, [
+    "codex",
+    "copilot",
+    "cursor",
+  ]);
 
   // Publishing for a tool neither adds it to session context nor gives it a report tab.
   const published = syntheticRepo("strata-plugins-published-");

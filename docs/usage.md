@@ -125,6 +125,7 @@ Besides the token and file changes, the summary can include:
 
 - **Listed skill tokens**, when either commit has a skill manifest (a skill's `SKILL.md`). These are the frontmatter name and description an agent keeps in context before a skill is used. The summary gives the total change and, for each changed manifest, its own change.
 - **MCP servers**, when either commit has an MCP file: a line names the servers the change adds or removes.
+- **Agent plugins**, when either commit has a file that names one: a line counts the references and names up to ten added, removed, or changed in each list.
 - **Up-front and on-demand text**, in a table with one row per agent whose figures changed. For a session started at the repository root, it gives the stored text the agent keeps up front (root instructions, rules that load at launch, Claude imports, and skill names and descriptions) and the rest, which it reads on demand.
 
 ### Limits
@@ -245,7 +246,7 @@ ant auth status                      # shows the active profile
 
 ## Shareable reports
 
-In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and MCP server names, commit IDs, and blob IDs with numbered aliases. Paths are aliased one folder or file name at a time, so the report keeps its folder tree: `packages/core/AGENTS.md` becomes something like `d1/d2/AGENTS.md`. Folder names get aliases `d1`, `d2`, …, file names keep their extension and get `f1`, `f2`, … for the rest, and tool convention names such as `.claude`, `skills`, `AGENTS.md`, and `SKILL.md` stay as they are. One name gets the same alias everywhere in a report, and the same history always gets the same aliases. Dates, labels, measurements, and the shape of the folder tree remain visible, so inspect a report before sharing it. `strata diff` has no shareable mode.
+In every `analyze` format, `--shareable` replaces repository and branch names with fixed placeholders, and MCP server names, plugin names, commit IDs, and blob IDs with numbered aliases. Paths are aliased one folder or file name at a time, so the report keeps its folder tree: `packages/core/AGENTS.md` becomes something like `d1/d2/AGENTS.md`. Folder names get aliases `d1`, `d2`, …, file names keep their extension and get `f1`, `f2`, … for the rest, and tool convention names such as `.claude`, `skills`, `AGENTS.md`, and `SKILL.md` stay as they are. One name gets the same alias everywhere in a report, and the same history always gets the same aliases. Dates, labels, measurements, and the shape of the folder tree remain visible, so inspect a report before sharing it. `strata diff` has no shareable mode.
 
 ## The interpretation skill
 
@@ -272,13 +273,13 @@ The `skill` command refuses to overwrite an existing file.
 
 The report opens on **All files**, which counts each tracked file once. Each provider tab shows that provider's own files plus the shared files and other tools' files it reads:
 
-| Tab            | Also shows                                                                                                                                                                                                                           |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Claude Code    | `AGENTS.md`                                                                                                                                                                                                                          |
-| Codex          | `AGENTS.md`, `.agents/skills`                                                                                                                                                                                                        |
-| Gemini CLI     | `.agents/skills`.`AGENTS.md` and `GEMINI.md` appear as the revision's `.gemini/settings.json` `context.fileName` names them; by default, `GEMINI.md` alone.                                                                          |
-| Cursor         | `AGENTS.md`, `.agents/skills`, `.claude/skills`, only at revisions that track Cursor configuration                                                                                                                                   |
-| GitHub Copilot | `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`, `.claude/agents`, `.claude/rules`, `.claude/skills`, `.agents/skills`, `.mcp.json`, only at revisions that track Copilot configuration such as `.github/copilot-instructions.md` |
+| Tab            | Also shows                                                                                                                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code    | `AGENTS.md`                                                                                                                                                                                                                                                                                  |
+| Codex          | `AGENTS.md`, `.agents/skills`                                                                                                                                                                                                                                                                |
+| Gemini CLI     | `.agents/skills`.`AGENTS.md` and `GEMINI.md` appear as the revision's `.gemini/settings.json` `context.fileName` names them; by default, `GEMINI.md` alone.                                                                                                                                  |
+| Cursor         | `AGENTS.md`, `.agents/skills`, `.claude/skills`, only at revisions that track Cursor configuration                                                                                                                                                                                           |
+| GitHub Copilot | `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`, `GEMINI.md`, `.claude/agents`, `.claude/rules`, `.claude/skills`, `.claude/settings.json`, `.claude/settings.local.json`, `.agents/skills`, `.mcp.json`, only at revisions that track Copilot configuration such as `.github/copilot-instructions.md` |
 - A repository with no Cursor files has no Cursor tab.
 - Shared files can appear in several provider tabs, so do not add the tab totals together.
 - The Cursor tab labels the root `.cursorrules` `rules (legacy)`. The Copilot tab labels a `.chatmode.md` in `.github/agents` `agents (legacy)`.
@@ -313,6 +314,7 @@ A folder only holds its files, and a line does not show that a session loaded a 
 - **At session start.** For each agent, this panel separates the stored text it keeps from the start of a session at the repository root from what it reads on demand. In a provider tab, it also lists the files that agent keeps up front. It always uses the report's measurement.
 - **Skill bundles.** The skill-bundle table gives each manifest's stored tokens beside its listed tokens: the frontmatter name and description an agent keeps in context before the skill is used. Its heading totals both.
 - **MCP servers.** This panel lists, by name, the servers that the selected revision's MCP and settings files define. For each, it shows whether it starts a local process or connects to a URL, and which file defines it. It follows the provider tab, and the comparison counts servers added and removed. A defined server is not a loaded one, and Strata never starts one, so the tool definitions a server sends are not measured.
+- **Agent plugins.** This panel lists the plugins the selected revision's settings, manifests, and marketplace files name, with what each file says: defined, enabled, turned off, configured, or a marketplace with its plugin counts. It follows the provider tab, and the comparison shows references added, removed, or changed. Enabled is not installed, and Strata does not estimate what a plugin adds.
 - **Instruction age.** This panel stacks each revision's instruction text by the period it was added, oldest at the bottom. It shows how much of the text has stayed since early on and how much was rewritten.
   - Lines are matched by their exact text in every instruction file. A line moved into a skill keeps its age, a reworded line starts again, and text removed and later restored counts as new.
   - It is weighed by bytes, always covers all files, and groups text by author date.

@@ -277,13 +277,10 @@ export class PluginLists implements ContentUse {
   }
 }
 
-/** The largest marketplace Cursor documents; a larger file with one of these names is not a package. */
-const maxPackageBytes = 10 * 1024 * 1024;
-
 /**
  * The version keys of the candidates whose content shows they are plugin packages: a `plugin.json`
  * that declares the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root
- * `marketplace.json` with `name`, `owner`, and a `plugins` list, including a version whose fields
+ * `marketplace.json` with a `plugins` key beside `name` or `owner`, including a version whose fields
  * are wrong or that no longer parses but still reads like one. Another `plugin.json`, including Copilot's legacy form, cannot be
  * told apart from any other project's file.
  */
@@ -292,21 +289,22 @@ export function confirmedPackages(repo: string, files: TrackedFile[], env?: Node
   if (!files.length) return confirmed;
   const blobs = [...new Set(files.map((file) => file.blob))];
   const sizes = blobSizes(repo, blobs, env);
-  const readable = blobs.filter((blob) => sizes.get(blob)! <= maxPackageBytes);
   const manifests = new Set<string>();
   const catalogs = new Set<string>();
-  for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0, env)) {
+  for (const [blob, body] of readBlobs(repo, blobs, (id) => sizes.get(id) ?? 0, env)) {
     const text = utf8Text(body);
     const value = text === null ? undefined : parsed(text);
     // A version that breaks a field or no longer parses stays a package, whose plugins are unresolved.
     if (declaresAgentSchema(value, body)) manifests.add(blob);
-    if (
+    const keys =
       value === undefined
-        ? ["name", "owner", "plugins"].every((key) => body.toString("latin1").replaceAll("\0", "").includes(`"${key}"`))
-        : isObject(value) && "name" in value && "owner" in value && Array.isArray(value.plugins)
-    ) {
-      catalogs.add(blob);
-    }
+        ? ["name", "owner", "plugins"].filter((key) =>
+            body.toString("latin1").replaceAll("\0", "").includes(`"${key}"`),
+          )
+        : isObject(value)
+          ? Object.keys(value)
+          : [];
+    if (keys.includes("plugins") && (keys.includes("name") || keys.includes("owner"))) catalogs.add(blob);
   }
   for (const file of files) {
     if ((file.path === "marketplace.json" ? catalogs : manifests).has(file.blob)) {
