@@ -18,7 +18,8 @@ type PluginFormat =
   | "manifest"
   | "agent-manifest"
   | "skills-folder"
-  | "marketplace";
+  | "marketplace"
+  | "cursor-marketplace";
 
 /** The plugin format of a recognized file, or null when the file cannot name a plugin. */
 export function pluginFormat(path: string, classification: Classification): PluginFormat | null {
@@ -30,7 +31,10 @@ export function pluginFormat(path: string, classification: Classification): Plug
   if (classification.provider === "claude" && parts.at(-2) === ".claude-plugin" && name === "plugin.json") {
     return /^\.claude\/skills\/[^/]+\/\.claude-plugin\/plugin\.json$/.test(path) ? "skills-folder" : "manifest";
   }
-  if (classification.pluginPackage) return name === "marketplace.json" ? "marketplace" : "manifest";
+  if (classification.pluginPackage) {
+    if (name !== "marketplace.json") return "manifest";
+    return classification.provider === "cursor" ? "cursor-marketplace" : "marketplace";
+  }
   if (classification.category === "other" && name === "plugin.json") return "agent-manifest";
   if (classification.category !== "settings") return null;
   if (classification.provider === "codex") return name === "config.toml" ? "codex-config" : null;
@@ -56,6 +60,12 @@ function parsed(text: string): unknown {
 
 const agentPluginSchema = /^https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json$/;
 
+/** Whether a file declares the Agent Plugins schema. One that no longer parses is searched as raw bytes. */
+const declaresAgentSchema = (value: unknown, body: Buffer) =>
+  value === undefined
+    ? /agent-plugins\.org\/schemas\/[^"]*\/plugin\.schema\.json/.test(body.toString("latin1").replaceAll("\0", ""))
+    : isObject(value) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
+
 /** Whether a parsed `plugin.json` declares the Agent Plugins schema that Copilot, Codex, and Cursor share. */
 const isAgentManifest = (value: unknown): value is { name: string } =>
   isObject(value) && isName(value.name) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
@@ -72,6 +82,8 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
   const mentioned = /enabledPlugins|extraKnownMarketplaces/.test(text);
   if (!mentioned && !text.includes("\\u")) return null;
   const settings = parsed(text);
+  // An escape can hide the key in a file that does not parse, so its plugins are unknown.
+  if (settings === undefined) return unresolved;
   if (!isObject(settings)) return mentioned ? unresolved : null;
   const enabled = settings.enabledPlugins;
   const marketplaces = settings.extraKnownMarketplaces;
@@ -110,13 +122,18 @@ function manifestPlugin(text: string, format: "manifest" | "skills-folder"): Plu
 const isRelativePath = (source: string) => !/^[^/\\]*:/.test(source) && !/^[/\\~]/.test(source);
 
 /** A marketplace file, by its name and how many plugins it lists. A source's URL is never kept. */
-function marketplacePlugins(text: string): PluginRefs {
+function marketplacePlugins(text: string, sourceRequired: boolean): PluginRefs {
   const marketplace = parsed(text);
   if (!isObject(marketplace) || !isName(marketplace.name) || !Array.isArray(marketplace.plugins)) return unresolved;
   const counted = { local: 0, external: 0 };
   for (const entry of marketplace.plugins as unknown[]) {
     if (!isObject(entry) || !isName(entry.name)) return unresolved;
     const source = entry.source;
+    // Cursor documents only `name` as required, so an entry without a source still counts, as not a path.
+    if (source === undefined && !sourceRequired) {
+      counted.external += 1;
+      continue;
+    }
     // A path is a string, Codex's `{ source: "local", path }`, or Cursor's `{ path }`.
     const path = typeof source === "string" ? source : !isObject(source) ? undefined : source.path;
     if (
@@ -134,7 +151,10 @@ function marketplacePlugins(text: string): PluginRefs {
 /** Whether a TOML key Strata could not split starts with `plugins`. */
 const namesPlugins = (key: string) =>
   /^\s*(?:plugins|"plugins"|'plugins')\s*(?:\.|$)/.test(
-    key.replace(/\\u([0-9a-f]{4})/gi, (_, code: string) => String.fromCharCode(Number.parseInt(code, 16))),
+    key.replace(/\\u([0-9a-f]{4})|\\U([0-9a-f]{8})/gi, (match, short?: string, long?: string) => {
+      const code = Number.parseInt(short ?? long ?? "", 16);
+      return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }),
   );
 
 /**
@@ -143,7 +163,7 @@ const namesPlugins = (key: string) =>
  * anything else it cannot follow makes the list unresolved.
  */
 function codexPlugins(text: string): PluginRefs | null {
-  if (!text.includes("plugins") && !text.includes("\\u")) return null;
+  if (!text.includes("plugins") && !/\\[uU]/.test(text)) return null;
   const lines = tomlLines(text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n"));
   if (!lines) return unresolved;
   const states = new Map<string, boolean | null>();
@@ -207,9 +227,13 @@ export function pluginRefs(text: string, format: PluginFormat): PluginRefs | nul
   if (format === "codex-config") return codexPlugins(text);
   if (format === "agent-manifest") {
     const manifest = parsed(text);
-    return isAgentManifest(manifest) ? listed([{ name: manifest.name, state: "defined" }]) : null;
+    if (isAgentManifest(manifest)) return listed([{ name: manifest.name, state: "defined" }]);
+    return declaresAgentSchema(manifest, Buffer.from(text)) ? unresolved : null;
   }
-  return format === "marketplace" ? marketplacePlugins(text) : manifestPlugin(text, format);
+  if (format === "marketplace" || format === "cursor-marketplace") {
+    return marketplacePlugins(text, format === "marketplace");
+  }
+  return manifestPlugin(text, format);
 }
 
 const isSettingsFormat = (format: PluginFormat) =>
@@ -224,8 +248,8 @@ export const isPluginPackageFile = (file: TrackedFile) => {
 /**
  * The plugins every distinct version of a settings, manifest, or marketplace file names, keyed by
  * path and blob, found as the shared content pass reads them. Only names and states are kept. A
- * file that is not valid UTF-8 is unresolved, except a `plugin.json` in an agent folder, which only
- * names a plugin if it declares the Agent Plugins schema.
+ * file that is not valid UTF-8 is unresolved, except a `plugin.json` in an agent folder that does
+ * not declare the Agent Plugins schema, which names no plugin.
  */
 export class PluginLists implements ContentUse {
   readonly lists = new Map<string, PluginRefs>();
@@ -242,7 +266,12 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const plugins = text === null ? (format === "agent-manifest" ? null : unresolved) : pluginRefs(text, format);
+      const plugins =
+        text !== null
+          ? pluginRefs(text, format)
+          : format !== "agent-manifest" || declaresAgentSchema(undefined, body)
+            ? unresolved
+            : null;
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
   }
@@ -254,8 +283,8 @@ const maxPackageBytes = 10 * 1024 * 1024;
 /**
  * The version keys of the candidates whose content shows they are plugin packages: a `plugin.json`
  * that declares the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root
- * `marketplace.json` with the required `name`, `owner`, and `plugins`, or a version that no longer
- * parses but still reads like one. Another `plugin.json`, including Copilot's legacy form, cannot be
+ * `marketplace.json` with `name`, `owner`, and a `plugins` list, including a version whose fields
+ * are wrong or that no longer parses but still reads like one. Another `plugin.json`, including Copilot's legacy form, cannot be
  * told apart from any other project's file.
  */
 export function confirmedPackages(repo: string, files: TrackedFile[], env?: NodeJS.ProcessEnv): Set<string> {
@@ -269,15 +298,13 @@ export function confirmedPackages(repo: string, files: TrackedFile[], env?: Node
   for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0, env)) {
     const text = utf8Text(body);
     const value = text === null ? undefined : parsed(text);
-    if (value === undefined) {
-      // A file that does not parse stays a package if it still reads like one, and is then unresolved.
-      const loose = body.toString("latin1").replaceAll("\0", "");
-      if (/agent-plugins\.org\/schemas\/[^"]*\/plugin\.schema\.json/.test(loose)) manifests.add(blob);
-      if (/"name"/.test(loose) && /"owner"/.test(loose) && /"plugins"/.test(loose)) catalogs.add(blob);
-      continue;
-    }
-    if (isAgentManifest(value)) manifests.add(blob);
-    if (isObject(value) && isName(value.name) && isObject(value.owner) && Array.isArray(value.plugins)) {
+    // A version that breaks a field or no longer parses stays a package, whose plugins are unresolved.
+    if (declaresAgentSchema(value, body)) manifests.add(blob);
+    if (
+      value === undefined
+        ? ["name", "owner", "plugins"].every((key) => body.toString("latin1").replaceAll("\0", "").includes(`"${key}"`))
+        : isObject(value) && "name" in value && "owner" in value && Array.isArray(value.plugins)
+    ) {
       catalogs.add(blob);
     }
   }

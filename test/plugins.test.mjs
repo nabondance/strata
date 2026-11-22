@@ -178,6 +178,11 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const broken = commit("Break the manifest");
     const unreadable = compareGitCommits(repo, second, broken).comparison.plugins;
     assert.deepEqual([unreadable.removed.length, unreadable.afterUnresolved], [0, 1]);
+    // So is one that still declares the schema but breaks a required field.
+    put("std/plugin.json", JSON.stringify({ $schema: schema, name: "" }));
+    const badField = commit("Break a field");
+    const fieldBroken = compareGitCommits(repo, second, badField).comparison.plugins;
+    assert.deepEqual([fieldBroken.removed.length, fieldBroken.afterUnresolved], [0, 1]);
 
     put("std/plugin.json", '{"name":"std"}\n');
     const third = commit("Drop the schema");
@@ -200,7 +205,7 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const paths = (revision) => revision.components.map((component) => component.path);
     assert.ok(!paths(revisions[1]).includes("plugin.json") && !paths(revisions[1]).includes("src/plugin.json"));
     // A file that stops being a package leaves the inventory.
-    assert.ok(!paths(revisions[3]).includes("std/plugin.json"));
+    assert.ok(!paths(revisions[4]).includes("std/plugin.json"));
     assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
 
     // Packaging a Cursor plugin does not show the repository uses Cursor; Copilot's settings do.
@@ -400,7 +405,18 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   assert.deepEqual(pluginRefs('{"enabled\\u0050lugins":{"a@b":true}}', "settings").plugins, [
     { name: "a@b", state: "enabled" },
   ]);
-  assert.equal(pluginRefs('{"note":"\\u0041", broken', "settings"), null);
+  // An escape can hide the key in a file that does not parse, so its plugins are unknown.
+  assert.deepEqual(pluginRefs('{"enabled\\u0050lugins":{"a@m":true},}', "settings"), unresolved);
+  assert.deepEqual(pluginRefs('["plugin\\U00000073"."caf\\u00e9@m"]\nenabled = true\n', "codex-config"), unresolved);
+  // Cursor documents only `name` as required for a marketplace entry; Claude also requires `source`.
+  assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "cursor-marketplace").plugins[0].listed, {
+    local: 0,
+    external: 1,
+  });
+  // A manifest in an agent folder that stops parsing is unknown, not removed; an unrelated one names nothing.
+  const declared = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"fmt",}`;
+  assert.deepEqual(pluginRefs(declared, "agent-manifest"), unresolved);
+  assert.equal(pluginRefs('{"name":"other",}', "agent-manifest"), null);
   assert.deepEqual(
     pluginRefs('{"name":"m","plugins":[{"name":"p","source":"10.0.0.1:o/r"}]}', "marketplace").plugins[0].listed,
     {

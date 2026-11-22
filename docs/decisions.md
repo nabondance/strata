@@ -388,7 +388,7 @@ Notes on this table:
 
 - `REVIEW.md` is newly recognized as Claude instructions because [Claude Code's Code Review](https://code.claude.com/docs/en/code-review-customize) reads it.
 - Gemini CLI's `context.fileName` still decides only Gemini's reading of `GEMINI.md`.
-- Where no revision has Copilot configuration, `readers` is exactly as in version 14.
+- Where no revision has Copilot configuration, `readers` is exactly as in version 14, except on [plugin packages](#agent-plugins) from version 23, which keep the tools they are written for.
 - A file keeps its owner's label rather than becoming `shared`, so adopting Copilot does not move tokens out of the Claude or Gemini CLI totals.
 - `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot then read only hooks, gain no reader. [Version 23](#version-23-agent-plugins) makes Copilot a reader of the root `.claude/settings.json` and `.claude/settings.local.json`, for their plugin settings.
 
@@ -488,7 +488,7 @@ Compression already removed most of the repetition, so a served report transfers
 
 #### Version 23: agent plugins
 
-Version 23 recognizes each tool's plugin manifests and marketplace files as source-only settings, labels them `pluginPackage`, and adds `plugins` to them and to Claude, Copilot, and Codex settings that name plugins; see [Agent plugins](#agent-plugins). No token total changes. `strata diff` schema version 15 adds `comparison.plugins`.
+Version 23 recognizes each tool's plugin manifests and marketplace files as source-only settings, labels them `pluginPackage`, and adds `plugins` to them and to Claude, Copilot, and Codex settings that name plugins; see [Agent plugins](#agent-plugins). No token total changes. `strata diff` schema version 15 adds `comparison.plugins` and `pluginPackagesLeftOut`.
 
 ## MCP servers
 
@@ -540,7 +540,7 @@ Each file's `plugins` has a `status` of `listed`, with `name` and `state` for ea
 
 - `defined`: a manifest names it. Nothing enables it.
 - `skills-folder`: a manifest in Claude's root `.claude/skills`, which Claude Code loads unless it is turned off.
-- `catalog`: a marketplace file, by its name, with `listed` counting its plugins whose source is a path relative to the marketplace (`local`) or anything else, such as a URL (`external`). A relative path is not checked against the tree or `metadata.pluginRoot`, so it does not prove the plugin is in this repository. It stores counts because a marketplace can list hundreds of plugins across thousands of versions.
+- `catalog`: a marketplace file, by its name, with `listed` counting its plugins whose source is a path relative to the marketplace (`local`) or anything else, such as a URL (`external`). A relative path is not checked against the tree, `metadata.pluginRoot`, or each tool's own source rules, so it does not prove the plugin is in this repository. It stores counts because a marketplace can list hundreds of plugins across thousands of versions.
 - `enabled` and `disabled`: `enabledPlugins` in Claude or Copilot settings, or `[plugins."<id>"]` in a Codex `config.toml`.
 - `configured`: a list of strings as a Claude `enabledPlugins` value. [Claude's settings schema](https://json.schemastore.org/claude-code-settings.json) allows it, but its documentation does not say what it means, so Strata does not call it enabled.
 - `marketplace`: a name in `extraKnownMarketplaces`.
@@ -552,7 +552,7 @@ These stay separate because Git cannot show which plugins a session loaded:
 - Source URLs can name private repositories or carry credentials, so they are never read into a report.
 - Files inside a plugin are not added to the repository's stored or up-front totals.
 
-`plugin.json` and a root `marketplace.json` are common file names, so Strata reads them and tracks only the documented format: the Agent Plugins `$schema`, or a marketplace's required fields. A version that does not parse but still reads like one stays tracked as `unresolved`. Any other version counts as the file being absent. A confirmed package keeps its label while a Claude import reaches it, so it is not tracked twice, and the import still resolves to it.
+`plugin.json` and a root `marketplace.json` are common file names, so Strata reads them and tracks only the documented format: the Agent Plugins `$schema`, or a marketplace's required fields. A version whose fields are wrong, or that no longer parses but still reads like one, stays tracked as `unresolved`. Any other version counts as the file being absent. A confirmed package keeps its label while a Claude import reaches it, so it is not tracked twice, and the import still resolves to it.
 
 Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files, and they add no report tab for a tool. A `plugin.json` already tracked inside an agent's folder keeps its label, and also names a plugin if it declares the Agent Plugins `$schema`.
 
@@ -974,7 +974,7 @@ Its JSON has its own schema version, currently 15. Compared components carry the
 | 12      | `limits` when a [limit](#limits) is set.                                                                                                                                                                                                                                                                                                                |
 | 13      | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate.                                                                     |
 | 14      | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13. `ignore` when `--ignore` is given, with both trees leaving out the paths it matches; the Markdown adds a line naming the patterns.        |
-| 15      | `comparison.plugins` when either commit has a component with [`plugins`](#agent-plugins): the references at both, the files that could not be read, and those added, removed, or changed.                                                                                                                                                               |
+| 15      | `comparison.plugins` when either commit has a component with [`plugins`](#agent-plugins): the references at both, the files that could not be read, and those added, removed, or changed. Top-level `pluginPackagesLeftOut` on a partial clone whose plugin manifests and marketplace files were not read.                                              |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 

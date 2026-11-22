@@ -27,7 +27,7 @@ export interface Classification {
    * or Copilot reads for compatibility. A reader may still depend on a runtime condition Strata does
    * not resolve, such as Claude Code reading `AGENTS.md`. Cursor and Copilot read a file they do not
    * own only at a revision that tracks their own configuration, and each is left out of `readers`
-   * when no revision does.
+   * when no revision does. A plugin package keeps them, as the tools it is written for.
    */
   readers?: Provider[];
   /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
