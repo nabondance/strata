@@ -673,6 +673,12 @@ function submoduleNotes(submodules: Submodule[]): string[] {
       `${configured.length} Git submodules hold recognized agent configuration files that Strata did not analyze: ${listed.join(", ")}. Run strata analyze on one to see its history.`,
     );
   }
+  const unread = submodules.filter(({ pluginFilesUnread }) => pluginFilesUnread).length;
+  if (unread) {
+    notes.push(
+      `${unread} Git submodule${unread === 1 ? " is a partial clone" : "s are partial clones"} with files that may be plugin manifests, which Strata did not read.`,
+    );
+  }
   if (unknown) {
     notes.push(
       `${unknown} Git submodule${unknown === 1 ? " was" : "s were"} not checked for agent configuration because ${unknown === 1 ? "it is" : "they are"} not checked out at the recorded commit.`,

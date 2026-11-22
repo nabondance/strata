@@ -176,6 +176,8 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
         if (configuredSubmodules.length > 5) listed.push('and ' + fmt(configuredSubmodules.length - 5) + ' more');
         submoduleNotes.push('Not analyzed: ' + fmt(configuredSubmodules.length) + ' Git submodules hold recognized agent configuration files: ' + listed.join(', ') + '. Run Strata on one to see its history.');
       }
+      const unreadSubmodules = (data.submodules || []).filter((submodule) => submodule.pluginFilesUnread).length;
+      if (unreadSubmodules) submoduleNotes.push(fmt(unreadSubmodules) + ' Git submodule' + (unreadSubmodules === 1 ? ' is a partial clone' : 's are partial clones') + ' with files that may be plugin manifests, which Strata did not read.');
       $('submodules').hidden = !submoduleNotes.length;
       $('submodules').textContent = submoduleNotes.join(' ');
       // A fresh clone leaves submodules uninitialized, so that alone is a quiet note beside the measurement disclosure.

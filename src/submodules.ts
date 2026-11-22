@@ -54,17 +54,21 @@ function countConfigFiles(
   mount: string,
   env: NodeJS.ProcessEnv,
   ignored: Ignored,
-): number | null {
+): Pick<Submodule, "configFiles" | "pluginFilesUnread"> {
   const tree = listTree(repo, commit, env).filter(({ path }) => !ignored(`${mount}/${path}`));
   const recognized = ({ mode, blob, path }: (typeof tree)[number]) =>
     Boolean(trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`));
   const candidates = tree.flatMap((entry) =>
     recognized(entry) ? [] : (pluginCandidateFile(entry.mode, entry.blob, entry.path) ?? []),
   );
-  // A partial clone is not read for packages. Files known by path still count; with none, the count is unknown.
-  if (candidates.length && isPartialClone(repo, env)) return tree.filter(recognized).length || null;
+  // A partial clone is not read for packages, so files that may be one are reported apart from the count.
+  if (candidates.length && isPartialClone(repo, env)) {
+    return { configFiles: tree.filter(recognized).length, pluginFilesUnread: true };
+  }
   const confirmed = confirmedPackages(repo, candidates, env);
-  return tree.filter((entry) => recognized(entry) || confirmed.has(versionKey(entry.path, entry.blob))).length;
+  return {
+    configFiles: tree.filter((entry) => recognized(entry) || confirmed.has(versionKey(entry.path, entry.blob))).length,
+  };
 }
 
 /**
@@ -86,7 +90,7 @@ export function inspectSubmodules(
       if (!repo) return { path, configFiles: null };
       try {
         git(repo, ["cat-file", "-e", `${commit}^{commit}`], undefined, env);
-        return { path, configFiles: countConfigFiles(repo, commit, path, env, ignored) };
+        return { path, ...countConfigFiles(repo, commit, path, env, ignored) };
       } catch {
         return { path, configFiles: null };
       }

@@ -31,9 +31,12 @@ export function pluginFormat(path: string, classification: Classification): Plug
   if (classification.imported) return null;
   const parts = path.split("/");
   const name = parts.at(-1) ?? "";
-  // A manifest saved inside a Claude skill folder stays that skill's resource, so it has no package label.
-  if (classification.provider === "claude" && parts.at(-2) === ".claude-plugin" && name === "plugin.json") {
-    return /^\.claude\/skills\/[^/]+\/\.claude-plugin\/plugin\.json$/.test(path) ? "skills-folder" : "manifest";
+  // Inside a skill, only a manifest directly in a root `.claude/skills/<name>` is a plugin. Any other
+  // is one of the skill's files, such as a template it scaffolds from.
+  if (classification.skillRole) {
+    return classification.provider === "claude" && /^\.claude\/skills\/[^/]+\/\.claude-plugin\/plugin\.json$/.test(path)
+      ? "skills-folder"
+      : null;
   }
   if (classification.pluginPackage) {
     if (name !== "marketplace.json") return classification.provider === "codex" ? "codex-manifest" : "manifest";
@@ -125,8 +128,9 @@ function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "s
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** Whether a marketplace source is a path relative to the marketplace, not a URL, `host:path`, or absolute path. */
-const isRelativePath = (source: string) => !/^[^/\\]*:/.test(source) && !/^[/\\~]/.test(source);
+/** Whether a marketplace source is a path relative to the marketplace, not a URL, a `host/path`, or an absolute path. */
+const isRelativePath = (source: string) =>
+  !/^[^/\\]*:/.test(source) && !/^[/\\~]/.test(source) && !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+\//i.test(source);
 
 /** Whether a marketplace entry's source is a relative path or something else, or null when the entry is invalid. */
 function entrySource(entry: unknown, format: string): "local" | "external" | null {

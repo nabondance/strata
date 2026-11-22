@@ -222,6 +222,8 @@ export interface Submodule {
    * null when that commit could not be read because the submodule is not checked out or lacks it.
    */
   configFiles: number | null;
+  /** Set on a partial clone with files that may be plugin manifests, which `configFiles` does not count. */
+  pluginFilesUnread?: true;
 }
 
 export interface Report {

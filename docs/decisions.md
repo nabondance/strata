@@ -305,6 +305,8 @@ Each entry's `configFiles` counts the regular files in the submodule, at the com
 - inside the submodule, such as a template with its own `.claude/`; or
 - where it is mounted in the parent, such as a skill kept as a submodule at `.claude/skills/<name>`.
 
+A submodule that is a partial clone is not read for plugin packages, so `configFiles` counts only the files recognized by path, and `pluginFilesUnread` marks one that also has a `plugin.json` or root `marketplace.json` that could be a package.
+
 Strata finds them by listing that commit's tree in the submodule's own checkout. `configFiles` is `null` when the submodule is not checked out or lacks that commit.
 
 Safeguards:

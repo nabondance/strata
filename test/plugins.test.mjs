@@ -6,11 +6,12 @@ import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
 import { importLinks } from "../dist/import-links.js";
-import { pluginRefs } from "../dist/plugins.js";
+import { pluginFormat, pluginRefs } from "../dist/plugins.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
 import { renderHtml } from "../dist/report.js";
+import { inspectSubmodules } from "../dist/submodules.js";
 import { loadReportUi } from "./report-ui.mjs";
 import { syntheticRepo } from "./synthetic-repo.mjs";
 
@@ -424,6 +425,45 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     ["CLAUDE.md"],
   );
 
+  // A template inside a skill is one of the skill's files, not a plugin the repository defines.
+  assert.equal(
+    pluginFormat(".claude/skills/scaffold/assets/template/.claude-plugin/plugin.json", {
+      provider: "claude",
+      category: "skills",
+      skillRole: "resource",
+    }),
+    null,
+  );
+
+  // A partial-clone submodule keeps its known count and says what it did not read.
+  const parent = syntheticRepo("strata-plugins-parent-");
+  const library = syntheticRepo("strata-plugins-library-");
+  t.after(parent.cleanup);
+  t.after(library.cleanup);
+  library.git("config", "uploadpack.allowFilter", "true");
+  library.put("src/plugin.json", '{"name":"unrelated"}\n');
+  const libraryCommit = library.commit("A library");
+  parent.put("README.md", "Parent.\n");
+  parent.commit("Parent");
+  execFileSync(
+    "git",
+    [
+      "clone",
+      "-q",
+      "--no-local",
+      "--no-checkout",
+      "--filter=blob:none",
+      `file://${library.repo}`,
+      `${parent.repo}/vendor`,
+    ],
+    {
+      stdio: "ignore",
+    },
+  );
+  assert.deepEqual(inspectSubmodules(parent.repo, new Map([["vendor", libraryCommit]])), [
+    { path: "vendor", configFiles: 0, pluginFilesUnread: true },
+  ]);
+
   // A settings file saved in another encoding may still name its plugins.
   const encoded = syntheticRepo("strata-plugins-encoded-");
   t.after(encoded.cleanup);
@@ -479,6 +519,13 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   });
   assert.deepEqual(
     pluginRefs('{"name":"m","plugins":[{"name":"p","source":"10.0.0.1:o/r"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 0,
+      external: 1,
+    },
+  );
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"github.com/o/r"}]}', "marketplace").plugins[0].listed,
     {
       local: 0,
       external: 1,
