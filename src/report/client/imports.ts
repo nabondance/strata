@@ -56,7 +56,7 @@ export const importsScript = `    // Imports are links between stored files, so 
     const pluginStates = {
       enabled: 'enabled',
       disabled: 'turned off',
-      configured: 'configured with a list',
+      configured: 'configured',
       defined: 'defined here',
       catalog: 'marketplace file',
       marketplace: 'registered marketplace',
@@ -70,7 +70,7 @@ export const importsScript = `    // Imports are links between stored files, so 
       if (component.skill) return [component.provider];
       return (component.readers ?? [component.provider]).filter((tool) =>
         component.pluginPackage || tool === component.provider || (tool !== 'cursor' && tool !== 'copilot') ||
-        revisions[selected].components.some((other) => other.provider === tool && !other.pluginPackage));
+        revisions[selected].components.some((other) => other.provider === tool && !other.pluginPackage && !other.path.endsWith('/plugin.json')));
     }
 
     // Plugins follow the provider view, like the files that name them.

@@ -289,11 +289,10 @@ function leaveOutPackages(deltas: CommitDelta[]): Set<string> {
  * A rename stays only between paths tracked by their name or as a package, so an imported file that
  * happens to be called `plugin.json` is never reported as renamed.
  */
-function addPluginPackages(root: string, deltas: CommitDelta[]): void {
-  const confirmed = confirmedPackages(
-    root,
-    deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? [])),
-  );
+function addPluginPackages(root: string, deltas: CommitDelta[], pass: ContentPass): void {
+  const candidates = deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? []));
+  pass.add(candidates);
+  const confirmed = confirmedPackages(root, candidates, undefined, (blob, body) => pass.offer(blob, body));
   const packages = new Map<string, string>();
   for (const delta of deltas) {
     const wasPackage = new Set([...delta.renames.keys()].filter((path) => packages.has(path)));
@@ -377,12 +376,16 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     packagesLeftOut,
   );
 
-  addPluginPackages(root, deltas);
+  addPluginPackages(root, deltas, pass);
 
   const written = deltas.flatMap((delta) => delta.written);
   // A plugin package is written for others to install, so it does not show the repository uses a tool.
   for (const reader of conditionalReaders) {
-    if (written.some((file) => file.classification.provider === reader && !file.classification.pluginPackage)) {
+    const usesTool = (file: TrackedFile) =>
+      file.classification.provider === reader &&
+      !file.classification.pluginPackage &&
+      !file.path.endsWith("/plugin.json");
+    if (written.some(usesTool)) {
       continue;
     }
     for (const file of written) if (!file.classification.pluginPackage) withoutReader(file.classification, reader);

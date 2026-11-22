@@ -8,7 +8,7 @@ A plugin has separate states, and a repository can show any of them:
 
 - **Defined:** a manifest and its files are in Git. This does nothing by itself.
 - **Listed:** a marketplace file in Git offers it. Strata keeps the file's name and how many plugins it lists, not each entry.
-- **Enabled, turned off, or configured:** a settings file says so. Claude's settings schema also allows a list of strings as a value, which its documentation does not explain, so Strata labels it `configured`. A setting does not always install it, and its content may be outside Git.
+- **Enabled, turned off, or configured:** a settings file says so. When a setting does not say which, as with a list of strings in Claude's settings or a Codex table of MCP policy, Strata labels it `configured`. A setting does not always install it, and its content may be outside Git.
 - **Loaded:** a session actually uses it. This depends on what each person installed and trusted, so Git cannot show it.
 
 Strata reports the first three, with the file that says so. It does not fetch a plugin or estimate what one outside Git adds, and it never adds plugin text to up-front context. All these files are source-only. A file that does not parse, or whose plugin fields do not have the documented shape, is `unresolved` rather than empty.

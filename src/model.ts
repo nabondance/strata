@@ -42,8 +42,9 @@ export type McpServers = { status: "listed"; servers: McpServer[] } | { status: 
 
 /**
  * What a tracked file says about an agent plugin: a settings file turns it on (`enabled`) or off
- * (`disabled`), gives it a list of strings (`configured`, which Claude's settings schema allows but
- * its documentation does not explain), or registers a `marketplace`, a manifest `defined` it, `catalog` is a marketplace
+ * (`disabled`), configures it without saying either (`configured`: a list of strings in Claude's
+ * settings, which its documentation does not explain, or Codex settings with no `enabled`), or
+ * registers a `marketplace`, a manifest `defined` it, `catalog` is a marketplace
  * file, and `skills-folder` is a manifest in the root `.claude/skills`, which loads unless turned
  * off. These are separate facts: enabled is not installed, and defined is not active.
  */

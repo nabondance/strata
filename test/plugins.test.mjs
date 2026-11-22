@@ -254,7 +254,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     revision.components.filter((component) => component.pluginPackage).map((component) => component.path);
   put("CLAUDE.md", "Memory.\n");
   put("plugin.json", manifest("root"));
-  // A plugin.json inside an agent's own folder keeps its label and is not read as a plugin.
+  // A marketplace can place a plugin in an agent's own folder; the file keeps its label there.
   put(".agents/plugins/foo/plugin.json", manifest("foo"));
   const ids = [commit("Manifest first")];
   put("CLAUDE.md", "Memory.\n@plugin.json\n");
@@ -271,7 +271,13 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const report = await analyzeRepository(repo);
   const revisions = expandRevisions(report);
   // A package keeps its label while an import reaches it, and `strata diff` agrees.
-  assert.deepEqual(revisions.map(packaged), [["plugin.json"], ["plugin.json"], ["plugin.json"], ["sub/plugin.json"]]);
+  const agent = ".agents/plugins/foo/plugin.json";
+  assert.deepEqual(revisions.map(packaged), [
+    [agent, "plugin.json"],
+    [agent, "plugin.json"],
+    [agent, "plugin.json"],
+    [agent, "sub/plugin.json"],
+  ]);
   const reached = revisions[1].components.find((component) => component.path === "plugin.json");
   assert.ok(!reached.imported && reached.plugins.status === "listed");
   const links = importLinks(revisions[1].components);
@@ -288,7 +294,9 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
         change.kind === "renamed" && change.previousPath === "plugin.json" && change.path === "sub/plugin.json",
     ),
   );
-  assert.equal(revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json").plugins, undefined);
+  const inAgentFolder = revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json");
+  assert.deepEqual(inAgentFolder.plugins, { status: "listed", plugins: [{ name: "foo", state: "defined" }] });
+  assert.deepEqual(inAgentFolder.readers, ["codex", "copilot", "cursor"]);
 
   // Publishing for a tool neither adds it to session context nor gives it a report tab.
   const published = syntheticRepo("strata-plugins-published-");
@@ -369,6 +377,19 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const moved = expandRevisions(await analyzeRepository(importedMove.repo)).at(-1);
   assert.ok(!moved.changes.some((change) => change.kind === "renamed"));
 
+  // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
+  const agentFolder = syntheticRepo("strata-plugins-agent-folder-");
+  t.after(agentFolder.cleanup);
+  agentFolder.put("AGENTS.md", "Shared instructions.\n");
+  const beforeManifest = agentFolder.commit("Instructions");
+  agentFolder.put(".cursor/plugin.json", manifest("pub"));
+  const afterManifest = agentFolder.commit("Publish from an agent folder");
+  assert.ok(
+    !compareGitCommits(agentFolder.repo, beforeManifest, afterManifest).upFront.some(
+      (row) => row.provider === "cursor",
+    ),
+  );
+
   // A settings file saved in another encoding may still name its plugins.
   const encoded = syntheticRepo("strata-plugins-encoded-");
   t.after(encoded.cleanup);
@@ -438,6 +459,27 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   assert.deepEqual(pluginRefs('{"version":"1"}', "manifest"), unresolved);
   assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "marketplace"), unresolved);
   assert.equal(pluginRefs('model = "plugins"\n', "codex-config"), null);
-  assert.deepEqual(pluginRefs('[plugins."a@b"]\nversion = "1"\n', "codex-config"), unresolved);
+  // A Codex table of MCP policy does not say whether the plugin is on, and leaves the others readable.
+  assert.deepEqual(
+    pluginRefs('[plugins."a@b"]\nenabled = false\n[plugins."c@d".mcp_servers.docs]\nenabled = true\n', "codex-config")
+      .plugins,
+    [
+      { name: "a@b", state: "disabled" },
+      { name: "c@d", state: "configured" },
+    ],
+  );
+  // Copilot documents JSON with comments; Claude's settings stay strict.
+  const commented = '// team defaults\n{"enabledPlugins":{"a@b":true,},}';
+  assert.deepEqual(pluginRefs(commented, "copilot-settings").plugins, [{ name: "a@b", state: "enabled" }]);
+  assert.deepEqual(pluginRefs(commented, "settings"), unresolved);
+  // A Codex overlay can leave identity to the root manifest, and Codex skips an entry it cannot resolve.
+  assert.deepEqual(pluginRefs('{"extensions":{}}', "codex-manifest"), { status: "listed", plugins: [] });
+  assert.deepEqual(
+    pluginRefs(
+      '{"name":"m","plugins":[{"name":"ok","source":"./ok"},{"name":"bad","source":{"source":"local"}}]}',
+      "codex-marketplace",
+    ).plugins[0].listed,
+    { local: 1, external: 0 },
+  );
   assert.deepEqual(pluginRefs('[plugins]\n"a@b" = { enabled = true }\n', "codex-config"), unresolved);
 });

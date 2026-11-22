@@ -46,7 +46,7 @@ export function mcpFormat(path: string, classification: Classification): McpForm
 }
 
 /** Remove commas before a closing bracket or brace, outside strings, as JSONC parsers accept. */
-function stripTrailingCommas(text: string): string {
+export function stripTrailingCommas(text: string): string {
   let output = "";
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index]!;

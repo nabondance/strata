@@ -165,12 +165,9 @@ function readCommits(
   // A partial clone may lack any version, so it leaves plugin packages out at both commits.
   const packages = trees.flatMap(packageFiles);
   const leftOut = new Set(partial ? packages.map((file) => file.path) : []);
-  const confirmed = partial
-    ? new Set<string>()
-    : confirmedPackages(
-        repo,
-        packages.filter((file) => pluginCandidate(file.path)),
-      );
+  const candidates = partial ? [] : packages.filter((file) => pluginCandidate(file.path));
+  pass.add(candidates);
+  const confirmed = confirmedPackages(repo, candidates, undefined, (blob, body) => pass.offer(blob, body));
   const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, confirmed, leftOut));
   const packagesUnread = leftOut.size > 0 || (partial && files.flat().some((file) => isPluginPackageFile(file)));
   if (packagesUnread) onNotice?.(packagesLeftOutNotice);
@@ -428,7 +425,7 @@ function mcpLines(delta: PullRequestDelta): string[] {
 const pluginStateLabels: Record<PluginState, string> = {
   enabled: "enabled",
   disabled: "turned off",
-  configured: "configured with a list",
+  configured: "configured",
   defined: "defined here",
   catalog: "marketplace file",
   marketplace: "registered marketplace",

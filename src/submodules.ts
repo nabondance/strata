@@ -46,7 +46,7 @@ function checkout(root: string, path: string, env: NodeJS.ProcessEnv): string | 
 /**
  * Regular files whose path is recognized inside the submodule or where it is mounted in the parent,
  * or that their content shows are plugin packages, leaving out those whose path in the parent
- * `ignored` accepts. A partial clone is not read for packages, as in the parent's own analysis.
+ * `ignored` accepts.
  */
 function countConfigFiles(
   repo: string,
@@ -54,15 +54,15 @@ function countConfigFiles(
   mount: string,
   env: NodeJS.ProcessEnv,
   ignored: Ignored,
-): number {
+): number | null {
   const tree = listTree(repo, commit, env).filter(({ path }) => !ignored(`${mount}/${path}`));
   const recognized = ({ mode, blob, path }: (typeof tree)[number]) =>
     Boolean(trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`));
-  const candidates = isPartialClone(repo, env)
-    ? []
-    : tree.flatMap((entry) =>
-        recognized(entry) ? [] : (pluginCandidateFile(entry.mode, entry.blob, entry.path) ?? []),
-      );
+  const candidates = tree.flatMap((entry) =>
+    recognized(entry) ? [] : (pluginCandidateFile(entry.mode, entry.blob, entry.path) ?? []),
+  );
+  // A partial clone is not read for packages, so a file that may be one leaves the count unknown.
+  if (candidates.length && isPartialClone(repo, env)) return null;
   const confirmed = confirmedPackages(repo, candidates, env);
   return tree.filter((entry) => recognized(entry) || confirmed.has(versionKey(entry.path, entry.blob))).length;
 }

@@ -2,7 +2,7 @@
 export const viewsScript = `    const allComponents = data.components;
     // A provider that only reads shared files, such as Codex with only .agents/skills, still gets a view. A plugin
     // package is written for others to install, so it does not show the repository uses a tool.
-    const providers = [...new Set(allComponents.flatMap((component) => component.pluginPackage ? [] : [component.provider, ...(component.readers ?? [])]))].sort();
+    const providers = [...new Set(allComponents.flatMap((component) => component.pluginPackage || component.path.endsWith('/plugin.json') ? [] : [component.provider, ...(component.readers ?? [])]))].sort();
     /**
      * Whether a view holds every component at every revision, so its tab would repeat All files. A Gemini context file
      * depends on the settings at each revision, and Cursor and Copilot read other tools' files only at revisions that
