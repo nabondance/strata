@@ -151,7 +151,7 @@ function marketplacePlugins(text: string, sourceRequired: boolean): PluginRefs {
 /** Whether a TOML key Strata could not split starts with `plugins`. */
 const namesPlugins = (key: string) =>
   /^\s*(?:plugins|"plugins"|'plugins')\s*(?:\.|$)/.test(
-    key.replace(/\\u([0-9a-f]{4})|\\U([0-9a-f]{8})/gi, (match, short?: string, long?: string) => {
+    key.replace(/\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})/g, (match, short?: string, long?: string) => {
       const code = Number.parseInt(short ?? long ?? "", 16);
       return code <= 0x10ffff ? String.fromCodePoint(code) : match;
     }),
