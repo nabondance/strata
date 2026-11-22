@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import test from "node:test";
+import { classify } from "../dist/adapters.js";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
@@ -102,7 +103,7 @@ test("shows Claude plugins through time by state, without their sources or conte
     assert.equal(delta.schemaVersion, 15);
     const markdown = renderPullRequestDelta(delta);
     assert.match(markdown, /Agent plugin references in tracked files: \*\*-2\*\* \(7 → 5\)/);
-    assert.match(markdown, /Changed: fmt@tools, enabled → turned off \(\.claude\/settings\.json\)/);
+    assert.match(markdown, /Changed: fmt\\@tools, enabled → turned off \(\.claude\/settings\.json\)/);
     assert.match(markdown, /Enabled is not installed, and defined is not active/);
     assert.ok(!markdown.includes("\u001b"));
     assert.equal(compareGitCommits(repo, first, first).comparison.plugins, undefined);
@@ -362,6 +363,25 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
       ["CLAUDE.md", false, null],
     ],
   );
+  // A partial clone whose only configuration is a plugin does not claim it has none.
+  const onlyPlugin = syntheticRepo("strata-plugins-only-");
+  const onlyClone = `${onlyPlugin.repo}-clone`;
+  t.after(onlyPlugin.cleanup);
+  t.after(() => rmSync(onlyClone, { recursive: true, force: true }));
+  onlyPlugin.git("config", "uploadpack.allowFilter", "true");
+  onlyPlugin.put(".claude-plugin/plugin.json", '{"name":"only"}\n');
+  onlyPlugin.commit("A plugin");
+  execFileSync(
+    "git",
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${onlyPlugin.repo}`, onlyClone],
+    {
+      stdio: "ignore",
+    },
+  );
+  const onlyReport = await analyzeRepository(onlyClone);
+  const emptyCard = loadReportUi(renderHtml(onlyReport)).get("empty-state");
+  assert.match(emptyCard.children[0].textContent, /did not read the possible plugin files/);
+
   // That import's download does not change the next run.
   assert.deepEqual((await read()).components, first.components);
   const partialDelta = compareGitCommits(clone, oldCommit, newCommit);
@@ -413,6 +433,17 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   linked.put(".claude/settings.json", '{"enabledPlugins":{"https://evil.example/x":true,"a@evil.example":true}}');
   const withLink = renderPullRequestDelta(compareGitCommits(linked.repo, unlinked, linked.commit("A link")));
   assert.ok(withLink.includes("https:\\/\\/evil.example/x") && withLink.includes("a\\@evil.example"));
+  // Escaping stays linear on a long name.
+  const manyAts = syntheticRepo("strata-plugins-long-name-");
+  t.after(manyAts.cleanup);
+  manyAts.put("CLAUDE.md", "Memory.\n");
+  const shortName = manyAts.commit("No plugins");
+  manyAts.put(".claude/settings.json", JSON.stringify({ enabledPlugins: { ["@".repeat(200_000)]: true } }));
+  const started = Date.now();
+  renderPullRequestDelta(compareGitCommits(manyAts.repo, shortName, manyAts.commit("A long name")));
+  assert.ok(Date.now() - started < 5000);
+
+  assert.equal(classify(".github/hooks/gemini-extension.json").provider, "copilot");
 
   // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
   const agentFolder = syntheticRepo("strata-plugins-agent-folder-");

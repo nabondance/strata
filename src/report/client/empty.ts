@@ -8,6 +8,13 @@ export const emptyScript = `    // The main places the supported tools read; doc
       $('report-panels').hidden = true;
       $('counting-notice').hidden = true;
       const card = $('empty-state');
+      if (data.pluginPackagesLeftOut) {
+        const unread = text('h2', 'Strata did not read the possible plugin files in this partial clone of ' + data.repository);
+        unread.id = 'empty-heading';
+        card.replaceChildren(unread, text('p', 'Its only possible agent configuration is plugin manifests or marketplace files, which Strata does not read in a partial clone. Analyze a full clone to include them.'));
+        card.hidden = false;
+        return;
+      }
       const heading = text('h2', 'Strata found no agent configuration in ' + plural(revisions.length, 'revision') + ' of ' + data.repository);
       heading.id = 'empty-heading';
       const paths = document.createElement('ul');

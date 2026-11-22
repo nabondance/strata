@@ -513,7 +513,7 @@ async function analyze(args: string[]): Promise<void> {
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.accuracy === "estimate" ? "UTF-8 bytes / 4 per file, an estimate" : report.measurement.label}).`,
   );
   // No revision ever had a recognized file, so say where Strata looks.
-  if (!report.components.length) {
+  if (!report.components.length && !report.pluginPackagesLeftOut) {
     say(
       "Strata recognized no agent configuration in this history. It looks for files such as CLAUDE.md, AGENTS.md, GEMINI.md,\n" +
         ".github/copilot-instructions.md, and the .claude/, .codex/, .agents/skills/, and .cursor/rules/ folders.\n" +

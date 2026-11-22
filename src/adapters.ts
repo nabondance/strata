@@ -133,7 +133,8 @@ function pluginPackage(path: string, parts: string[]): Classification | null {
     pluginPackage: true,
   });
   const filename = parts.at(-1);
-  if (filename === "gemini-extension.json") return package_("gemini");
+  // A file directly in the root `.github/hooks` is a Copilot hook, whatever its name.
+  if (filename === "gemini-extension.json" && !path.startsWith(".github/hooks/")) return package_("gemini");
   if (path === ".agents/plugins/marketplace.json") return package_("codex");
   if (filename !== "plugin.json" && filename !== "marketplace.json") return null;
   if (parts.at(-3) === ".github" && parts.at(-2) === "plugin") return package_("copilot");
