@@ -113,7 +113,12 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
   if (!isObject(settings)) return mentioned ? unresolved : null;
   const enabled = settings.enabledPlugins;
   // Claude Code reads `additionalMarketplaces` as an alias, and the canonical key wins when both are set.
-  const marketplaces = settings.extraKnownMarketplaces ?? (allowsLists ? settings.additionalMarketplaces : undefined);
+  const marketplaces =
+    "extraKnownMarketplaces" in settings
+      ? settings.extraKnownMarketplaces
+      : allowsLists
+        ? settings.additionalMarketplaces
+        : undefined;
   if (enabled === undefined && marketplaces === undefined) return null;
   const plugins: PluginRef[] = [];
   if (enabled !== undefined) {
@@ -230,6 +235,7 @@ function codexPlugins(text: string): PluginRefs | null {
         if (line.startsWith("[[")) return unresolved;
         mentioned = true;
         if (parts[1] !== undefined && !isName(parts[1])) return unresolved;
+        if (parts[2] === "enabled") return unresolved;
         if (parts[1] !== undefined) entry(parts[1]);
       }
       table = parts;
@@ -245,7 +251,7 @@ function codexPlugins(text: string): PluginRefs | null {
     const path = [...table, ...key];
     if (path[0] !== "plugins") continue;
     mentioned = true;
-    if (path.length < 3 || !isName(path[1])) return unresolved;
+    if (path.length < 3 || !isName(path[1]) || (path[2] === "enabled" && path.length > 3)) return unresolved;
     entry(path[1]!);
     if (path.length === 3 && path[2] === "enabled") {
       const value = line.slice(equals + 1).trim();

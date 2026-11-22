@@ -727,6 +727,17 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
       .plugins[0].listed,
     { local: 1, external: 0 },
   );
+  // A key that is present with the wrong shape is unknown, and does not fall through to its alias.
+  assert.deepEqual(pluginRefs('{"extraKnownMarketplaces":null}', "settings"), unresolved);
+  assert.deepEqual(
+    pluginRefs(
+      JSON.stringify({ extraKnownMarketplaces: null, additionalMarketplaces: { alias: marketplace } }),
+      "settings",
+    ),
+    unresolved,
+  );
+  assert.deepEqual(pluginRefs('[plugins."a@m".enabled]\nfoo = 1\n', "codex-config"), unresolved);
+  assert.deepEqual(pluginRefs('[plugins."a@m"]\nenabled.x = 1\n', "codex-config"), unresolved);
   // A long value is file text, not a name, and stays out of the report.
   assert.deepEqual(pluginRefs(JSON.stringify({ name: "x".repeat(257) }), "manifest"), unresolved);
   assert.deepEqual(pluginRefs(JSON.stringify({ enabledPlugins: { ["x".repeat(257)]: true } }), "settings"), unresolved);
