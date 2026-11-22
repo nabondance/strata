@@ -449,7 +449,7 @@ function pluginLines(delta: PullRequestDelta): string[] {
   const name = (value: string) =>
     cell(value)
       .replace(/:\/\//g, ":\\/\\/")
-      .replace(/\b(www)\./gi, "$1\\.")
+      .replace(/(www)\./gi, "$1\\.")
       .replace(/@/g, "\\@");
   const entry = (ref: PluginComparisonRef) =>
     `${name(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${name(ref.path)})`;

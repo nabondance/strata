@@ -180,6 +180,15 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const broken = commit("Break the manifest");
     const unreadable = compareGitCommits(repo, second, broken).comparison.plugins;
     assert.deepEqual([unreadable.removed.length, unreadable.afterUnresolved], [0, 1]);
+    // JSON can write the schema's slashes with escapes, and a broken file is still recognized by it.
+    put("escaped/plugin.json", `{"$schema":"${schema.replaceAll("/", "\\/")}","name":"escaped"}`);
+    const escapedValid = commit("Escaped slashes");
+    put("escaped/plugin.json", `{"$schema":"${schema.replaceAll("/", "\\/")}","name":"escaped",}`);
+    const escapedBroken = compareGitCommits(repo, escapedValid, commit("Escaped and broken")).comparison.plugins;
+    assert.ok(
+      !escapedBroken.removed.some((ref) => ref.path === "escaped/plugin.json") && escapedBroken.afterUnresolved > 0,
+    );
+    put("escaped/plugin.json", `{"$schema":"${schema}","name":"escaped"}`);
     // A broken file must carry the same exact schema URL as a valid one to count.
     put("loose/plugin.json", `{"$schema":"https://agent-plugins.org/schemas/latest/plugin.schema.json","name":"x",}`);
     assert.ok(
@@ -430,20 +439,26 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   t.after(linked.cleanup);
   linked.put("CLAUDE.md", "Memory.\n");
   const unlinked = linked.commit("No plugins");
-  linked.put(".claude/settings.json", '{"enabledPlugins":{"https://evil.example/x":true,"a@evil.example":true}}');
+  linked.put(
+    ".claude/settings.json",
+    '{"enabledPlugins":{"https://evil.example/x":true,"a@evil.example":true,"_www.evil.example":true}}',
+  );
   const withLink = renderPullRequestDelta(compareGitCommits(linked.repo, unlinked, linked.commit("A link")));
   assert.ok(withLink.includes("https:\\/\\/evil.example/x") && withLink.includes("a\\@evil.example"));
+  assert.ok(withLink.includes("www\\.evil.example"));
   // Escaping stays linear on a long name.
   const manyAts = syntheticRepo("strata-plugins-long-name-");
   t.after(manyAts.cleanup);
   manyAts.put("CLAUDE.md", "Memory.\n");
   const shortName = manyAts.commit("No plugins");
   manyAts.put(".claude/settings.json", JSON.stringify({ enabledPlugins: { ["@".repeat(200_000)]: true } }));
+  const longDelta = compareGitCommits(manyAts.repo, shortName, manyAts.commit("A long name"));
   const started = Date.now();
-  renderPullRequestDelta(compareGitCommits(manyAts.repo, shortName, manyAts.commit("A long name")));
+  renderPullRequestDelta(longDelta);
   assert.ok(Date.now() - started < 5000);
 
   assert.equal(classify(".github/hooks/gemini-extension.json").provider, "copilot");
+  assert.equal(classify(".github/hooks/sub/gemini-extension.json").provider, "gemini");
 
   // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
   const agentFolder = syntheticRepo("strata-plugins-agent-folder-");
@@ -597,6 +612,13 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   assert.deepEqual(
     pluginRefs('{"name":"m","plugins":[{"name":"p","source":{"path":"./x"}}]}', "marketplace"),
     unresolved,
+  );
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"www.github.com/o/r"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 0,
+      external: 1,
+    },
   );
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(

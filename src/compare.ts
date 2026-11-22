@@ -119,7 +119,7 @@ export interface Comparison {
   skillListing: ListingComparison;
   /** Present when either side has a component with `mcp`: an MCP file, or settings that mention MCP servers. */
   mcp?: McpComparison;
-  /** Present when either side has a component with `plugins`. */
+  /** Present when either side names a plugin or has a file whose plugins could not be read. */
   plugins?: PluginComparison;
   components: ComponentDelta[];
 }
@@ -231,10 +231,8 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
   const pluginsAt = (revision: ComparedRevision) => {
     const refs = new Map<string, PluginComparisonRef>();
     const unreadable = new Set<string>();
-    let files = 0;
     for (const component of revision.components) {
       if (!component.plugins) continue;
-      files += 1;
       if (component.plugins.status === "unresolved") {
         unreadable.add(component.path);
         continue;
@@ -251,7 +249,7 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
         });
       }
     }
-    return { refs, files, unreadable };
+    return { refs, unreadable };
   };
   const pluginsBefore = pluginsAt(baseline);
   const pluginsAfter = pluginsAt(target);
@@ -302,7 +300,10 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
           },
         }
       : {}),
-    ...(pluginsBefore.files || pluginsAfter.files
+    ...(pluginsBefore.refs.size ||
+    pluginsAfter.refs.size ||
+    pluginsBefore.unreadable.size ||
+    pluginsAfter.unreadable.size
       ? {
           plugins: {
             beforePlugins: refsBefore.size,

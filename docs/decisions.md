@@ -490,7 +490,7 @@ Compression already removed most of the repetition, so a served report transfers
 
 #### Version 23: agent plugins
 
-Version 23 recognizes each tool's plugin manifests and marketplace files as source-only settings, labels them `pluginPackage`, and adds `plugins` to them and to Claude, Copilot, and Codex settings that name plugins; see [Agent plugins](#agent-plugins). No token total changes. `strata diff` schema version 15 adds `comparison.plugins` and `pluginPackagesLeftOut`.
+Version 23 recognizes each tool's plugin manifests and marketplace files as source-only settings, labels them `pluginPackage`, and adds `plugins` to them and to Claude, Copilot, and Codex settings that name plugins; see [Agent plugins](#agent-plugins). Stored token totals do not change. A repository whose only Cursor or Copilot file is a plugin package or a `plugin.json` no longer counts as using that tool, which can remove that tool's view and session-start totals. `strata diff` schema version 15 adds `comparison.plugins` and `pluginPackagesLeftOut`.
 
 ## MCP servers
 

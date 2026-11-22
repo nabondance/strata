@@ -79,22 +79,15 @@ export const importsScript = `    // Imports are links between stored files, so 
     function renderPlugins() {
       const components = viewRevisions[selected].components.filter((component) => component.plugins);
       drawn.plugins = viewRevisions[selected].components;
-      $('plugins-panel').hidden = !components.length;
       const rows = components.flatMap((component) => component.plugins.status === 'listed'
         ? component.plugins.plugins.map((plugin) => ({ component, plugin }))
         : [{ component, plugin: null }]);
+      $('plugins-panel').hidden = !rows.length;
       const named = rows.filter((row) => row.plugin).length;
       const unresolved = rows.length - named;
       $('plugins-count').textContent = plural(named, 'reference') + ' · ' + plural(components.length, 'file') + (unresolved ? ' · ' + fmt(unresolved) + ' unresolved' : '');
       const body = $('plugins');
       body.replaceChildren();
-      if (!rows.length) {
-        const row = document.createElement('tr');
-        const cell = text('td', 'The tracked files name no plugins at this revision.', 'empty');
-        cell.colSpan = 4;
-        row.append(cell);
-        body.append(row);
-      }
       // Unreadable files come first, so a parse failure is not mistaken for no plugins.
       const sorted = [...rows].sort((a, b) => Number(Boolean(a.plugin)) - Number(Boolean(b.plugin)) || a.component.path.localeCompare(b.component.path));
       for (const { component, plugin } of capped('plugins', sorted, 25, renderPlugins)) {

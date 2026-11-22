@@ -69,12 +69,18 @@ function parsed(text: string, comments = false): unknown {
 
 const agentPluginSchema = /^https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json$/;
 
-/** Whether a file declares the Agent Plugins schema. One that no longer parses is searched as raw bytes. */
+/** A file's text for searching when it does not parse: any encoding, with JSON's escapes undone. */
+const rawText = (body: Buffer) =>
+  body
+    .toString("latin1")
+    .replaceAll("\0", "")
+    .replaceAll("\\/", "/")
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, code: string) => String.fromCharCode(Number.parseInt(code, 16)));
+
+/** Whether a file declares the Agent Plugins schema. One that no longer parses is searched as raw text. */
 const declaresAgentSchema = (value: unknown, body: Buffer) =>
   value === undefined
-    ? /https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json/.test(
-        body.toString("latin1").replaceAll("\0", ""),
-      )
+    ? /https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json/.test(rawText(body))
     : isObject(value) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
 
 const listed = (plugins: PluginRef[]): PluginRefs => ({ status: "listed", plugins });
@@ -132,7 +138,7 @@ function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "s
 const isRelativePath = (source: string) =>
   !/^[^/\\]*:/.test(source) &&
   !/^[/\\~]/.test(source) &&
-  !/^(?:github\.com|gitlab\.com|bitbucket\.org)\//i.test(source);
+  !/^(?:www\.)?(?:github\.com|gitlab\.com|bitbucket\.org)\//i.test(source);
 
 /** Whether a marketplace entry's source is a relative path or something else, or null when the entry is invalid. */
 function entrySource(entry: unknown, format: string): "local" | "external" | null {
@@ -319,7 +325,7 @@ export class PluginLists implements ContentUse {
  */
 function readsLikeCatalog(value: unknown, body: Buffer): boolean {
   if (value === undefined) {
-    const raw = body.toString("latin1").replaceAll("\0", "");
+    const raw = rawText(body);
     return raw.includes('"plugins"') && raw.includes('"owner"');
   }
   if (!isObject(value) || !("plugins" in value)) return false;
