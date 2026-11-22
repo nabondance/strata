@@ -57,8 +57,8 @@ export type PluginState =
   | "skills-folder";
 
 /**
- * How many plugins a marketplace file lists: `local` has a path in the repository as its source and
- * `external` anything else. Counts, because a marketplace can list hundreds of plugins in thousands
+ * How many plugins a marketplace file lists: `local` has a path relative to the marketplace as its
+ * source and `external` anything else, such as a URL. Counts, because a marketplace can list hundreds of plugins in thousands
  * of versions, and a source's URL is never stored.
  */
 export interface PluginCatalog {
@@ -227,6 +227,8 @@ export interface Report {
   schemaVersion: 23;
   repository: string;
   branch: string;
+  /** Set on a partial clone that has plugin manifests or marketplace files, which were left out. */
+  pluginPackagesLeftOut?: true;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */
   shallow: boolean;
   /**

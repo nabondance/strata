@@ -362,7 +362,7 @@ The report is schema version 23. Each field below first appeared in the version 
 | `symlinkTarget` on imports                                                                           | the file an import of a symlink reaches                                                                                                                                                       | 21            |
 | top-level `ignore`                                                                                   | the `--ignore` patterns, as given, whose paths every revision leaves out; omitted when there are none                                                                                         | 21            |
 | revision fields left out when they repeat the previous revision                                      | every total, `firstParent`, and empty `changes` are absent when they repeat the previous revision (`categoryTotals` and `firstParent` since 21); the first and last revision keep every field | 22            |
-| `plugins` on settings, manifests, and marketplace files; `pluginPackage`                             | the plugins each file names and what it says about them; whether the file packages a plugin for others                                                                                        | 23            |
+| `plugins`; `pluginPackage`; top-level `pluginPackagesLeftOut`                                        | the plugins each file names; whether it packages a plugin; a partial clone's plugin packages left out                                                                                         | 23            |
 
 ### Figures that are never added together
 

@@ -6,7 +6,7 @@ import { addImportedFiles, type SymlinkEvent } from "./claude-imports.js";
 import { ContentPass } from "./content-pass.js";
 import { compactRevisions } from "./expand.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { blobSizes, git, gitText, gitTokens } from "./git.js";
+import { blobSizes, git, gitText, gitTokens, isPartialClone } from "./git.js";
 import { type Ignored, ignoreMatcher } from "./ignore.js";
 import {
   byPath,
@@ -23,7 +23,7 @@ import {
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
-import { checkPackages, PluginLists, unavailablePackagesNotice } from "./plugins.js";
+import { confirmedPackages, PluginLists, packagesLeftOutNotice } from "./plugins.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -262,24 +262,38 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
   return read;
 }
 
-/** Leave a path out of every commit, for a plugin file with a version a partial clone does not hold. */
-function dropPaths(deltas: CommitDelta[], paths: ReadonlySet<string>): void {
+/**
+ * In a partial clone, leave every plugin package out of every commit. Which of their blobs a clone
+ * holds changes as Git fetches, so reading only some would make results depend on earlier runs.
+ * Returns the paths left out.
+ */
+function leaveOutPackages(deltas: CommitDelta[]): Set<string> {
+  const paths = new Set<string>();
+  for (const delta of deltas) {
+    for (const file of delta.written) if (file.classification.pluginPackage) paths.add(file.path);
+    for (const { path } of delta.candidates) paths.add(path);
+  }
   for (const delta of deltas) {
     delta.written = delta.written.filter((file) => !paths.has(file.path));
     delta.removed = delta.removed.filter((path) => !paths.has(path));
-    delta.candidates = delta.candidates.filter(({ path }) => !paths.has(path));
+    delta.candidates = [];
     for (const [from, to] of delta.renames) if (paths.has(from) || paths.has(to)) delta.renames.delete(from);
   }
+  return paths;
 }
 
 /**
- * Add the plugin packages whose names alone could not show them, as their content `confirmed` them.
+ * Add the plugin packages whose names alone could not show them, once their content confirms them.
  * A version that is not a package counts as the file being absent. A package keeps its label while a
  * Claude import reaches it, as in `strata diff`, because the report holds one label per file version.
  * A rename stays only between paths tracked by their name or as a package, so an imported file that
  * happens to be called `plugin.json` is never reported as renamed.
  */
-function addPluginPackages(deltas: CommitDelta[], confirmed: ReadonlySet<string>): void {
+function addPluginPackages(root: string, deltas: CommitDelta[]): void {
+  const confirmed = confirmedPackages(
+    root,
+    deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? [])),
+  );
   const packages = new Map<string, string>();
   for (const delta of deltas) {
     const wasPackage = new Set([...delta.renames.keys()].filter((path) => packages.has(path)));
@@ -347,17 +361,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     pluginLists,
     ...(text ? [text] : []),
   ]);
-  const packageCheck = checkPackages(
-    root,
-    deltas.flatMap((delta) => [
-      ...delta.written.filter((file) => file.classification.pluginPackage),
-      ...delta.candidates.flatMap(({ file }) => file ?? []),
-    ]),
-  );
-  if (packageCheck.unavailable.size) {
-    dropPaths(deltas, packageCheck.unavailable);
-    onNotice?.(unavailablePackagesNotice(packageCheck.unavailable.size));
-  }
+  const packagesLeftOut = isPartialClone(root) ? leaveOutPackages(deltas) : new Set<string>();
+  if (packagesLeftOut.size) onNotice?.(packagesLeftOutNotice);
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
   const imports = await addImportedFiles(
@@ -365,10 +370,10 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     deltas,
     (blob, body) => pass.offer(blob, body),
     ignored,
-    packageCheck.unavailable,
+    packagesLeftOut,
   );
 
-  addPluginPackages(deltas, packageCheck.confirmed);
+  addPluginPackages(root, deltas);
 
   const written = deltas.flatMap((delta) => delta.written);
   // A plugin package is written for others to install, so it does not show the repository uses a tool.
@@ -492,6 +497,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     schemaVersion: 23,
     repository: basename(root),
     branch,
+    ...(packagesLeftOut.size ? { pluginPackagesLeftOut: true as const } : {}),
     shallow,
     ...(ignore.length ? { ignore: [...ignore] } : {}),
     ...(submodules.size ? { submodules: inspectSubmodules(root, submodules, ignored) } : {}),

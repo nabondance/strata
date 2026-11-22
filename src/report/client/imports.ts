@@ -62,7 +62,7 @@ export const importsScript = `    // Imports are links between stored files, so 
       marketplace: 'registered marketplace',
       'skills-folder': 'in .claude/skills, loads unless turned off',
     };
-    const pluginLabel = (state, listed) => pluginStates[state] + (listed ? ', ' + plural(listed.local + listed.external, 'plugin') + ' (' + fmt(listed.local) + ' in this repository)' : '');
+    const pluginLabel = (state, listed) => pluginStates[state] + (listed ? ', ' + plural(listed.local + listed.external, 'plugin') + ' (' + fmt(listed.local) + ' by relative path)' : '');
     const pluginState = (plugin) => pluginLabel(plugin.state, plugin.listed);
 
     // Plugins follow the provider view, like the files that name them.

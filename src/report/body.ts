@@ -47,6 +47,7 @@ export function reportBody(report: Report, origin?: ReportOrigin): string {
   </header>
   <main>
     <p class="notice warning" id="shallow" hidden>Shallow clone: earlier history is missing.</p>
+    <p class="notice warning" id="plugins-left-out" hidden>Partial clone: plugin manifests and marketplace files are left out. A full clone includes them.</p>
     <p class="notice warning" id="submodules" hidden></p>
     ${report.privacy.mode === "shareable" ? '<p class="notice">Shareable export: repository, folder, file, and server names and IDs are replaced with aliases. Tool convention names such as <code>.claude</code> and <code>AGENTS.md</code> are kept.</p>' : ""}
     <section class="panel empty-state" id="empty-state" aria-labelledby="empty-heading" hidden></section>

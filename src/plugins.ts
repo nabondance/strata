@@ -1,6 +1,6 @@
-import { type Classification, pluginCandidate } from "./adapters.js";
+import type { Classification } from "./adapters.js";
 import { type ContentUse, utf8Text } from "./content-pass.js";
-import { localBlobSizes, readBlobs } from "./git.js";
+import { blobSizes, readBlobs } from "./git.js";
 import { type TrackedFile, versionKey } from "./inventory.js";
 import { assignmentAt, keyParts, tomlLines } from "./mcp-servers.js";
 import type { PluginRef, PluginRefs } from "./model.js";
@@ -104,30 +104,12 @@ function manifestPlugin(text: string, format: "manifest" | "skills-folder"): Plu
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** How many folders a marketplace's root is below the repository root; its sources resolve from there. */
-function marketplaceDepth(path: string): number {
-  const parts = path.split("/");
-  if (parts.length === 1) return 0;
-  return parts.length - (parts.at(-2) === "plugin" || parts.at(-2) === "plugins" ? 3 : 2);
-}
-
-/**
- * Whether a marketplace source is a relative path that stays inside the repository, not a URL or a
- * path elsewhere, resolved from a marketplace root `base` folders below the repository root.
- */
-function isRepositoryPath(source: string, base: number): boolean {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(source) || /^[^/]+@[^/]+:/.test(source) || /^[/\\~]/.test(source)) return false;
-  let depth = base;
-  for (const part of source.split(/[/\\]/)) {
-    if (part === "..") depth -= 1;
-    else if (part && part !== ".") depth += 1;
-    if (depth < 0) return false;
-  }
-  return true;
-}
+/** Whether a marketplace source is a path relative to the marketplace, not a URL or an absolute or home path. */
+const isRelativePath = (source: string) =>
+  !/^[a-z][a-z0-9+.-]*:/i.test(source) && !/^[^/]+@[^/]+:/.test(source) && !/^[/\\~]/.test(source);
 
 /** A marketplace file, by its name and how many plugins it lists. A source's URL is never kept. */
-function marketplacePlugins(text: string, base: number): PluginRefs {
+function marketplacePlugins(text: string): PluginRefs {
   const marketplace = parsed(text);
   if (!isObject(marketplace) || !isName(marketplace.name) || !Array.isArray(marketplace.plugins)) return unresolved;
   const counted = { local: 0, external: 0 };
@@ -141,7 +123,7 @@ function marketplacePlugins(text: string, base: number): PluginRefs {
       (isObject(source) && (source.source === "local" || source.source === undefined))
     ) {
       if (!isName(path)) return unresolved;
-      counted[isRepositoryPath(path, base) ? "local" : "external"] += 1;
+      counted[isRelativePath(path) ? "local" : "external"] += 1;
     } else if (isObject(source) && isName(source.source)) counted.external += 1;
     else return unresolved;
   }
@@ -216,14 +198,14 @@ function codexPlugins(text: string): PluginRefs | null {
 }
 
 /** The plugins one version of a file names, or null when a settings file names none. */
-export function pluginRefs(text: string, format: PluginFormat, path = ""): PluginRefs | null {
+export function pluginRefs(text: string, format: PluginFormat): PluginRefs | null {
   if (format === "settings" || format === "copilot-settings") return settingsPlugins(text, format === "settings");
   if (format === "codex-config") return codexPlugins(text);
   if (format === "agent-manifest") {
     const manifest = parsed(text);
     return isAgentManifest(manifest) ? listed([{ name: manifest.name, state: "defined" }]) : null;
   }
-  return format === "marketplace" ? marketplacePlugins(text, marketplaceDepth(path)) : manifestPlugin(text, format);
+  return format === "marketplace" ? marketplacePlugins(text) : manifestPlugin(text, format);
 }
 
 /**
@@ -243,8 +225,7 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const plugins =
-        text === null ? (format === "agent-manifest" ? null : unresolved) : pluginRefs(text, format, file.path);
+      const plugins = text === null ? (format === "agent-manifest" ? null : unresolved) : pluginRefs(text, format);
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
   }
@@ -253,36 +234,21 @@ export class PluginLists implements ContentUse {
 /** The largest marketplace Cursor documents; a larger file with one of these names is not a package. */
 const maxPackageBytes = 10 * 1024 * 1024;
 
-/** Which versions of plugin files are packages, and which paths could not be checked. */
-export interface PackageCheck {
-  /** Version keys of the candidates whose content confirms them as plugin packages. */
-  confirmed: Set<string>;
-  /**
-   * Paths with a version a partial clone does not hold. Strata downloads nothing for them, and leaves
-   * each out at every commit, since a missing version would otherwise read as an added or removed file.
-   */
-  unavailable: Set<string>;
-}
-
 /**
- * Check plugin package files. A candidate is confirmed by its content: a `plugin.json` that declares
- * the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root `marketplace.json`
- * with the required `name`, `owner`, and `plugins`. Another `plugin.json`, including Copilot's legacy
- * form, cannot be told apart from any other project's file, so it is left out.
+ * The version keys of the candidates whose content shows they are plugin packages: a `plugin.json`
+ * that declares the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root
+ * `marketplace.json` with the required `name`, `owner`, and `plugins`. Another `plugin.json`,
+ * including Copilot's legacy form, cannot be told apart from any other project's file.
  */
-export function checkPackages(repo: string, files: TrackedFile[]): PackageCheck {
+export function confirmedPackages(repo: string, files: TrackedFile[], env?: NodeJS.ProcessEnv): Set<string> {
   const confirmed = new Set<string>();
-  const unavailable = new Set<string>();
-  if (!files.length) return { confirmed, unavailable };
-  const sizes = localBlobSizes(repo, [...new Set(files.map((file) => file.blob))]);
-  for (const file of files) if (!sizes.has(file.blob)) unavailable.add(file.path);
-  const candidates = files.filter((file) => pluginCandidate(file.path) && !unavailable.has(file.path));
-  const readable = [...new Set(candidates.map((file) => file.blob))].filter(
-    (blob) => sizes.get(blob)! <= maxPackageBytes,
-  );
+  if (!files.length) return confirmed;
+  const blobs = [...new Set(files.map((file) => file.blob))];
+  const sizes = blobSizes(repo, blobs, env);
+  const readable = blobs.filter((blob) => sizes.get(blob)! <= maxPackageBytes);
   const manifests = new Set<string>();
   const catalogs = new Set<string>();
-  for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0)) {
+  for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0, env)) {
     const text = utf8Text(body);
     const value = text === null ? undefined : parsed(text);
     if (isAgentManifest(value)) manifests.add(blob);
@@ -290,16 +256,14 @@ export function checkPackages(repo: string, files: TrackedFile[]): PackageCheck 
       catalogs.add(blob);
     }
   }
-  for (const file of candidates) {
+  for (const file of files) {
     if ((file.path === "marketplace.json" ? catalogs : manifests).has(file.blob)) {
       confirmed.add(versionKey(file.path, file.blob));
     }
   }
-  return { confirmed, unavailable };
+  return confirmed;
 }
 
-/** The line that says files that may be plugins were left out because a partial clone lacks them. */
-export const unavailablePackagesNotice = (count: number) =>
-  `${count} possible plugin ${count === 1 ? "file is" : "files are"} not stored in this partial clone, so ${
-    count === 1 ? "it is" : "they are"
-  } left out of the plugin results. A full clone includes ${count === 1 ? "it" : "them"}.`;
+/** What Strata says when it leaves plugin packages out of a partial clone. */
+export const packagesLeftOutNotice =
+  "This is a partial clone, which may lack the history of plugin manifests and marketplace files, so Strata left them out. A full clone includes them.";

@@ -1,3 +1,4 @@
+import { pluginCandidate } from "./adapters.js";
 import { treeImports } from "./claude-imports.js";
 import {
   type ComparedRevision,
@@ -11,7 +12,7 @@ import {
 import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { blobSizes, git, listTree, resolveCommit } from "./git.js";
+import { blobSizes, git, isPartialClone, listTree, resolveCommit } from "./git.js";
 import { ignoreMatcher } from "./ignore.js";
 import {
   byPath,
@@ -29,7 +30,7 @@ import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement } from "./measurement.js";
 import type { ClaudeImport, PluginCatalog, PluginState } from "./model.js";
-import { checkPackages, type PackageCheck, PluginLists, unavailablePackagesNotice } from "./plugins.js";
+import { confirmedPackages, PluginLists, packagesLeftOutNotice } from "./plugins.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -65,7 +66,7 @@ function commitId(repo: string, revision: string, side: "Base" | "Head"): string
 
 /**
  * The recognized files in a commit's tree, followed by the files Claude imports there that no path
- * rule recognizes, and the plugin packages `check` confirmed. All of them are added to `pass`, which
+ * rule recognizes, and the plugin packages `confirmed` by content. All of them are added to `pass`, which
  * import parsing hands what it reads. The tree already leaves out what `--ignore` matches.
  */
 function trackedFiles(
@@ -73,16 +74,17 @@ function trackedFiles(
   tree: ReturnType<typeof listTree>,
   imports: Map<string, ClaudeImport[]>,
   pass: ContentPass,
-  check: PackageCheck,
+  confirmed: ReadonlySet<string>,
+  leftOut: ReadonlySet<string>,
 ): TrackedFile[] {
   const recognized = tree.flatMap(({ mode, blob, path }) =>
-    check.unavailable.has(path) ? [] : (trackedFile(mode, blob, path) ?? []),
+    leftOut.has(path) ? [] : (trackedFile(mode, blob, path) ?? []),
   );
   pass.add(recognized);
   const found = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
   const packages = tree.flatMap(({ mode, blob, path }) => {
     const file = pluginCandidateFile(mode, blob, path);
-    return file && check.confirmed.has(versionKey(path, blob)) ? [file] : [];
+    return file && confirmed.has(versionKey(path, blob)) ? [file] : [];
   });
   // A package keeps its label while a Claude import reaches it, as in `strata analyze`.
   const packaged = new Set(packages.map((file) => file.path));
@@ -122,6 +124,8 @@ export interface PullRequestDelta {
   head: string;
   /** The `--ignore` patterns, as given, when there were any: both trees leave out the paths they match. */
   ignore?: string[];
+  /** Set on a partial clone that has plugin manifests or marketplace files, which were left out at both commits. */
+  pluginPackagesLeftOut?: true;
   measurement: Measurement;
   comparison: Comparison;
   /** Per provider that reads stored text at either commit, for a session started at the repository root. */
@@ -157,10 +161,18 @@ function readCommits(
   const pluginLists = new PluginLists();
   const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, pluginLists, ...(text ? [text] : [])]);
   const trees = ids.map((id) => listTree(repo, id).filter(({ path }) => !ignored(path)));
-  // Checked across both commits, so a file readable at only one is not reported as added or removed.
-  const packageCheck = checkPackages(repo, trees.flatMap(packageFiles));
-  if (packageCheck.unavailable.size) onNotice?.(unavailablePackagesNotice(packageCheck.unavailable.size));
-  const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, packageCheck));
+  // A partial clone may lack any version, so it leaves plugin packages out at both commits.
+  const packages = trees.flatMap(packageFiles);
+  const partial = isPartialClone(repo);
+  const leftOut = new Set(partial ? packages.map((file) => file.path) : []);
+  if (leftOut.size) onNotice?.(packagesLeftOutNotice);
+  const confirmed = partial
+    ? new Set<string>()
+    : confirmedPackages(
+        repo,
+        packages.filter((file) => pluginCandidate(file.path)),
+      );
+  const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, confirmed, leftOut));
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
   const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
@@ -211,6 +223,7 @@ function readCommits(
     base: ids[0],
     head: ids[1],
     ...(ignore.length ? { ignore: [...ignore] } : {}),
+    ...(leftOut.size ? { pluginPackagesLeftOut: true as const } : {}),
     measurement: measurer.measurement,
     comparison: compareRevisions(before!, after!),
     upFront,
@@ -423,7 +436,7 @@ const pluginStateLabels: Record<PluginState, string> = {
 
 const pluginLabel = (state: PluginState, listed?: PluginCatalog) =>
   listed
-    ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugin${listed.local + listed.external === 1 ? "" : "s"} (${listed.local} in this repository)`
+    ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugin${listed.local + listed.external === 1 ? "" : "s"} (${listed.local} by relative path)`
     : pluginStateLabels[state];
 
 /**
@@ -497,6 +510,7 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     ...listingLine,
     ...mcpLines(delta),
+    ...(delta.pluginPackagesLeftOut ? [packagesLeftOutNotice, ""] : []),
     ...pluginLines(delta),
     ...upFrontLines(delta),
     ...providerLines(delta),

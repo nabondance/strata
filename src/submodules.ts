@@ -1,9 +1,10 @@
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { git, listTree } from "./git.js";
+import { git, isPartialClone, listTree } from "./git.js";
 import { type Ignored, ignoreNothing } from "./ignore.js";
-import { trackedFile } from "./inventory.js";
+import { pluginCandidateFile, trackedFile, versionKey } from "./inventory.js";
 import type { Submodule } from "./model.js";
+import { confirmedPackages } from "./plugins.js";
 
 /**
  * Git commands in a submodule run with the parent's Git variables removed, so they read the
@@ -44,7 +45,8 @@ function checkout(root: string, path: string, env: NodeJS.ProcessEnv): string | 
 
 /**
  * Regular files whose path is recognized inside the submodule or where it is mounted in the parent,
- * leaving out those whose path in the parent `ignored` accepts.
+ * or that their content shows are plugin packages, leaving out those whose path in the parent
+ * `ignored` accepts. A partial clone is not read for packages, as in the parent's own analysis.
  */
 function countConfigFiles(
   repo: string,
@@ -53,10 +55,16 @@ function countConfigFiles(
   env: NodeJS.ProcessEnv,
   ignored: Ignored,
 ): number {
-  return listTree(repo, commit, env).filter(
-    ({ mode, blob, path }) =>
-      !ignored(`${mount}/${path}`) && (trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`)),
-  ).length;
+  const tree = listTree(repo, commit, env).filter(({ path }) => !ignored(`${mount}/${path}`));
+  const recognized = ({ mode, blob, path }: (typeof tree)[number]) =>
+    Boolean(trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`));
+  const candidates = isPartialClone(repo, env)
+    ? []
+    : tree.flatMap((entry) =>
+        recognized(entry) ? [] : (pluginCandidateFile(entry.mode, entry.blob, entry.path) ?? []),
+      );
+  const confirmed = confirmedPackages(repo, candidates, env);
+  return tree.filter((entry) => recognized(entry) || confirmed.has(versionKey(entry.path, entry.blob))).length;
 }
 
 /**

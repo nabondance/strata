@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import test from "node:test";
 import { analyzeRepository } from "../dist/analyze.js";
 import { compareRevisions } from "../dist/compare.js";
 import { expandRevisions } from "../dist/expand.js";
 import { importLinks } from "../dist/import-links.js";
-import { pluginFormat, pluginRefs } from "../dist/plugins.js";
+import { pluginRefs } from "../dist/plugins.js";
 import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
 import { redactReport } from "../dist/privacy.js";
 import { viewRevision } from "../dist/provider-view.js";
@@ -283,25 +282,22 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const tabs = loadReportUi(renderHtml(await analyzeRepository(published.repo)))
     .get("provider-tabs")
     .children.map((tab) => tab.textContent);
-  assert.ok(!tabs.some((tab) => tab.startsWith("Copilot")), tabs.join(", "));
+  assert.ok(!tabs.some((tab) => /^(?:Copilot|Cursor)/.test(tab)), tabs.join(", "));
 
-  // A partial clone is read as it is: nothing is downloaded, and plugin files it lacks are left out with a notice.
+  // A partial clone leaves plugin packages out, whichever blobs it holds, and downloads nothing for them.
   const remote = syntheticRepo("strata-plugins-partial-");
   t.after(remote.cleanup);
   remote.git("config", "uploadpack.allowFilter", "true");
   remote.git("config", "uploadpack.allowAnySHA1InWant", "true");
-  remote.put("CLAUDE.md", "Memory.\n");
+  remote.put("CLAUDE.md", "Memory.\n@.claude-plugin/plugin.json\n");
+  remote.put(".claude-plugin/plugin.json", '{"name":"imported"}\n');
   remote.put("a/plugin.json", manifest("held"));
   remote.put("b/plugin.json", manifest("old"));
   const oldCommit = remote.commit("First");
   remote.put("b/plugin.json", manifest("new"));
   const newCommit = remote.commit("Second");
   const clone = `${remote.repo}-clone`;
-  const bin = `${remote.repo}-bin`;
-  t.after(() => {
-    rmSync(clone, { recursive: true, force: true });
-    rmSync(bin, { recursive: true, force: true });
-  });
+  t.after(() => rmSync(clone, { recursive: true, force: true }));
   const inClone = (...args) => execFileSync("git", ["-C", clone, ...args], { stdio: "ignore" });
   execFileSync(
     "git",
@@ -310,49 +306,35 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
       stdio: "ignore",
     },
   );
-  for (const file of ["CLAUDE.md", "a/plugin.json", "b/plugin.json"]) inClone("cat-file", "-p", `${newCommit}:${file}`);
-  const packs = () => readdirSync(join(clone, ".git/objects/pack")).filter((file) => file.endsWith(".pack")).length;
-  const held = packs();
-  const paths = async (notices) =>
-    expandRevisions(await analyzeRepository(clone, { onNotice: (line) => notices.push(line) }))
-      .at(-1)
-      .components.map((component) => component.path);
-  const notices = [];
-  assert.deepEqual(await paths(notices), ["a/plugin.json", "CLAUDE.md"]);
-  assert.equal(packs(), held);
-  assert.match(notices[0], /1 possible plugin file is not stored in this partial clone/);
-  // Left out at both commits, so a version the clone lacks is not reported as an added file.
-  const lacking = compareGitCommits(clone, oldCommit, newCommit).comparison.plugins;
-  assert.deepEqual([lacking.beforePlugins, lacking.afterPlugins, lacking.added.length], [1, 1, 0]);
-
-  // A file left out keeps no plugin entry even if a Claude import reaches it.
-  assert.equal(pluginFormat("plugin.json", { provider: "unknown", category: "other", imported: true }), null);
-
+  inClone("cat-file", "-p", `${newCommit}:CLAUDE.md`);
+  inClone("cat-file", "-p", `${newCommit}:a/plugin.json`);
+  const read = async () => {
+    const notices = [];
+    const report = await analyzeRepository(clone, { onNotice: (line) => notices.push(line) });
+    return { report, notices, components: expandRevisions(report).at(-1).components };
+  };
+  const first = await read();
+  assert.ok(first.report.pluginPackagesLeftOut);
+  assert.match(first.notices[0], /This is a partial clone/);
+  // A left-out file an import reaches is an ordinary imported file, with no plugin entry.
+  assert.deepEqual(
+    first.components.map((component) => [component.path, Boolean(component.imported), component.plugins ?? null]),
+    [
+      [".claude-plugin/plugin.json", true, null],
+      ["CLAUDE.md", false, null],
+    ],
+  );
+  // That import's download does not change the next run.
+  assert.deepEqual((await read()).components, first.components);
+  const partialDelta = compareGitCommits(clone, oldCommit, newCommit);
+  assert.equal(partialDelta.comparison.plugins, undefined);
+  assert.ok(partialDelta.pluginPackagesLeftOut);
+  assert.match(renderPullRequestDelta(partialDelta), /This is a partial clone/);
   // Git also marks a partial clone with `extensions.partialClone`.
   inClone("config", "--unset", "remote.origin.promisor");
   inClone("config", "core.repositoryformatversion", "1");
   inClone("config", "extensions.partialClone", "origin");
-  assert.deepEqual(await paths([]), ["a/plugin.json", "CLAUDE.md"]);
-  assert.equal(packs(), held);
-
-  // Git before 2.45 cannot check without downloading, so every plugin package is left out.
-  const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
-  mkdirSync(bin);
-  writeFileSync(
-    join(bin, "git"),
-    `#!/bin/sh\ncase " $* " in *" version "*) echo "git version 2.44.4"; exit 0;; esac\nexec "${realGit}" "$@"\n`,
-    { mode: 0o755 },
-  );
-  const path = process.env.PATH;
-  process.env.PATH = `${bin}:${path}`;
-  try {
-    const older = [];
-    assert.deepEqual(await paths(older), ["CLAUDE.md"]);
-    assert.match(older[0], /2 possible plugin files are not stored/);
-  } finally {
-    process.env.PATH = path;
-  }
-  assert.equal(packs(), held);
+  assert.ok((await read()).report.pluginPackagesLeftOut);
 
   // An imported file that happens to be called plugin.json is not reported as renamed.
   const importedMove = syntheticRepo("strata-plugins-imported-move-");
@@ -403,24 +385,11 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
   ]);
   assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "copilot-settings"), unresolved);
   // A URL is not a path in this repository, whichever way it is written.
-  for (const source of ['"https://example.invalid/p.git"', '"git@example.invalid:o/p.git"', '"../outside"', '"~/p"']) {
+  for (const source of ['"https://example.invalid/p.git"', '"git@example.invalid:o/p.git"', '"/opt/p"', '"~/p"']) {
     const catalog = pluginRefs(`{"name":"m","plugins":[{"name":"p","source":${source}}]}`, "marketplace");
     assert.deepEqual(catalog.plugins[0].listed, { local: 0, external: 1 }, source);
   }
-  assert.deepEqual(
-    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"./a/../b"}]}', "marketplace").plugins[0].listed,
-    { local: 1, external: 0 },
-  );
   assert.deepEqual(pluginRefs('[plugins.""]\nenabled = true\n', "codex-config"), unresolved);
-  // A source resolves from the marketplace's root, so it can climb to a sibling inside the repository.
-  const nested = (source) =>
-    pluginRefs(
-      `{"name":"m","plugins":[{"name":"p","source":"${source}"}]}`,
-      "marketplace",
-      "packages/tool/.claude-plugin/marketplace.json",
-    ).plugins[0].listed;
-  assert.deepEqual(nested("../shared"), { local: 1, external: 0 });
-  assert.deepEqual(nested("../../../outside"), { local: 0, external: 1 });
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
     pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),

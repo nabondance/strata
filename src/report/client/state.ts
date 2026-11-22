@@ -163,6 +163,7 @@ export const stateScript = `    const $ = (id) => document.getElementById(id);
       $('repo-ignore').title = ignored.length ? 'Paths matching these patterns are left out of every revision: ' + ignored.join(', ') : '';
       renderMethod();
       $('shallow').hidden = !data.shallow;
+      $('plugins-left-out').hidden = !data.pluginPackagesLeftOut;
       // Name the submodules holding agent configuration that was not analyzed; count those that could not be checked.
       const configuredSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles);
       const uncheckedSubmodules = (data.submodules || []).filter((submodule) => submodule.configFiles === null).length;
