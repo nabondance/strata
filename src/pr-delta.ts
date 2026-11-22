@@ -437,7 +437,9 @@ const pluginStateLabels: Record<PluginState, string> = {
  */
 function codeSpan(value: string): string {
   const text = value.replace(/\p{Cc}/gu, " ");
-  const fence = "`".repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+  let longest = 0;
+  for (const [run] of text.matchAll(/`+/g)) longest = Math.max(longest, run.length);
+  const fence = "`".repeat(longest + 1);
   const padded = text.startsWith("`") || text.endsWith("`") ? ` ${text} ` : text;
   return `${fence}${padded}${fence}`;
 }

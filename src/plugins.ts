@@ -56,7 +56,11 @@ export function pluginFormat(path: string, classification: Classification): Plug
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isName = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+/** A plugin name is short. A longer value is file text, which a default report must not carry. */
+const maxNameLength = 256;
+
+const isName = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= maxNameLength;
 
 /** Strict JSON, as Claude Code reads these files, or JSON with comments; undefined when it does not parse. */
 function parsed(text: string, comments = false): unknown {
@@ -111,7 +115,7 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
   if (enabled !== undefined) {
     if (!isObject(enabled)) return unresolved;
     for (const [name, value] of Object.entries(enabled)) {
-      if (!name) return unresolved;
+      if (!isName(name)) return unresolved;
       if (typeof value === "boolean") plugins.push({ name, state: value ? "enabled" : "disabled" });
       else if (allowsLists && Array.isArray(value) && value.every((item) => typeof item === "string")) {
         plugins.push({ name, state: "configured" });
@@ -121,7 +125,7 @@ function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null 
   if (marketplaces !== undefined) {
     if (!isObject(marketplaces)) return unresolved;
     for (const [name, value] of Object.entries(marketplaces)) {
-      if (!name || !isObject(value) || !isObject(value.source)) return unresolved;
+      if (!isName(name) || !isObject(value) || !isObject(value.source)) return unresolved;
       plugins.push({ name, state: "marketplace" });
     }
   }
@@ -227,7 +231,7 @@ function codexPlugins(text: string): PluginRefs | null {
       if (parts[0] === "plugins") {
         if (line.startsWith("[[")) return unresolved;
         mentioned = true;
-        if (parts[1] === "") return unresolved;
+        if (parts[1] !== undefined && !isName(parts[1])) return unresolved;
         if (parts[1] !== undefined) entry(parts[1]);
       }
       table = parts;
@@ -243,7 +247,7 @@ function codexPlugins(text: string): PluginRefs | null {
     const path = [...table, ...key];
     if (path[0] !== "plugins") continue;
     mentioned = true;
-    if (path.length < 3 || path[1] === "") return unresolved;
+    if (path.length < 3 || !isName(path[1])) return unresolved;
     entry(path[1]!);
     if (path.length === 3 && path[2] === "enabled") {
       const value = line.slice(equals + 1).trim();
@@ -336,7 +340,8 @@ export class PluginLists implements ContentUse {
 function readsLikeCatalog(value: unknown, body: Buffer): boolean {
   if (value === undefined) {
     const raw = rawText(body);
-    return raw.includes('"plugins"') && (raw.includes('"owner"') || raw.includes('"name"'));
+    if (!raw.includes('"plugins"')) return false;
+    return raw.includes('"owner"') || (raw.includes('"name"') && /"plugins"\s*:\s*\[\s*\{/.test(raw));
   }
   if (!isObject(value) || !("plugins" in value)) return false;
   if ("owner" in value) return true;

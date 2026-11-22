@@ -380,6 +380,12 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   catalog.put("marketplace.json", '{"name":"market","plugins":[{"name":"a","source":"./a"}],}');
   const catalogDamaged = compareGitCommits(catalog.repo, catalogBase, catalog.commit("Damaged")).comparison.plugins;
   assert.deepEqual([catalogDamaged.removed.length, catalogDamaged.afterUnresolved], [0, 1]);
+  // A broken file with only a list of strings does not read like a marketplace.
+  catalog.put("marketplace.json", '{"name":"shop","plugins":["a","b"],}');
+  assert.equal(
+    compareGitCommits(catalog.repo, catalogBase, catalog.commit("Broken app data")).comparison.plugins.afterUnresolved,
+    0,
+  );
   // An ownerless file with an empty list could be anything, so it is not a marketplace.
   catalog.put("marketplace.json", '{"name":"Acme store","plugins":[]}');
   assert.equal(
@@ -403,6 +409,20 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const overlayDelta = compareGitCommits(overlay.repo, overlayBase, overlay.commit("Lost its name")).comparison.plugins;
   assert.deepEqual([overlayDelta.removed.length, overlayDelta.afterUnresolved], [0, 1]);
   assert.equal(overlayDelta.afterPlugins, 1);
+
+  // An unrelated plugin.json beside a Codex overlay is not its root manifest.
+  const besideOverlay = syntheticRepo("strata-plugins-beside-overlay-");
+  t.after(besideOverlay.cleanup);
+  besideOverlay.put("CLAUDE.md", "@plugin.json\n");
+  besideOverlay.put("plugin.json", '{"name":"webpack-thing"}\n');
+  const noOverlay = besideOverlay.commit("An unrelated file");
+  besideOverlay.put(".codex-plugin/plugin.json", '{"name":"real-codex-plugin"}\n');
+  const addedOverlay = compareGitCommits(besideOverlay.repo, noOverlay, besideOverlay.commit("A Codex plugin"))
+    .comparison.plugins;
+  assert.deepEqual(
+    addedOverlay.added.map((ref) => ref.name),
+    ["real-codex-plugin"],
+  );
 
   // A partial clone whose only configuration is a plugin does not claim it has none.
   const onlyPlugin = syntheticRepo("strata-plugins-only-");
@@ -484,7 +504,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   t.after(manyAts.cleanup);
   manyAts.put("CLAUDE.md", "Memory.\n");
   const shortName = manyAts.commit("No plugins");
-  manyAts.put(".claude/settings.json", JSON.stringify({ enabledPlugins: { ["@".repeat(200_000)]: true } }));
+  manyAts.put(".claude/settings.json", JSON.stringify({ enabledPlugins: { ["@`".repeat(128)]: true } }));
   const longDelta = compareGitCommits(manyAts.repo, shortName, manyAts.commit("A long name"));
   const started = Date.now();
   renderPullRequestDelta(longDelta);
@@ -660,6 +680,9 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
     assert.deepEqual(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "My Plugin" }), format), unresolved);
     assert.equal(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "my-plugin" }), format).status, "listed");
   }
+  // A long value is file text, not a name, and stays out of the report.
+  assert.deepEqual(pluginRefs(JSON.stringify({ name: "x".repeat(257) }), "manifest"), unresolved);
+  assert.deepEqual(pluginRefs(JSON.stringify({ enabledPlugins: { ["x".repeat(257)]: true } }), "settings"), unresolved);
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
     pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),

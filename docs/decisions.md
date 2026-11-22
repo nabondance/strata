@@ -552,6 +552,7 @@ These stay separate because Git cannot show which plugins a session loaded:
 - Enabled does not prove installed. Claude Code leaves installation to each person, for example.
 - A plugin's content can be outside Git, so Strata does not fetch it or estimate it.
 - Source URLs can name private repositories or carry credentials, so they are never read into a report.
+- A plugin name longer than 256 characters is file text rather than a name, so its file is `unresolved` and the value stays out of the report.
 - Plugin content the path rules do not recognize, such as `plugins/foo/skills/`, is not added to the repository's stored or up-front totals. A recognized file inside a plugin folder, such as an `AGENTS.md`, is counted as it always was.
 
 `plugin.json` and a root `marketplace.json` are common file names, so Strata reads them and tracks only the documented format: the Agent Plugins `$schema`, or a `plugins` key beside `owner`, or a non-empty list of objects beside `name`. A manifest that declares that schema with a name the schema forbids is `unresolved`, because clients must refuse it. A version whose fields are wrong, or that no longer parses but still reads like one, stays tracked as `unresolved`. Any other version counts as the file being absent. A confirmed package keeps its label while a Claude import reaches it, so it is not tracked twice, and the import still resolves to it.

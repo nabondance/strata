@@ -233,10 +233,12 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
     const unreadable = new Set<string>();
     // A Codex overlay beside a root manifest adds settings; that manifest is the plugin's identity.
     const overlay = ".codex-plugin/plugin.json";
-    const tracked = new Set(revision.components.map((component) => component.path));
+    const manifests = new Set(
+      revision.components.filter((component) => component.pluginPackage && component.plugins).map(({ path }) => path),
+    );
     for (const component of revision.components) {
       if (!component.plugins) continue;
-      if (component.path.endsWith(overlay) && tracked.has(`${component.path.slice(0, -overlay.length)}plugin.json`)) {
+      if (component.path.endsWith(overlay) && manifests.has(`${component.path.slice(0, -overlay.length)}plugin.json`)) {
         continue;
       }
       if (component.plugins.status === "unresolved") {
