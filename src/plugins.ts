@@ -211,7 +211,7 @@ function codexPlugins(text: string): PluginRefs | null {
     if (equals < 0) return unresolved;
     const key = keyParts(line.slice(0, equals));
     if (!key) {
-      if (table[0] === "plugins" || namesPlugins(line.slice(0, equals))) return unresolved;
+      if (table[0] === "plugins" || (!table.length && namesPlugins(line.slice(0, equals)))) return unresolved;
       continue;
     }
     const path = [...table, ...key];

@@ -106,7 +106,9 @@ export function toComponent(
   const { classification } = file;
   const upFront = classification.upFront ?? ruleUpFront;
   // A `plugin.json` in an agent's folder that names a plugin is the shared Agent Plugins format.
-  const agentManifest = classification.category === "other" && Boolean(plugins);
+  // A file tracked only because a Claude import reaches it is not a plugin file, whatever it holds.
+  const pluginList = classification.imported ? undefined : plugins;
+  const agentManifest = classification.category === "other" && Boolean(pluginList);
   const readers = agentManifest ? (["codex", "copilot", "cursor"] satisfies Provider[]) : classification.readers;
   return {
     path: file.path,
@@ -133,7 +135,7 @@ export function toComponent(
         }
       : {}),
     ...(mcp ? { mcp } : {}),
-    ...(plugins ? { plugins } : {}),
+    ...(pluginList ? { plugins: pluginList } : {}),
   };
 }
 

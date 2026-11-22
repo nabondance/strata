@@ -311,6 +311,15 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     .get("provider-tabs")
     .children.map((tab) => tab.textContent);
   assert.ok(!tabs.some((tab) => /^(?:Copilot|Cursor)/.test(tab)), tabs.join(", "));
+  published.put(".codex/tools/plugin.json", '{"name":"not a plugin"}\n');
+  published.commit("An unrelated file");
+  const codexTabs = loadReportUi(renderHtml(await analyzeRepository(published.repo)))
+    .get("provider-tabs")
+    .children.map((tab) => tab.textContent);
+  assert.ok(
+    codexTabs.some((tab) => tab.startsWith("Codex")),
+    codexTabs.join(", "),
+  );
 
   // A partial clone leaves plugin packages out, whichever blobs it holds, and downloads nothing for them.
   const remote = syntheticRepo("strata-plugins-partial-");
@@ -376,6 +385,9 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   importedMove.commit("Move it");
   const moved = expandRevisions(await analyzeRepository(importedMove.repo)).at(-1);
   assert.ok(!moved.changes.some((change) => change.kind === "renamed"));
+  // It stays an ordinary imported file, and an unrelated plugin.json still gives its tool a tab.
+  const importedFile = moved.components.find((component) => component.path === "conf/plugin.json");
+  assert.ok(importedFile.imported && !importedFile.plugins && !importedFile.pluginPackage);
 
   // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
   const agentFolder = syntheticRepo("strata-plugins-agent-folder-");
@@ -456,6 +468,7 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
     null,
   );
   assert.deepEqual(pluginRefs('[plugins."caf\\u00e9@m"]\nenabled = true\n', "codex-config"), unresolved);
+  assert.equal(pluginRefs('[features]\n"plugin\\u0073" = true\n', "codex-config"), null);
   assert.deepEqual(pluginRefs('{"version":"1"}', "manifest"), unresolved);
   assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "marketplace"), unresolved);
   assert.equal(pluginRefs('model = "plugins"\n', "codex-config"), null);

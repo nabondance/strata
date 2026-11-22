@@ -61,8 +61,8 @@ function countConfigFiles(
   const candidates = tree.flatMap((entry) =>
     recognized(entry) ? [] : (pluginCandidateFile(entry.mode, entry.blob, entry.path) ?? []),
   );
-  // A partial clone is not read for packages, so a file that may be one leaves the count unknown.
-  if (candidates.length && isPartialClone(repo, env)) return null;
+  // A partial clone is not read for packages. Files known by path still count; with none, the count is unknown.
+  if (candidates.length && isPartialClone(repo, env)) return tree.filter(recognized).length || null;
   const confirmed = confirmedPackages(repo, candidates, env);
   return tree.filter((entry) => recognized(entry) || confirmed.has(versionKey(entry.path, entry.blob))).length;
 }
