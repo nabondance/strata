@@ -83,6 +83,10 @@ const declaresAgentSchema = (value: unknown, body: Buffer) =>
     ? /https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json/.test(rawText(body))
     : isObject(value) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
 
+/** The name the Agent Plugins schema allows; clients must refuse a manifest with any other. */
+const isAgentPluginName = (value: unknown): value is string =>
+  typeof value === "string" && value.length <= 64 && /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(value);
+
 const listed = (plugins: PluginRef[]): PluginRefs => ({ status: "listed", plugins });
 const unresolved: PluginRefs = { status: "unresolved" };
 
@@ -129,6 +133,13 @@ function manifestPlugin(text: string, format: "manifest" | "codex-manifest" | "s
   // Codex's `.codex-plugin/plugin.json` can be an overlay of settings, identified by the root manifest.
   if (format === "codex-manifest" && isObject(manifest) && manifest.name === undefined) return listed([]);
   if (!isObject(manifest) || !isName(manifest.name)) return unresolved;
+  if (
+    format !== "skills-folder" &&
+    declaresAgentSchema(manifest, Buffer.alloc(0)) &&
+    !isAgentPluginName(manifest.name)
+  ) {
+    return unresolved;
+  }
   if (format !== "skills-folder") return listed([{ name: manifest.name, state: "defined" }]);
   const name = `${manifest.name}@skills-dir`;
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
@@ -256,7 +267,7 @@ export function pluginRefs(text: string, format: PluginFormat): PluginRefs | nul
   if (format === "agent-manifest") {
     const manifest = parsed(text);
     if (!declaresAgentSchema(manifest, Buffer.from(text))) return null;
-    return isObject(manifest) && isName(manifest.name)
+    return isObject(manifest) && isAgentPluginName(manifest.name)
       ? listed([{ name: manifest.name, state: "defined" }])
       : unresolved;
   }
@@ -321,21 +332,16 @@ export class PluginLists implements ContentUse {
 
 /**
  * Whether a root `marketplace.json` is a plugin marketplace, even with a damaged field: `plugins`
- * beside `owner`, or a list of named entries. A file that no longer parses needs both keys.
+ * beside `owner`, or a list of objects beside `name`. A file that no longer parses needs those keys.
  */
 function readsLikeCatalog(value: unknown, body: Buffer): boolean {
   if (value === undefined) {
     const raw = rawText(body);
-    return raw.includes('"plugins"') && raw.includes('"owner"');
+    return raw.includes('"plugins"') && (raw.includes('"owner"') || raw.includes('"name"'));
   }
   if (!isObject(value) || !("plugins" in value)) return false;
   if ("owner" in value) return true;
-  return (
-    isName(value.name) &&
-    Array.isArray(value.plugins) &&
-    value.plugins.length > 0 &&
-    value.plugins.every((entry) => isObject(entry) && "name" in entry)
-  );
+  return "name" in value && Array.isArray(value.plugins) && value.plugins.every(isObject);
 }
 
 /**

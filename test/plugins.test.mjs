@@ -372,6 +372,26 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
       ["CLAUDE.md", false, null],
     ],
   );
+  // A root marketplace without an owner stays tracked when it is damaged or emptied; an unrelated one is not tracked.
+  const catalog = syntheticRepo("strata-plugins-catalog-");
+  t.after(catalog.cleanup);
+  catalog.put("marketplace.json", '{"name":"market","plugins":[{"name":"a","source":"./a"}]}');
+  const catalogBase = catalog.commit("A marketplace");
+  catalog.put("marketplace.json", '{"name":"market","plugins":[{"name":"a","source":"./a"}],}');
+  const catalogDamaged = compareGitCommits(catalog.repo, catalogBase, catalog.commit("Damaged")).comparison.plugins;
+  assert.deepEqual([catalogDamaged.removed.length, catalogDamaged.afterUnresolved], [0, 1]);
+  catalog.put("marketplace.json", '{"name":"market","plugins":[]}');
+  const catalogEmptied = compareGitCommits(catalog.repo, catalogBase, catalog.commit("Emptied")).comparison.plugins;
+  assert.deepEqual(
+    catalogEmptied.changed.map((ref) => ref.name),
+    ["market"],
+  );
+  catalog.put("marketplace.json", '{"name":"shop","plugins":["payments"]}');
+  assert.equal(
+    compareGitCommits(catalog.repo, catalogBase, catalog.commit("Unrelated")).comparison.plugins.afterPlugins,
+    0,
+  );
+
   // A partial clone whose only configuration is a plugin does not claim it has none.
   const onlyPlugin = syntheticRepo("strata-plugins-only-");
   const onlyClone = `${onlyPlugin.repo}-clone`;
@@ -621,6 +641,12 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
       external: 1,
     },
   );
+  // The Agent Plugins schema limits names, and clients must refuse a manifest that breaks the rule.
+  const schemaUrl = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+  for (const format of ["manifest", "agent-manifest"]) {
+    assert.deepEqual(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "My Plugin" }), format), unresolved);
+    assert.equal(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "my-plugin" }), format).status, "listed");
+  }
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
     pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),
