@@ -83,7 +83,7 @@ HTML and JSON reports contain file paths, commit IDs, dates, measurements, and t
 
 Anyone with read access to the repository can download workflow artifacts. For a public repository, that includes any signed-in GitHub user. To limit what they see:
 
-- Add `--shareable` to the `analyze` commands. It replaces repository names, paths, commit IDs, blob IDs, and MCP server names with aliases.
+- Add `--shareable` to the `analyze` commands. It replaces repository names, paths, commit IDs, blob IDs, and MCP server and plugin names with aliases.
 - Set `retention-days` on `upload-artifact` if the default retention is too long.
 
 ## README image

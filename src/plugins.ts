@@ -8,15 +8,13 @@ import type { PluginRef, PluginRefs } from "./model.js";
 /**
  * How a file names plugins: `settings`, `copilot-settings`, and `codex-config` turn them on or off, `manifest` defines
  * one, `skills-folder` defines one in the root `.claude/skills`, which Claude Code loads without a
- * settings entry, and `marketplace` is a catalog of them. `agent-manifest` is a `plugin.json` already
- * tracked inside an agent's folder, which defines a plugin only if it declares the Agent Plugins schema.
+ * settings entry, and `marketplace` is a catalog of them.
  */
 type PluginFormat =
   | "settings"
   | "copilot-settings"
   | "codex-config"
   | "manifest"
-  | "agent-manifest"
   | "skills-folder"
   | "marketplace"
   | "cursor-marketplace";
@@ -35,7 +33,6 @@ export function pluginFormat(path: string, classification: Classification): Plug
     if (name !== "marketplace.json") return "manifest";
     return classification.provider === "cursor" ? "cursor-marketplace" : "marketplace";
   }
-  if (classification.category === "other" && name === "plugin.json") return "agent-manifest";
   if (classification.category !== "settings") return null;
   if (classification.provider === "codex") return name === "config.toml" ? "codex-config" : null;
   if (classification.provider === "claude") return parts.at(-2) === ".claude" ? "settings" : null;
@@ -63,12 +60,10 @@ const agentPluginSchema = /^https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+
 /** Whether a file declares the Agent Plugins schema. One that no longer parses is searched as raw bytes. */
 const declaresAgentSchema = (value: unknown, body: Buffer) =>
   value === undefined
-    ? /agent-plugins\.org\/schemas\/[^"]*\/plugin\.schema\.json/.test(body.toString("latin1").replaceAll("\0", ""))
+    ? /https:\/\/agent-plugins\.org\/schemas\/\d+\.\d+\.\d+\/plugin\.schema\.json/.test(
+        body.toString("latin1").replaceAll("\0", ""),
+      )
     : isObject(value) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
-
-/** Whether a parsed `plugin.json` declares the Agent Plugins schema that Copilot, Codex, and Cursor share. */
-const isAgentManifest = (value: unknown): value is { name: string } =>
-  isObject(value) && isName(value.name) && typeof value.$schema === "string" && agentPluginSchema.test(value.$schema);
 
 const listed = (plugins: PluginRef[]): PluginRefs => ({ status: "listed", plugins });
 const unresolved: PluginRefs = { status: "unresolved" };
@@ -225,11 +220,6 @@ function codexPlugins(text: string): PluginRefs | null {
 export function pluginRefs(text: string, format: PluginFormat): PluginRefs | null {
   if (format === "settings" || format === "copilot-settings") return settingsPlugins(text, format === "settings");
   if (format === "codex-config") return codexPlugins(text);
-  if (format === "agent-manifest") {
-    const manifest = parsed(text);
-    if (isAgentManifest(manifest)) return listed([{ name: manifest.name, state: "defined" }]);
-    return declaresAgentSchema(manifest, Buffer.from(text)) ? unresolved : null;
-  }
   if (format === "marketplace" || format === "cursor-marketplace") {
     return marketplacePlugins(text, format === "marketplace");
   }
@@ -248,8 +238,7 @@ export const isPluginPackageFile = (file: TrackedFile) => {
 /**
  * The plugins every distinct version of a settings, manifest, or marketplace file names, keyed by
  * path and blob, found as the shared content pass reads them. Only names and states are kept. A
- * file that is not valid UTF-8 is unresolved, except a `plugin.json` in an agent folder that does
- * not declare the Agent Plugins schema, which names no plugin.
+ * file that is not valid UTF-8 is unresolved.
  */
 export class PluginLists implements ContentUse {
   readonly lists = new Map<string, PluginRefs>();
@@ -266,22 +255,35 @@ export class PluginLists implements ContentUse {
     const text = utf8Text(body);
     for (const file of files) {
       const format = pluginFormat(file.path, file.classification)!;
-      const plugins =
-        text !== null
-          ? pluginRefs(text, format)
-          : format !== "agent-manifest" || declaresAgentSchema(undefined, body)
-            ? unresolved
-            : null;
+      const plugins = text === null ? unresolved : pluginRefs(text, format);
       if (plugins) this.lists.set(versionKey(file.path, file.blob), plugins);
     }
   }
 }
 
 /**
+ * Whether a root `marketplace.json` is a plugin marketplace, even with a damaged field: `plugins`
+ * beside `owner`, or a list of named entries. A file that no longer parses needs both keys.
+ */
+function readsLikeCatalog(value: unknown, body: Buffer): boolean {
+  if (value === undefined) {
+    const raw = body.toString("latin1").replaceAll("\0", "");
+    return raw.includes('"plugins"') && raw.includes('"owner"');
+  }
+  if (!isObject(value) || !("plugins" in value)) return false;
+  if ("owner" in value) return true;
+  return (
+    Array.isArray(value.plugins) &&
+    value.plugins.length > 0 &&
+    value.plugins.every((entry) => isObject(entry) && "name" in entry)
+  );
+}
+
+/**
  * The version keys of the candidates whose content shows they are plugin packages: a `plugin.json`
  * that declares the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root
- * `marketplace.json` with a `plugins` key beside `name` or `owner`, including a version whose fields
- * are wrong or that no longer parses but still reads like one. Another `plugin.json`, including Copilot's legacy form, cannot be
+ * `marketplace.json` that `readsLikeCatalog`, including a version whose fields are wrong or that no
+ * longer parses but still reads like one. Another `plugin.json`, including Copilot's legacy form, cannot be
  * told apart from any other project's file.
  */
 export function confirmedPackages(repo: string, files: TrackedFile[], env?: NodeJS.ProcessEnv): Set<string> {
@@ -296,15 +298,7 @@ export function confirmedPackages(repo: string, files: TrackedFile[], env?: Node
     const value = text === null ? undefined : parsed(text);
     // A version that breaks a field or no longer parses stays a package, whose plugins are unresolved.
     if (declaresAgentSchema(value, body)) manifests.add(blob);
-    const keys =
-      value === undefined
-        ? ["name", "owner", "plugins"].filter((key) =>
-            body.toString("latin1").replaceAll("\0", "").includes(`"${key}"`),
-          )
-        : isObject(value)
-          ? Object.keys(value)
-          : [];
-    if (keys.includes("plugins") && (keys.includes("name") || keys.includes("owner"))) catalogs.add(blob);
+    if (readsLikeCatalog(value, body)) catalogs.add(blob);
   }
   for (const file of files) {
     if ((file.path === "marketplace.json" ? catalogs : manifests).has(file.blob)) {

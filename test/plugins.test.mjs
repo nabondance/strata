@@ -178,6 +178,13 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const broken = commit("Break the manifest");
     const unreadable = compareGitCommits(repo, second, broken).comparison.plugins;
     assert.deepEqual([unreadable.removed.length, unreadable.afterUnresolved], [0, 1]);
+    // A broken file must carry the same exact schema URL as a valid one to count.
+    put("loose/plugin.json", `{"$schema":"https://agent-plugins.org/schemas/latest/plugin.schema.json","name":"x",}`);
+    assert.ok(
+      !compareGitCommits(repo, second, commit("Unversioned schema")).comparison.components.some(
+        (c) => c.path === "loose/plugin.json",
+      ),
+    );
     // So is one that still declares the schema but breaks a required field.
     put("std/plugin.json", JSON.stringify({ $schema: schema, name: "" }));
     const badField = commit("Break a field");
@@ -212,7 +219,7 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const paths = (revision) => revision.components.map((component) => component.path);
     assert.ok(!paths(revisions[1]).includes("plugin.json") && !paths(revisions[1]).includes("src/plugin.json"));
     // A file that stops being a package leaves the inventory.
-    assert.ok(!paths(revisions[5]).includes("std/plugin.json"));
+    assert.ok(!paths(revisions.at(-1)).includes("std/plugin.json"));
     assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
 
     // Packaging a Cursor plugin does not show the repository uses Cursor; Copilot's settings do.
@@ -247,7 +254,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     revision.components.filter((component) => component.pluginPackage).map((component) => component.path);
   put("CLAUDE.md", "Memory.\n");
   put("plugin.json", manifest("root"));
-  // A manifest inside an agent's folder keeps its label and still names its plugin.
+  // A plugin.json inside an agent's own folder keeps its label and is not read as a plugin.
   put(".agents/plugins/foo/plugin.json", manifest("foo"));
   const ids = [commit("Manifest first")];
   put("CLAUDE.md", "Memory.\n@plugin.json\n");
@@ -257,8 +264,6 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   git("mv", "plugin.json", "moved-plugin.json");
   git("mv", "moved-plugin.json", "pkg-plugin.json");
   git("mv", "pkg-plugin.json", "plugin.json");
-  git("mv", ".agents/plugins/foo/plugin.json", ".agents/plugins/foo/kept.json");
-  git("mv", ".agents/plugins/foo/kept.json", ".agents/plugins/foo/plugin.json");
   put("sub/x.txt", "x\n");
   git("mv", "plugin.json", "sub/plugin.json");
   ids.push(commit("Move it"));
@@ -266,13 +271,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const report = await analyzeRepository(repo);
   const revisions = expandRevisions(report);
   // A package keeps its label while an import reaches it, and `strata diff` agrees.
-  const agent = ".agents/plugins/foo/plugin.json";
-  assert.deepEqual(revisions.map(packaged), [
-    [agent, "plugin.json"],
-    [agent, "plugin.json"],
-    [agent, "plugin.json"],
-    [agent, "sub/plugin.json"],
-  ]);
+  assert.deepEqual(revisions.map(packaged), [["plugin.json"], ["plugin.json"], ["plugin.json"], ["sub/plugin.json"]]);
   const reached = revisions[1].components.find((component) => component.path === "plugin.json");
   assert.ok(!reached.imported && reached.plugins.status === "listed");
   const links = importLinks(revisions[1].components);
@@ -289,16 +288,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
         change.kind === "renamed" && change.previousPath === "plugin.json" && change.path === "sub/plugin.json",
     ),
   );
-  assert.deepEqual(revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json").plugins, {
-    status: "listed",
-    plugins: [{ name: "foo", state: "defined" }],
-  });
-  // It is the shared format, so it is for those tools whichever folder holds it.
-  assert.deepEqual(revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json").readers, [
-    "codex",
-    "copilot",
-    "cursor",
-  ]);
+  assert.equal(revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json").plugins, undefined);
 
   // Publishing for a tool neither adds it to session context nor gives it a report tab.
   const published = syntheticRepo("strata-plugins-published-");
@@ -432,10 +422,6 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
     local: 0,
     external: 1,
   });
-  // A manifest in an agent folder that stops parsing is unknown, not removed; an unrelated one names nothing.
-  const declared = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"fmt",}`;
-  assert.deepEqual(pluginRefs(declared, "agent-manifest"), unresolved);
-  assert.equal(pluginRefs('{"name":"other",}', "agent-manifest"), null);
   assert.deepEqual(
     pluginRefs('{"name":"m","plugins":[{"name":"p","source":"10.0.0.1:o/r"}]}', "marketplace").plugins[0].listed,
     {
