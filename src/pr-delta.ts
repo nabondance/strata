@@ -166,8 +166,7 @@ function readCommits(
   const packages = trees.flatMap(packageFiles);
   const leftOut = new Set(partial ? packages.map((file) => file.path) : []);
   const candidates = partial ? [] : packages.filter((file) => pluginCandidate(file.path));
-  pass.add(candidates);
-  const confirmed = confirmedPackages(repo, candidates, undefined, (blob, body) => pass.offer(blob, body));
+  const confirmed = confirmedPackages(repo, candidates, undefined, pass);
   const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, confirmed, leftOut));
   const packagesUnread = leftOut.size > 0 || (partial && files.flat().some((file) => isPluginPackageFile(file)));
   if (packagesUnread) onNotice?.(packagesLeftOutNotice);

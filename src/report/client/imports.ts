@@ -65,12 +65,14 @@ export const importsScript = `    // Imports are links between stored files, so 
     const pluginLabel = (state, listed) => pluginStates[state] + (listed ? ', ' + plural(listed.local + listed.external, 'plugin') + ' (' + fmt(listed.local) + ' by relative path)' : '');
     const pluginState = (plugin) => pluginLabel(plugin.state, plugin.listed);
 
-    // Which tools a file is for. Cursor and Copilot read another tool's settings only at a revision with their own files.
+    // Which tools a file is for: a package names them, and a setting follows the rule for who reads it at this revision.
     function pluginTools(component) {
       if (component.skill) return [component.provider];
-      return (component.readers ?? [component.provider]).filter((tool) =>
-        component.pluginPackage || tool === component.provider || (tool !== 'cursor' && tool !== 'copilot') ||
-        revisions[selected].components.some((other) => other.provider === tool && !other.pluginPackage && !other.path.endsWith('/plugin.json')));
+      const tools = component.readers ?? [component.provider];
+      if (component.pluginPackage) return tools;
+      const { components, geminiContextFiles } = revisions[selected];
+      return tools.filter((tool) => providerReads(component, tool, geminiContextFiles, components.some((other) =>
+        other.provider === tool && !other.pluginPackage && !(other.category === 'other' && other.path.endsWith('/plugin.json')))));
     }
 
     // Plugins follow the provider view, like the files that name them.

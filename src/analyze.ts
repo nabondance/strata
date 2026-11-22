@@ -291,8 +291,7 @@ function leaveOutPackages(deltas: CommitDelta[]): Set<string> {
  */
 function addPluginPackages(root: string, deltas: CommitDelta[], pass: ContentPass): void {
   const candidates = deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? []));
-  pass.add(candidates);
-  const confirmed = confirmedPackages(root, candidates, undefined, (blob, body) => pass.offer(blob, body));
+  const confirmed = confirmedPackages(root, candidates, undefined, pass);
   const packages = new Map<string, string>();
   for (const delta of deltas) {
     const wasPackage = new Set([...delta.renames.keys()].filter((path) => packages.has(path)));
@@ -384,7 +383,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     const usesTool = (file: TrackedFile) =>
       file.classification.provider === reader &&
       !file.classification.pluginPackage &&
-      !file.path.endsWith("/plugin.json");
+      !(file.classification.category === "other" && file.path.endsWith("/plugin.json"));
     if (written.some(usesTool)) {
       continue;
     }

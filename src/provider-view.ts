@@ -42,12 +42,14 @@ export function viewRevision(
 ): RevisionSnapshot {
   if (view === "all") return revision;
   // A revision tracks Cursor or Copilot configuration when it holds a file labeled with that tool, other
-  // than a plugin package or any `plugin.json`, which is written for others to install.
+  // than a plugin package or an unclassified `plugin.json`, which is written for others to install.
   const configuredAt = (at: RevisionSnapshot | undefined) =>
     (view === "cursor" || view === "copilot") &&
     !!at?.components.some(
       (component) =>
-        component.provider === view && !component.pluginPackage && !component.path.endsWith("/plugin.json"),
+        component.provider === view &&
+        !component.pluginPackage &&
+        !(component.category === "other" && component.path.endsWith("/plugin.json")),
     );
   const configuredNow = configuredAt(revision);
   const configuredBefore = configuredAt(previous);

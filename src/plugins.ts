@@ -1,5 +1,5 @@
 import type { Classification } from "./adapters.js";
-import { type ContentUse, utf8Text } from "./content-pass.js";
+import { type ContentPass, type ContentUse, utf8Text } from "./content-pass.js";
 import { stripComments } from "./gemini-settings.js";
 import { blobSizes, readBlobs } from "./git.js";
 import { type TrackedFile, versionKey } from "./inventory.js";
@@ -250,6 +250,9 @@ export function pluginRefs(text: string, format: PluginFormat): PluginRefs | nul
   return manifestPlugin(text, format);
 }
 
+/** Plugin files are small. A common file name can belong to something huge, which is not loaded to check it. */
+const maxPluginFileBytes = 64 * 1024 * 1024;
+
 const isSettingsFormat = (format: PluginFormat) =>
   format === "settings" || format === "copilot-settings" || format === "codex-config";
 
@@ -267,6 +270,7 @@ export const isPluginPackageFile = (file: TrackedFile) => {
  */
 export class PluginLists implements ContentUse {
   readonly lists = new Map<string, PluginRefs>();
+  readonly maxBytes = maxPluginFileBytes;
 
   /** With `settingsOnly`, for a partial clone, reads only the settings that name plugins. */
   constructor(private readonly settingsOnly = false) {}
@@ -274,6 +278,14 @@ export class PluginLists implements ContentUse {
   wants(file: TrackedFile): boolean {
     const format = pluginFormat(file.path, file.classification);
     return format !== null && (!this.settingsOnly || isSettingsFormat(format));
+  }
+
+  /** A file too large to read may still name plugins, unless it is only a `plugin.json` in an agent folder. */
+  tooLarge(files: TrackedFile[]): void {
+    for (const file of files) {
+      if (pluginFormat(file.path, file.classification) === "agent-manifest") continue;
+      this.lists.set(versionKey(file.path, file.blob), unresolved);
+    }
   }
 
   read(_blob: string, body: Buffer, files: TrackedFile[]): void {
@@ -320,12 +332,14 @@ export function confirmedPackages(
   repo: string,
   files: TrackedFile[],
   env?: NodeJS.ProcessEnv,
-  onRead?: (blob: string, body: Buffer) => void,
+  pass?: ContentPass,
 ): Set<string> {
   const confirmed = new Set<string>();
   if (!files.length) return confirmed;
-  const blobs = [...new Set(files.map((file) => file.blob))];
-  const sizes = blobSizes(repo, blobs, env);
+  const sizes = blobSizes(repo, [...new Set(files.map((file) => file.blob))], env);
+  const readable = files.filter((file) => sizes.get(file.blob)! <= maxPluginFileBytes);
+  const blobs = [...new Set(readable.map((file) => file.blob))];
+  pass?.add(readable);
   const manifests = new Set<string>();
   const catalogs = new Set<string>();
   for (const [blob, body] of readBlobs(repo, blobs, (id) => sizes.get(id) ?? 0, env)) {
@@ -334,9 +348,9 @@ export function confirmedPackages(
     // A version that breaks a field or no longer parses stays a package, whose plugins are unresolved.
     if (declaresAgentSchema(value, body)) manifests.add(blob);
     if (readsLikeCatalog(value, body)) catalogs.add(blob);
-    onRead?.(blob, body);
+    pass?.offer(blob, body);
   }
-  for (const file of files) {
+  for (const file of readable) {
     if ((file.path === "marketplace.json" ? catalogs : manifests).has(file.blob)) {
       confirmed.add(versionKey(file.path, file.blob));
     }

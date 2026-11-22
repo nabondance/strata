@@ -402,6 +402,28 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
     ),
   );
 
+  // A Copilot hooks file that happens to be called plugin.json is real Copilot configuration.
+  const hooks = syntheticRepo("strata-plugins-hooks-");
+  t.after(hooks.cleanup);
+  hooks.put("AGENTS.md", "Shared instructions.\n");
+  const noHooks = hooks.commit("Instructions");
+  hooks.put(".github/hooks/plugin.json", '{"version":1,"hooks":{}}\n');
+  const withHooks = hooks.commit("Hooks");
+  assert.ok(compareGitCommits(hooks.repo, noHooks, withHooks).upFront.some((row) => row.provider === "copilot"));
+
+  // A huge file with a common name is not loaded to check it.
+  const huge = syntheticRepo("strata-plugins-huge-");
+  t.after(huge.cleanup);
+  huge.put("CLAUDE.md", "Memory.\n");
+  huge.put("vendor/plugin.json", Buffer.alloc(65 * 1024 * 1024, 0xff));
+  huge.commit("A large unrelated file");
+  assert.deepEqual(
+    expandRevisions(await analyzeRepository(huge.repo))
+      .at(-1)
+      .components.map((component) => component.path),
+    ["CLAUDE.md"],
+  );
+
   // A settings file saved in another encoding may still name its plugins.
   const encoded = syntheticRepo("strata-plugins-encoded-");
   t.after(encoded.cleanup);

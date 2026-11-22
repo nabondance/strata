@@ -68,10 +68,12 @@ export function upFrontContext(
   provider: SessionProvider,
   geminiContextFiles?: readonly ContextFile[] | null,
 ): UpFrontContext {
-  // A plugin package or any `plugin.json` is written for others to install, so it does not show the tool is used.
+  // A plugin package or unclassified `plugin.json` is written for others to install, so it does not show the tool is used.
   const configured = components.some(
     (component) =>
-      component.provider === provider && !component.pluginPackage && !component.path.endsWith("/plugin.json"),
+      component.provider === provider &&
+      !component.pluginPackage &&
+      !(component.category === "other" && component.path.endsWith("/plugin.json")),
   );
   const reads = components.filter((component) => providerReads(component, provider, geminiContextFiles, configured));
   // A rule's frontmatter is read by the tool that owns it; another tool reading its folder applies its own rules.
