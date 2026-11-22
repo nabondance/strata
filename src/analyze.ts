@@ -23,7 +23,7 @@ import {
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
-import { confirmedPackages, PluginLists, packagesLeftOutNotice } from "./plugins.js";
+import { confirmedPackages, isPluginPackageFile, PluginLists, packagesLeftOutNotice } from "./plugins.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -349,7 +349,8 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
-  const pluginLists = new PluginLists();
+  const partialClone = isPartialClone(root);
+  const pluginLists = new PluginLists(partialClone);
   const text = plan ? new TextCheck(countsLocally(plan)) : null;
   const pass = new ContentPass([
     tokens,
@@ -361,8 +362,11 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     pluginLists,
     ...(text ? [text] : []),
   ]);
-  const packagesLeftOut = isPartialClone(root) ? leaveOutPackages(deltas) : new Set<string>();
-  if (packagesLeftOut.size) onNotice?.(packagesLeftOutNotice);
+  const packagesLeftOut = partialClone ? leaveOutPackages(deltas) : new Set<string>();
+  const packagesUnread =
+    packagesLeftOut.size > 0 ||
+    (partialClone && deltas.some((delta) => delta.written.some((file) => isPluginPackageFile(file))));
+  if (packagesUnread) onNotice?.(packagesLeftOutNotice);
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
   const imports = await addImportedFiles(
@@ -497,7 +501,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
     schemaVersion: 23,
     repository: basename(root),
     branch,
-    ...(packagesLeftOut.size ? { pluginPackagesLeftOut: true as const } : {}),
+    ...(packagesUnread ? { pluginPackagesLeftOut: true as const } : {}),
     shallow,
     ...(ignore.length ? { ignore: [...ignore] } : {}),
     ...(submodules.size ? { submodules: inspectSubmodules(root, submodules, ignored) } : {}),

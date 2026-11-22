@@ -65,6 +65,14 @@ export const importsScript = `    // Imports are links between stored files, so 
     const pluginLabel = (state, listed) => pluginStates[state] + (listed ? ', ' + plural(listed.local + listed.external, 'plugin') + ' (' + fmt(listed.local) + ' by relative path)' : '');
     const pluginState = (plugin) => pluginLabel(plugin.state, plugin.listed);
 
+    // Which tools a file is for. Cursor and Copilot read another tool's settings only at a revision with their own files.
+    function pluginTools(component) {
+      if (component.skill) return [component.provider];
+      return (component.readers ?? [component.provider]).filter((tool) =>
+        component.pluginPackage || tool === component.provider || (tool !== 'cursor' && tool !== 'copilot') ||
+        revisions[selected].components.some((other) => other.provider === tool && !other.pluginPackage));
+    }
+
     // Plugins follow the provider view, like the files that name them.
     function renderPlugins() {
       const components = viewRevisions[selected].components.filter((component) => component.plugins);
@@ -90,7 +98,7 @@ export const importsScript = `    // Imports are links between stored files, so 
       for (const { component, plugin } of capped('plugins', sorted, 25, renderPlugins)) {
         const row = document.createElement('tr');
         const name = text('td', plugin ? plugin.name : 'Could not read this file', plugin ? 'path' : 'kind');
-        row.append(name, text('td', plugin ? pluginState(plugin) : 'unresolved', 'kind'), text('td', component.path, 'path'), text('td', (component.skill ? [component.provider] : component.readers ?? [component.provider]).join(', ')));
+        row.append(name, text('td', plugin ? pluginState(plugin) : 'unresolved', 'kind'), text('td', component.path, 'path'), text('td', pluginTools(component).join(', ')));
         body.append(row);
       }
     }`;

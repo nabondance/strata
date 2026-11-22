@@ -227,7 +227,7 @@ export interface Report {
   schemaVersion: 23;
   repository: string;
   branch: string;
-  /** Set on a partial clone that has plugin manifests or marketplace files, which were left out. */
+  /** Set on a partial clone with files that may be plugin manifests or marketplaces, which Strata did not read. */
   pluginPackagesLeftOut?: true;
   /** The first revision is where a shallow fetch cut the history: it has a parent that was not fetched. */
   shallow: boolean;

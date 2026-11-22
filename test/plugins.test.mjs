@@ -173,6 +173,12 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: [] }));
     const second = commit("Add each tool's plugins");
 
+    // A version that stops parsing is still a package, whose plugins are unknown rather than removed.
+    put("std/plugin.json", `{"$schema":"${schema}","name":"std",}`);
+    const broken = commit("Break the manifest");
+    const unreadable = compareGitCommits(repo, second, broken).comparison.plugins;
+    assert.deepEqual([unreadable.removed.length, unreadable.afterUnresolved], [0, 1]);
+
     put("std/plugin.json", '{"name":"std"}\n');
     const third = commit("Drop the schema");
 
@@ -194,7 +200,7 @@ test("covers every tool's plugin files, and only confirmed ones among common fil
     const paths = (revision) => revision.components.map((component) => component.path);
     assert.ok(!paths(revisions[1]).includes("plugin.json") && !paths(revisions[1]).includes("src/plugin.json"));
     // A file that stops being a package leaves the inventory.
-    assert.ok(!paths(revisions[2]).includes("std/plugin.json"));
+    assert.ok(!paths(revisions[3]).includes("std/plugin.json"));
     assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
 
     // Packaging a Cursor plugin does not show the repository uses Cursor; Copilot's settings do.
@@ -390,6 +396,18 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
     assert.deepEqual(catalog.plugins[0].listed, { local: 0, external: 1 }, source);
   }
   assert.deepEqual(pluginRefs('[plugins.""]\nenabled = true\n', "codex-config"), unresolved);
+  // A key written with a JSON escape is the same key.
+  assert.deepEqual(pluginRefs('{"enabled\\u0050lugins":{"a@b":true}}', "settings").plugins, [
+    { name: "a@b", state: "enabled" },
+  ]);
+  assert.equal(pluginRefs('{"note":"\\u0041", broken', "settings"), null);
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"10.0.0.1:o/r"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 0,
+      external: 1,
+    },
+  );
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
     pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),

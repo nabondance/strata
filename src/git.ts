@@ -141,25 +141,20 @@ export function listTree(repo: string, revision: string, env?: NodeJS.ProcessEnv
 
 /** Whether this is a partial clone, which may lack the blobs of any file version. */
 export function isPartialClone(repo: string, env?: NodeJS.ProcessEnv): boolean {
-  let config: string;
-  try {
-    config = git(
-      repo,
-      ["config", "--get-regexp", "^(remote\\..*\\.promisor|extensions\\.partialclone)$"],
-      undefined,
-      env,
-    ).toString("utf8");
-  } catch {
-    return false; // Git exits with an error when no key matches.
-  }
-  return config
-    .trim()
+  // Git exits with an error when no key matches.
+  const config = (args: string[]) => {
+    try {
+      return git(repo, ["config", ...args], undefined, env)
+        .toString("utf8")
+        .trim();
+    } catch {
+      return "";
+    }
+  };
+  if (config(["--get", "extensions.partialClone"])) return true;
+  return config(["--type=bool", "--get-regexp", "^remote\\..*\\.promisor$"])
     .split("\n")
-    .some((line) => {
-      const [key = "", value] = line.split(/ (.*)/);
-      if (key === "extensions.partialclone") return Boolean(value);
-      return value === undefined || /^(?:true|yes|on|[1-9]\d*)$/i.test(value);
-    });
+    .some((line) => line.endsWith(" true"));
 }
 
 /** Byte sizes of blobs, read from object headers without loading their content. */

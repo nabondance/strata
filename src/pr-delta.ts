@@ -30,7 +30,7 @@ import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement } from "./measurement.js";
 import type { ClaudeImport, PluginCatalog, PluginState } from "./model.js";
-import { confirmedPackages, PluginLists, packagesLeftOutNotice } from "./plugins.js";
+import { confirmedPackages, isPluginPackageFile, PluginLists, packagesLeftOutNotice } from "./plugins.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -124,7 +124,7 @@ export interface PullRequestDelta {
   head: string;
   /** The `--ignore` patterns, as given, when there were any: both trees leave out the paths they match. */
   ignore?: string[];
-  /** Set on a partial clone that has plugin manifests or marketplace files, which were left out at both commits. */
+  /** Set on a partial clone with files that may be plugin manifests or marketplaces, which Strata did not read. */
   pluginPackagesLeftOut?: true;
   measurement: Measurement;
   comparison: Comparison;
@@ -158,14 +158,13 @@ function readCommits(
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
-  const pluginLists = new PluginLists();
+  const partial = isPartialClone(repo);
+  const pluginLists = new PluginLists(partial);
   const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, pluginLists, ...(text ? [text] : [])]);
   const trees = ids.map((id) => listTree(repo, id).filter(({ path }) => !ignored(path)));
   // A partial clone may lack any version, so it leaves plugin packages out at both commits.
   const packages = trees.flatMap(packageFiles);
-  const partial = isPartialClone(repo);
   const leftOut = new Set(partial ? packages.map((file) => file.path) : []);
-  if (leftOut.size) onNotice?.(packagesLeftOutNotice);
   const confirmed = partial
     ? new Set<string>()
     : confirmedPackages(
@@ -173,6 +172,8 @@ function readCommits(
         packages.filter((file) => pluginCandidate(file.path)),
       );
   const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, confirmed, leftOut));
+  const packagesUnread = leftOut.size > 0 || (partial && files.flat().some((file) => isPluginPackageFile(file)));
+  if (packagesUnread) onNotice?.(packagesLeftOutNotice);
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
   const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
@@ -223,7 +224,7 @@ function readCommits(
     base: ids[0],
     head: ids[1],
     ...(ignore.length ? { ignore: [...ignore] } : {}),
-    ...(leftOut.size ? { pluginPackagesLeftOut: true as const } : {}),
+    ...(packagesUnread ? { pluginPackagesLeftOut: true as const } : {}),
     measurement: measurer.measurement,
     comparison: compareRevisions(before!, after!),
     upFront,

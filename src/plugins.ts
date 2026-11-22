@@ -68,9 +68,11 @@ const unresolved: PluginRefs = { status: "unresolved" };
  * Claude's settings schema also allows a list of strings as a value; Copilot documents only booleans.
  */
 function settingsPlugins(text: string, allowsLists: boolean): PluginRefs | null {
-  if (!/enabledPlugins|extraKnownMarketplaces/.test(text)) return null;
+  // A key can also be written with JSON escapes, so only a file with neither is skipped unparsed.
+  const mentioned = /enabledPlugins|extraKnownMarketplaces/.test(text);
+  if (!mentioned && !text.includes("\\u")) return null;
   const settings = parsed(text);
-  if (!isObject(settings)) return unresolved;
+  if (!isObject(settings)) return mentioned ? unresolved : null;
   const enabled = settings.enabledPlugins;
   const marketplaces = settings.extraKnownMarketplaces;
   if (enabled === undefined && marketplaces === undefined) return null;
@@ -104,9 +106,8 @@ function manifestPlugin(text: string, format: "manifest" | "skills-folder"): Plu
   return listed([{ name, state: manifest.defaultEnabled === false ? "defined" : "skills-folder" }]);
 }
 
-/** Whether a marketplace source is a path relative to the marketplace, not a URL or an absolute or home path. */
-const isRelativePath = (source: string) =>
-  !/^[a-z][a-z0-9+.-]*:/i.test(source) && !/^[^/]+@[^/]+:/.test(source) && !/^[/\\~]/.test(source);
+/** Whether a marketplace source is a path relative to the marketplace, not a URL, `host:path`, or absolute path. */
+const isRelativePath = (source: string) => !/^[^/\\]*:/.test(source) && !/^[/\\~]/.test(source);
 
 /** A marketplace file, by its name and how many plugins it lists. A source's URL is never kept. */
 function marketplacePlugins(text: string): PluginRefs {
@@ -131,7 +132,10 @@ function marketplacePlugins(text: string): PluginRefs {
 }
 
 /** Whether a TOML key Strata could not split starts with `plugins`. */
-const namesPlugins = (key: string) => /^\s*(?:plugins|"plugins"|'plugins')\s*(?:\.|$)/.test(key);
+const namesPlugins = (key: string) =>
+  /^\s*(?:plugins|"plugins"|'plugins')\s*(?:\.|$)/.test(
+    key.replace(/\\u([0-9a-f]{4})/gi, (_, code: string) => String.fromCharCode(Number.parseInt(code, 16))),
+  );
 
 /**
  * The `[plugins."<plugin>@<marketplace>"]` tables of a Codex `config.toml`, or null when it has none.
@@ -139,7 +143,7 @@ const namesPlugins = (key: string) => /^\s*(?:plugins|"plugins"|'plugins')\s*(?:
  * anything else it cannot follow makes the list unresolved.
  */
 function codexPlugins(text: string): PluginRefs | null {
-  if (!text.includes("plugins")) return null;
+  if (!text.includes("plugins") && !text.includes("\\u")) return null;
   const lines = tomlLines(text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n"));
   if (!lines) return unresolved;
   const states = new Map<string, boolean | null>();
@@ -208,6 +212,15 @@ export function pluginRefs(text: string, format: PluginFormat): PluginRefs | nul
   return format === "marketplace" ? marketplacePlugins(text) : manifestPlugin(text, format);
 }
 
+const isSettingsFormat = (format: PluginFormat) =>
+  format === "settings" || format === "copilot-settings" || format === "codex-config";
+
+/** Whether a file is a plugin manifest or marketplace, which a partial clone does not read. */
+export const isPluginPackageFile = (file: TrackedFile) => {
+  const format = pluginFormat(file.path, file.classification);
+  return format !== null && !isSettingsFormat(format);
+};
+
 /**
  * The plugins every distinct version of a settings, manifest, or marketplace file names, keyed by
  * path and blob, found as the shared content pass reads them. Only names and states are kept. A
@@ -217,8 +230,12 @@ export function pluginRefs(text: string, format: PluginFormat): PluginRefs | nul
 export class PluginLists implements ContentUse {
   readonly lists = new Map<string, PluginRefs>();
 
+  /** With `settingsOnly`, for a partial clone, reads only the settings that name plugins. */
+  constructor(private readonly settingsOnly = false) {}
+
   wants(file: TrackedFile): boolean {
-    return pluginFormat(file.path, file.classification) !== null;
+    const format = pluginFormat(file.path, file.classification);
+    return format !== null && (!this.settingsOnly || isSettingsFormat(format));
   }
 
   read(_blob: string, body: Buffer, files: TrackedFile[]): void {
@@ -237,8 +254,9 @@ const maxPackageBytes = 10 * 1024 * 1024;
 /**
  * The version keys of the candidates whose content shows they are plugin packages: a `plugin.json`
  * that declares the Agent Plugins `$schema`, which Copilot, Codex, and Cursor share, or a root
- * `marketplace.json` with the required `name`, `owner`, and `plugins`. Another `plugin.json`,
- * including Copilot's legacy form, cannot be told apart from any other project's file.
+ * `marketplace.json` with the required `name`, `owner`, and `plugins`, or a version that no longer
+ * parses but still reads like one. Another `plugin.json`, including Copilot's legacy form, cannot be
+ * told apart from any other project's file.
  */
 export function confirmedPackages(repo: string, files: TrackedFile[], env?: NodeJS.ProcessEnv): Set<string> {
   const confirmed = new Set<string>();
@@ -251,6 +269,13 @@ export function confirmedPackages(repo: string, files: TrackedFile[], env?: Node
   for (const [blob, body] of readBlobs(repo, readable, (id) => sizes.get(id) ?? 0, env)) {
     const text = utf8Text(body);
     const value = text === null ? undefined : parsed(text);
+    if (value === undefined) {
+      // A file that does not parse stays a package if it still reads like one, and is then unresolved.
+      const loose = body.toString("latin1").replaceAll("\0", "");
+      if (/agent-plugins\.org\/schemas\/[^"]*\/plugin\.schema\.json/.test(loose)) manifests.add(blob);
+      if (/"name"/.test(loose) && /"owner"/.test(loose) && /"plugins"/.test(loose)) catalogs.add(blob);
+      continue;
+    }
     if (isAgentManifest(value)) manifests.add(blob);
     if (isObject(value) && isName(value.name) && isObject(value.owner) && Array.isArray(value.plugins)) {
       catalogs.add(blob);
@@ -264,6 +289,6 @@ export function confirmedPackages(repo: string, files: TrackedFile[], env?: Node
   return confirmed;
 }
 
-/** What Strata says when it leaves plugin packages out of a partial clone. */
+/** What Strata says when a partial clone may hold plugin packages it does not read. */
 export const packagesLeftOutNotice =
-  "This is a partial clone, which may lack the history of plugin manifests and marketplace files, so Strata left them out. A full clone includes them.";
+  "This is a partial clone, which may lack the history of plugin manifests and marketplace files, so Strata does not read them and its plugin results may be incomplete. A full clone includes them.";

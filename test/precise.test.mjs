@@ -1136,7 +1136,7 @@ test("--shareable keeps precise counts and labels and aliases every path and ID"
     }
     assert.match(
       html,
-      /Shareable export: repository, folder, file, and server names and IDs are replaced with aliases\. Tool convention names/,
+      /Shareable export: repository, folder, file, server, and plugin names and IDs are replaced with aliases\. Tool convention names/,
     );
   } finally {
     rmSync(repo, { recursive: true, force: true });
