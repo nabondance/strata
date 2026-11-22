@@ -445,8 +445,14 @@ function pluginLines(delta: PullRequestDelta): string[] {
   if (!plugins) return [];
   const capped = <T>(refs: T[], line: (ref: T) => string) =>
     refs.slice(0, 10).map(line).join(", ") + (refs.length > 10 ? `, and ${refs.length - 10} more` : "");
+  // A plugin name is repository text, so it must not become a link in the job summary.
+  const name = (value: string) =>
+    cell(value)
+      .replace(/:\/\//g, ":\\/\\/")
+      .replace(/\bwww\./gi, "www\\.")
+      .replace(/@(?=[^\s,]*\.)/g, "\\@");
   const entry = (ref: PluginComparisonRef) =>
-    `${cell(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${cell(ref.path)})`;
+    `${name(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${cell(ref.path)})`;
   const parts = [
     `Agent plugin references in tracked files: **${signed(plugins.deltaPlugins)}** (${plugins.beforePlugins} → ${plugins.afterPlugins}).`,
   ];
@@ -454,7 +460,7 @@ function pluginLines(delta: PullRequestDelta): string[] {
   if (plugins.removed.length) parts.push(`Removed: ${capped(plugins.removed, entry)}.`);
   if (plugins.changed.length) {
     const change = (ref: PluginStateChange) =>
-      `${cell(ref.name)}, ${pluginLabel(ref.before, ref.beforeListed)} → ${pluginLabel(ref.after, ref.afterListed)} (${cell(ref.path)})`;
+      `${name(ref.name)}, ${pluginLabel(ref.before, ref.beforeListed)} → ${pluginLabel(ref.after, ref.afterListed)} (${cell(ref.path)})`;
     parts.push(`Changed: ${capped(plugins.changed, change)}.`);
   }
   if (plugins.beforeUnresolved || plugins.afterUnresolved) {

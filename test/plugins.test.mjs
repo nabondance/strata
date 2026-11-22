@@ -390,6 +390,30 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
   const importedFile = moved.components.find((component) => component.path === "conf/plugin.json");
   assert.ok(importedFile.imported && !importedFile.plugins && !importedFile.pluginPackage);
 
+  // An Agent Plugins manifest in Claude's folder is a plugin to the tools that read that format, not to Claude.
+  const inClaudeFolder = syntheticRepo("strata-plugins-claude-folder-");
+  t.after(inClaudeFolder.cleanup);
+  inClaudeFolder.put("CLAUDE.md", "Memory.\n");
+  inClaudeFolder.put(".claude/plugins/forcodex/plugin.json", manifest("forcodex"));
+  inClaudeFolder.commit("A manifest for other tools");
+  const folderManifest = await analyzeRepository(inClaudeFolder.repo);
+  const claudeView = viewRevision(
+    expandRevisions(folderManifest).at(-1),
+    "claude",
+    undefined,
+    folderManifest.components,
+  );
+  assert.ok(!claudeView.components.some((component) => component.plugins));
+
+  // A name from the repository cannot become a link in the job summary.
+  const linked = syntheticRepo("strata-plugins-linked-");
+  t.after(linked.cleanup);
+  linked.put("CLAUDE.md", "Memory.\n");
+  const unlinked = linked.commit("No plugins");
+  linked.put(".claude/settings.json", '{"enabledPlugins":{"https://evil.example/x":true,"a@evil.example":true}}');
+  const withLink = renderPullRequestDelta(compareGitCommits(linked.repo, unlinked, linked.commit("A link")));
+  assert.ok(withLink.includes("https:\\/\\/evil.example/x") && withLink.includes("a\\@evil.example"));
+
   // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
   const agentFolder = syntheticRepo("strata-plugins-agent-folder-");
   t.after(agentFolder.cleanup);
@@ -530,6 +554,18 @@ test("reads only the documented plugin shapes, and marks anything else unresolve
       local: 0,
       external: 1,
     },
+  );
+  // A local folder can have a dot in its name, and only Cursor documents a source of `{ path }`.
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"my.plugin/fmt"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 1,
+      external: 0,
+    },
+  );
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":{"path":"./x"}}]}', "marketplace"),
+    unresolved,
   );
   // A table Strata cannot read matters only under `plugins`.
   assert.equal(
