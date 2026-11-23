@@ -533,6 +533,7 @@ test("keeps packages exact through imports, renames, partial clones, and tool de
 
   assert.equal(classify(".github/hooks/gemini-extension.json").provider, "copilot");
   assert.equal(classify(".github/hooks/sub/gemini-extension.json").provider, "gemini");
+  assert.equal(classify(".cursor/gemini-extension.json").provider, "cursor");
 
   // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
   const agentFolder = syntheticRepo("strata-plugins-agent-folder-");

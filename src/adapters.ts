@@ -133,9 +133,10 @@ function pluginPackage(path: string, parts: string[]): Classification | null {
     pluginPackage: true,
   });
   const filename = parts.at(-1);
-  // A file directly in the root `.github/hooks` is a Copilot hook, whatever its name.
-  if (filename === "gemini-extension.json" && !(parts.length === 3 && path.startsWith(".github/hooks/"))) {
-    return package_("gemini");
+  if (filename === "gemini-extension.json") {
+    // A file another tool's folder already gives a meaning, such as a Copilot hook, keeps it.
+    const owned = [codex, claude, gemini, cursor, copilot].some((adapter) => adapter(path, parts));
+    return owned ? null : package_("gemini");
   }
   if (path === ".agents/plugins/marketplace.json") return package_("codex");
   if (filename !== "plugin.json" && filename !== "marketplace.json") return null;
