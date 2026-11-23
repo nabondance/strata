@@ -1,3 +1,4 @@
+import { pluginCandidate } from "./adapters.js";
 import { treeImports } from "./claude-imports.js";
 import {
   type ComparedRevision,
@@ -5,16 +6,19 @@ import {
   type ComponentDelta,
   compareRevisions,
   type McpServerRef,
+  type PluginComparisonRef,
+  type PluginStateChange,
 } from "./compare.js";
 import { ContentPass } from "./content-pass.js";
 import { signed } from "./format.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { blobSizes, git, listTree, resolveCommit } from "./git.js";
-import { type Ignored, ignoreMatcher } from "./ignore.js";
+import { blobSizes, git, isPartialClone, listTree, resolveCommit } from "./git.js";
+import { ignoreMatcher } from "./ignore.js";
 import {
   byPath,
   distinctBlobs,
   measureBlobs,
+  pluginCandidateFile,
   summarize,
   TokenCounts,
   type TrackedFile,
@@ -25,7 +29,8 @@ import {
 import { keepsUpFront, type LimitCheck, type LimitFigures, limitLines } from "./limits.js";
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer, type Measurement } from "./measurement.js";
-import type { ClaudeImport } from "./model.js";
+import type { ClaudeImport, PluginCatalog, PluginState } from "./model.js";
+import { confirmedPackages, isPluginPackageFile, PluginLists, packagesLeftOutNotice } from "./plugins.js";
 import {
   type CountedProvider,
   type ProviderCountPlan,
@@ -61,23 +66,41 @@ function commitId(repo: string, revision: string, side: "Base" | "Head"): string
 
 /**
  * The recognized files in a commit's tree, followed by the files Claude imports there that no path
- * rule recognizes. All of them are added to `pass`, which import parsing hands what it reads. An
- * entry `ignored` accepts is dropped from the tree first, so no import reaches it.
+ * rule recognizes, and the plugin packages `confirmed` by content. All of them are added to `pass`, which
+ * import parsing hands what it reads. The tree already leaves out what `--ignore` matches.
  */
 function trackedFiles(
   repo: string,
-  id: string,
+  tree: ReturnType<typeof listTree>,
   imports: Map<string, ClaudeImport[]>,
   pass: ContentPass,
-  ignored: Ignored,
+  confirmed: ReadonlySet<string>,
+  leftOut: ReadonlySet<string>,
 ): TrackedFile[] {
-  const tree = listTree(repo, id).filter(({ path }) => !ignored(path));
-  const recognized = tree.flatMap(({ mode, blob, path }) => trackedFile(mode, blob, path) ?? []);
+  const recognized = tree.flatMap(({ mode, blob, path }) =>
+    leftOut.has(path) ? [] : (trackedFile(mode, blob, path) ?? []),
+  );
   pass.add(recognized);
-  const imported = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
+  const found = treeImports(repo, tree, recognized, imports, (blob, body) => pass.offer(blob, body));
+  const packages = tree.flatMap(({ mode, blob, path }) => {
+    const file = pluginCandidateFile(mode, blob, path);
+    return file && confirmed.has(versionKey(path, blob)) ? [file] : [];
+  });
+  // A package keeps its label while a Claude import reaches it, as in `strata analyze`.
+  const packaged = new Set(packages.map((file) => file.path));
+  const imported = found.filter((file) => !packaged.has(file.path));
   pass.add(imported);
-  return [...recognized, ...imported];
+  pass.add(packages);
+  return [...recognized, ...imported, ...packages];
 }
+
+/** The files in a tree that are plugin packages by name, or may be by content. */
+const packageFiles = (tree: ReturnType<typeof listTree>) =>
+  tree.flatMap(({ mode, blob, path }) => {
+    const file = trackedFile(mode, blob, path);
+    if (file) return file.classification.pluginPackage ? [file] : [];
+    return pluginCandidateFile(mode, blob, path) ?? [];
+  });
 
 export interface ProviderTotalDelta {
   provider: CountedProvider;
@@ -96,11 +119,13 @@ export interface UpFrontDelta {
 }
 
 export interface PullRequestDelta {
-  schemaVersion: 14;
+  schemaVersion: 15;
   base: string;
   head: string;
   /** The `--ignore` patterns, as given, when there were any: both trees leave out the paths they match. */
   ignore?: string[];
+  /** Set on a partial clone with files that may be plugin manifests or marketplaces, which Strata did not read. */
+  pluginPackagesLeftOut?: true;
   measurement: Measurement;
   comparison: Comparison;
   /** Per provider that reads stored text at either commit, for a session started at the repository root. */
@@ -113,7 +138,14 @@ export interface PullRequestDelta {
 }
 
 /** With `text`, the shared read also finds which instruction blobs are blank or not UTF-8, for provider counts. */
-function readCommits(repo: string, base: string, head: string, ignore: readonly string[], text?: TextCheck) {
+function readCommits(
+  repo: string,
+  base: string,
+  head: string,
+  ignore: readonly string[],
+  text?: TextCheck,
+  onNotice?: (line: string) => void,
+) {
   const measurer = createMeasurer("estimate");
   const ignored = ignoreMatcher(ignore);
   git(repo, ["rev-parse", "--git-dir"]);
@@ -126,14 +158,25 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
-  const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
-  const files = ids.map((id, index) => trackedFiles(repo, id, imports[index]!, pass, ignored));
+  const partial = isPartialClone(repo);
+  const pluginLists = new PluginLists(partial);
+  const pass = new ContentPass([tokens, gemini, skills, ruleLoading, mcpLists, pluginLists, ...(text ? [text] : [])]);
+  const trees = ids.map((id) => listTree(repo, id).filter(({ path }) => !ignored(path)));
+  // A partial clone may lack any version, so it leaves plugin packages out at both commits.
+  const packages = trees.flatMap(packageFiles);
+  const leftOut = new Set(partial ? packages.map((file) => file.path) : []);
+  const candidates = partial ? [] : packages.filter((file) => pluginCandidate(file.path));
+  const confirmed = confirmedPackages(repo, candidates, undefined, pass);
+  const files = trees.map((tree, index) => trackedFiles(repo, tree, imports[index]!, pass, confirmed, leftOut));
+  const packagesUnread = leftOut.size > 0 || (partial && files.flat().some((file) => isPluginPackageFile(file)));
+  if (packagesUnread) onNotice?.(packagesLeftOutNotice);
   const sizes = blobSizes(repo, distinctBlobs(files.flat()));
   pass.run(repo, sizes);
   const measured = measureBlobs(files.flat(), sizes, measurer, tokens);
   const listings = skills.listings;
   const rules = ruleLoading.upFront;
   const mcp = mcpLists.lists;
+  const plugins = pluginLists.lists;
   const configured = gemini.configured;
   const snapshots = files.map((snapshot) => {
     const settings = snapshot.find((file) => file.path === geminiSettingsPath);
@@ -151,6 +194,7 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
           imports[index]!.get(key),
           rules.get(key),
           mcp.get(key),
+          plugins.get(key),
         );
       })
       .sort(byPath);
@@ -172,10 +216,11 @@ function readCommits(repo: string, base: string, head: string, ignore: readonly 
     ];
   });
   const delta: PullRequestDelta = {
-    schemaVersion: 14,
+    schemaVersion: 15,
     base: ids[0],
     head: ids[1],
     ...(ignore.length ? { ignore: [...ignore] } : {}),
+    ...(packagesUnread ? { pluginPackagesLeftOut: true as const } : {}),
     measurement: measurer.measurement,
     comparison: compareRevisions(before!, after!),
     upFront,
@@ -204,9 +249,9 @@ export function compareGitCommits(
   repo: string,
   base: string,
   head: string,
-  options: { ignore?: readonly string[] } = {},
+  options: { ignore?: readonly string[]; onNotice?: (line: string) => void } = {},
 ): PullRequestDelta {
-  return readCommits(repo, base, head, options.ignore ?? []).delta;
+  return readCommits(repo, base, head, options.ignore ?? [], undefined, options.onNotice).delta;
 }
 
 /**
@@ -221,7 +266,14 @@ export async function compareGitCommitsWithProviders(
   options: { providerPlan: ProviderCountPlan; onNotice?: (line: string) => void; ignore?: readonly string[] },
 ): Promise<PullRequestDelta> {
   const text = new TextCheck(countsLocally(options.providerPlan));
-  const { delta, files, measured, snapshots } = readCommits(repo, base, head, options.ignore ?? [], text);
+  const { delta, files, measured, snapshots } = readCommits(
+    repo,
+    base,
+    head,
+    options.ignore ?? [],
+    text,
+    options.onNotice,
+  );
   const all = files.flat();
   const geminiBlobs = new Set(
     snapshots.flatMap(({ snapshot, names }) =>
@@ -369,6 +421,68 @@ function mcpLines(delta: PullRequestDelta): string[] {
   return [parts.join(" "), ""];
 }
 
+const pluginStateLabels: Record<PluginState, string> = {
+  enabled: "enabled",
+  disabled: "turned off",
+  configured: "configured",
+  defined: "defined here",
+  catalog: "marketplace file",
+  marketplace: "registered marketplace",
+  "skills-folder": "in .claude/skills, loads unless turned off",
+};
+
+/**
+ * Repository text as a Markdown code span, which GitHub never turns into a link or a mention, as it
+ * can with escaped text. The fence is longer than any run of backticks in the value.
+ */
+function codeSpan(value: string): string {
+  const text = value.replace(/\p{Cc}/gu, " ");
+  let longest = 0;
+  for (const [run] of text.matchAll(/`+/g)) longest = Math.max(longest, run.length);
+  const fence = "`".repeat(longest + 1);
+  // CommonMark strips one space from each end when both ends have one, so those are padded too.
+  const spaced = text.startsWith(" ") && text.endsWith(" ") && text.trim().length > 0;
+  const padded = text.startsWith("`") || text.endsWith("`") || spaced ? ` ${text} ` : text;
+  return `${fence}${padded}${fence}`;
+}
+
+const pluginLabel = (state: PluginState, listed?: PluginCatalog) =>
+  listed
+    ? `${pluginStateLabels[state]}, ${listed.local + listed.external} plugin${listed.local + listed.external === 1 ? "" : "s"} (${listed.local} by relative path)`
+    : pluginStateLabels[state];
+
+/**
+ * The plugins tracked files name at each commit, and what changed, when either commit has a file
+ * that names them. The same plugin named by two files is two references, each with its own state.
+ */
+function pluginLines(delta: PullRequestDelta): string[] {
+  const plugins = delta.comparison.plugins;
+  if (!plugins) return [];
+  const capped = <T>(refs: T[], line: (ref: T) => string) =>
+    refs.slice(0, 10).map(line).join(", ") + (refs.length > 10 ? `, and ${refs.length - 10} more` : "");
+  const entry = (ref: PluginComparisonRef) =>
+    `${codeSpan(ref.name)}, ${pluginLabel(ref.state, ref.listed)} (${codeSpan(ref.path)})`;
+  const parts = [
+    `Agent plugin references in tracked files: **${signed(plugins.deltaPlugins)}** (${plugins.beforePlugins} → ${plugins.afterPlugins}).`,
+  ];
+  if (plugins.added.length) parts.push(`Added: ${capped(plugins.added, entry)}.`);
+  if (plugins.removed.length) parts.push(`Removed: ${capped(plugins.removed, entry)}.`);
+  if (plugins.changed.length) {
+    const change = (ref: PluginStateChange) =>
+      `${codeSpan(ref.name)}, ${pluginLabel(ref.before, ref.beforeListed)} → ${pluginLabel(ref.after, ref.afterListed)} (${codeSpan(ref.path)})`;
+    parts.push(`Changed: ${capped(plugins.changed, change)}.`);
+  }
+  if (plugins.beforeUnresolved || plugins.afterUnresolved) {
+    parts.push(
+      `Files whose plugins could not be read at either commit, left out of this comparison: ${plugins.beforeUnresolved} → ${plugins.afterUnresolved}.`,
+    );
+  }
+  parts.push(
+    "Enabled is not installed, and defined is not active. Strata does not fetch or estimate what a plugin outside this repository adds.",
+  );
+  return [parts.join(" "), ""];
+}
+
 export function renderPullRequestDelta(delta: PullRequestDelta): string {
   const comparison = delta.comparison;
   const skills = comparison.skillListing;
@@ -408,6 +522,8 @@ export function renderPullRequestDelta(delta: PullRequestDelta): string {
     "",
     ...listingLine,
     ...mcpLines(delta),
+    ...(delta.pluginPackagesLeftOut ? [packagesLeftOutNotice, ""] : []),
+    ...pluginLines(delta),
     ...upFrontLines(delta),
     ...providerLines(delta),
     // With no changed file, both tables would have headers only.

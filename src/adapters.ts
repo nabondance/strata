@@ -27,13 +27,18 @@ export interface Classification {
    * or Copilot reads for compatibility. A reader may still depend on a runtime condition Strata does
    * not resolve, such as Claude Code reading `AGENTS.md`. Cursor and Copilot read a file they do not
    * own only at a revision that tracks their own configuration, and each is left out of `readers`
-   * when no revision does.
+   * when no revision does. A plugin package keeps them, as the tools it is written for.
    */
   readers?: Provider[];
   /** Set on files Gemini CLI reads only while `context.fileName` names them (or leaves it at its default). */
   contextFile?: ContextFile;
   /** Set on a format the provider still reads but documents as superseded, such as `.cursorrules`. */
   legacy?: true;
+  /**
+   * Set on a plugin manifest or marketplace file. It packages a plugin for others, so it does not
+   * show that the repository itself uses the tool it is written for.
+   */
+  pluginPackage?: true;
   skillRoot?: string;
   skillRole?: "manifest" | "resource";
   /** Set on `CLAUDE.md`, `CLAUDE.local.md`, and `AGENTS.md`, where Claude Code starts expanding `@path` imports. */
@@ -111,6 +116,37 @@ function skill(_path: string, parts: string[]): Classification | null {
   return null;
 }
 
+// Each tool's own folder for a plugin's manifest and a marketplace. Copilot also reads Claude's.
+const pluginFolders: Array<[folder: string, provider: Provider, marketplace: boolean, readers?: Provider[]]> = [
+  [".claude-plugin", "claude", true, ["claude", "copilot"]],
+  [".codex-plugin", "codex", false],
+  [".cursor-plugin", "cursor", true],
+  [".plugin", "copilot", true],
+];
+
+function pluginPackage(path: string, parts: string[]): Classification | null {
+  const package_ = (provider: Provider, readers?: Provider[]): Classification => ({
+    provider,
+    ...(readers ? { readers: [...readers] } : {}),
+    category: "settings",
+    instructionalText: false,
+    pluginPackage: true,
+  });
+  const filename = parts.at(-1);
+  if (filename === "gemini-extension.json") {
+    // A file another tool's folder already gives a meaning, such as a Copilot hook, keeps it.
+    const owned = [codex, claude, gemini, cursor, copilot].some((adapter) => adapter(path, parts));
+    return owned ? null : package_("gemini");
+  }
+  if (path === ".agents/plugins/marketplace.json") return package_("codex");
+  if (filename !== "plugin.json" && filename !== "marketplace.json") return null;
+  if (parts.at(-3) === ".github" && parts.at(-2) === "plugin") return package_("copilot");
+  for (const [folder, provider, marketplace, readers] of pluginFolders) {
+    if (parts.at(-2) === folder && (marketplace || filename === "plugin.json")) return package_(provider, readers);
+  }
+  return null;
+}
+
 function gemini(_path: string, parts: string[]): Classification | null {
   const filename = parts.at(-1);
   if (filename === "GEMINI.md") {
@@ -168,7 +204,13 @@ function claude(path: string, parts: string[]): Classification | null {
   if (index < 0) return null;
   const within = parts.slice(index + 1);
   if (within.length === 1 && /^settings(?:\.local)?\.json$/.test(filename ?? "")) {
-    return { provider: "claude", category: "settings", instructionalText: false };
+    // Copilot CLI reads a shared subset of the repository's, including its plugin settings.
+    return {
+      provider: "claude",
+      ...(index === 0 ? { readers: ["claude", "copilot"] satisfies Provider[] } : {}),
+      category: "settings",
+      instructionalText: false,
+    };
   }
   if (within.length >= 2 && filename?.endsWith(".md")) {
     // VS Code's Copilot reads Claude agents and rules in their own format, skipping `README.md`, and
@@ -307,7 +349,7 @@ function candidateExtension(filename: string | undefined): boolean {
   return /\.(?:md|json|toml|rules)$/.test(filename ?? "");
 }
 
-const adapters: Adapter[] = [skill, shared, codex, claude, gemini, cursor, copilot];
+const adapters: Adapter[] = [skill, pluginPackage, shared, codex, claude, gemini, cursor, copilot];
 
 export function classify(path: string): Classification | null {
   const parts = path.split("/");
@@ -318,6 +360,20 @@ export function classify(path: string): Classification | null {
     return upFront && classification.instructionalText ? { ...classification, upFront } : classification;
   }
   return null;
+}
+
+/**
+ * A path that may be a plugin package but whose name alone cannot show it: `plugin.json` anywhere, or
+ * a root `marketplace.json`. These are common file names, so `confirmedPackages` reads each one, and
+ * only a file in the documented format is tracked.
+ */
+export function pluginCandidate(path: string): Classification | null {
+  if (classify(path)) return null;
+  const base = { category: "settings", instructionalText: false, pluginPackage: true } as const;
+  if (path === "marketplace.json") return { ...base, provider: "copilot" };
+  return path === "plugin.json" || path.endsWith("/plugin.json")
+    ? { ...base, provider: "shared", readers: ["codex", "copilot", "cursor"] }
+    : null;
 }
 
 /**

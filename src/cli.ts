@@ -156,7 +156,7 @@ Output:
   -f, --format <format>      html, json, svg, or badge (default: html)
       --minimal              With --format svg, draw only the layers: no text, axes, or legend
       --open                 Open the HTML report or SVG image with the default application
-      --shareable            Replace repository names, paths, commit IDs, blob IDs, and MCP server names with aliases
+      --shareable            Replace repository names, paths, commit IDs, blob IDs, and MCP server and plugin names with aliases
   -q, --quiet                Print only the report path
 
 ${ignoreHelp.analyze}
@@ -513,7 +513,7 @@ async function analyze(args: string[]): Promise<void> {
     `Latest: ${latest?.componentCount ?? 0} tracked components, ${latest?.estimatedTokens ?? 0} stored-text tokens (${report.measurement.accuracy === "estimate" ? "UTF-8 bytes / 4 per file, an estimate" : report.measurement.label}).`,
   );
   // No revision ever had a recognized file, so say where Strata looks.
-  if (!report.components.length) {
+  if (!report.components.length && !report.pluginPackagesLeftOut) {
     say(
       "Strata recognized no agent configuration in this history. It looks for files such as CLAUDE.md, AGENTS.md, GEMINI.md,\n" +
         ".github/copilot-instructions.md, and the .claude/, .codex/, .agents/skills/, and .cursor/rules/ folders.\n" +
@@ -671,6 +671,12 @@ function submoduleNotes(submodules: Submodule[]): string[] {
     if (configured.length > 5) listed.push(`and ${configured.length - 5} more`);
     notes.push(
       `${configured.length} Git submodules hold recognized agent configuration files that Strata did not analyze: ${listed.join(", ")}. Run strata analyze on one to see its history.`,
+    );
+  }
+  const unread = submodules.filter(({ pluginFilesUnread }) => pluginFilesUnread).length;
+  if (unread) {
+    notes.push(
+      `${unread} Git submodule${unread === 1 ? " is a partial clone" : "s are partial clones"} with files that may be plugin manifests, which Strata did not read.`,
     );
   }
   if (unknown) {

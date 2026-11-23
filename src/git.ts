@@ -139,11 +139,29 @@ export function listTree(repo: string, revision: string, env?: NodeJS.ProcessEnv
   return entries;
 }
 
+/** Whether this is a partial clone, which may lack the blobs of any file version. */
+export function isPartialClone(repo: string, env?: NodeJS.ProcessEnv): boolean {
+  // Git exits with an error when no key matches.
+  const config = (args: string[]) => {
+    try {
+      return git(repo, ["config", ...args], undefined, env)
+        .toString("utf8")
+        .trim();
+    } catch {
+      return "";
+    }
+  };
+  if (config(["--get", "extensions.partialClone"])) return true;
+  return config(["--type=bool", "--get-regexp", "^remote\\..*\\.promisor$"])
+    .split("\n")
+    .some((line) => line.endsWith(" true"));
+}
+
 /** Byte sizes of blobs, read from object headers without loading their content. */
-export function blobSizes(repo: string, blobs: string[]): Map<string, number> {
+export function blobSizes(repo: string, blobs: string[], env?: NodeJS.ProcessEnv): Map<string, number> {
   const sizes = new Map<string, number>();
   if (!blobs.length) return sizes;
-  const output = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`).toString("utf8");
+  const output = git(repo, ["cat-file", "--batch-check"], `${blobs.join("\n")}\n`, env).toString("utf8");
   for (const line of output.split("\n")) {
     if (!line) continue;
     const [blob, type, size] = line.split(" ");
@@ -158,6 +176,7 @@ export function* readBlobs(
   repo: string,
   blobs: string[],
   sizeOf: (blob: string) => number,
+  env?: NodeJS.ProcessEnv,
 ): Generator<[blob: string, body: Buffer]> {
   for (let index = 0; index < blobs.length; ) {
     const chunk: string[] = [];
@@ -170,7 +189,7 @@ export function* readBlobs(
       chunk.push(blob);
       bytes += sizeOf(blob);
     }
-    const output = git(repo, ["cat-file", "--batch"], `${chunk.join("\n")}\n`);
+    const output = git(repo, ["cat-file", "--batch"], `${chunk.join("\n")}\n`, env);
     let offset = 0;
     for (const blob of chunk) {
       const newline = output.indexOf(10, offset);

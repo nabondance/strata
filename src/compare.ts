@@ -1,4 +1,4 @@
-import type { Component, RevisionSnapshot } from "./model.js";
+import type { Component, PluginCatalog, PluginState, RevisionSnapshot } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
 
 /** The part of a revision a comparison reads. */
@@ -68,6 +68,44 @@ export interface McpComparison {
   removed: McpServerRef[];
 }
 
+/** A plugin one side's files name, by name, the file that names it, and what that file says. */
+export interface PluginComparisonRef {
+  name: string;
+  path: string;
+  provider: Component["provider"];
+  state: PluginState;
+  listed?: PluginCatalog;
+}
+
+/** A plugin the same file names at both sides with a different state, or a marketplace whose counts moved. */
+export interface PluginStateChange {
+  name: string;
+  path: string;
+  provider: Component["provider"];
+  before: PluginState;
+  after: PluginState;
+  /** On a marketplace file: what it lists at each side. */
+  beforeListed?: PluginCatalog;
+  afterListed?: PluginCatalog;
+}
+
+/**
+ * The plugin references tracked files hold at each side. A reference is a file and a name, so the
+ * same plugin defined in one file and enabled in another is two. `beforeUnresolved` and
+ * `afterUnresolved` count files whose plugins could not be read. A file unreadable at either side
+ * is left out of the counts and lists at both, since it may still name the plugins it named.
+ */
+export interface PluginComparison {
+  beforePlugins: number;
+  afterPlugins: number;
+  deltaPlugins: number;
+  beforeUnresolved: number;
+  afterUnresolved: number;
+  added: PluginComparisonRef[];
+  removed: PluginComparisonRef[];
+  changed: PluginStateChange[];
+}
+
 export interface Comparison {
   beforeTokens: number;
   afterTokens: number;
@@ -81,6 +119,8 @@ export interface Comparison {
   skillListing: ListingComparison;
   /** Present when either side has a component with `mcp`: an MCP file, or settings that mention MCP servers. */
   mcp?: McpComparison;
+  /** Present when either side names a plugin or has a file whose plugins could not be read. */
+  plugins?: PluginComparison;
   components: ComponentDelta[];
 }
 
@@ -188,6 +228,49 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
   const serversBefore = servers(baseline);
   const serversAfter = servers(target);
   const byServer = (a: McpServerRef, b: McpServerRef) => a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
+  const pluginsAt = (revision: ComparedRevision) => {
+    const refs = new Map<string, PluginComparisonRef>();
+    const unreadable = new Set<string>();
+    // A Codex overlay beside a root manifest adds settings; that manifest is the plugin's identity.
+    const overlay = ".codex-plugin/plugin.json";
+    const manifests = new Set(
+      revision.components
+        .filter((component) => component.pluginPackage && component.plugins && component.readers?.includes("codex"))
+        .map(({ path }) => path),
+    );
+    for (const component of revision.components) {
+      if (!component.plugins) continue;
+      if (component.path.endsWith(overlay) && manifests.has(`${component.path.slice(0, -overlay.length)}plugin.json`)) {
+        continue;
+      }
+      if (component.plugins.status === "unresolved") {
+        unreadable.add(component.path);
+        continue;
+      }
+      for (const plugin of component.plugins.plugins) {
+        // A marketplace and a plugin can share a name in one settings file, so the kind is in the key.
+        const kind = plugin.state === "marketplace" ? "marketplace" : "plugin";
+        refs.set(`${component.path}\0${kind}\0${plugin.name}`, {
+          name: plugin.name,
+          path: component.path,
+          provider: component.provider,
+          state: plugin.state,
+          ...(plugin.listed ? { listed: plugin.listed } : {}),
+        });
+      }
+    }
+    return { refs, unreadable };
+  };
+  const pluginsBefore = pluginsAt(baseline);
+  const pluginsAfter = pluginsAt(target);
+  const comparable = (refs: Map<string, PluginComparisonRef>) =>
+    new Map(
+      [...refs].filter(([, ref]) => !pluginsBefore.unreadable.has(ref.path) && !pluginsAfter.unreadable.has(ref.path)),
+    );
+  const refsBefore = comparable(pluginsBefore.refs);
+  const refsAfter = comparable(pluginsAfter.refs);
+  const byPlugin = (a: { name: string; path: string }, b: { name: string; path: string }) =>
+    a.path.localeCompare(b.path) || a.name.localeCompare(b.name);
   const listedBefore = listing(baseline);
   const listedAfter = listing(target);
   const deltaTokens = target.estimatedTokens - baseline.estimatedTokens;
@@ -224,6 +307,44 @@ export function compareRevisions(baseline: ComparedRevision, target: ComparedRev
             removed: [...serversBefore.refs]
               .flatMap(([key, ref]) => (serversAfter.refs.has(key) ? [] : [ref]))
               .sort(byServer),
+          },
+        }
+      : {}),
+    ...(pluginsBefore.refs.size ||
+    pluginsAfter.refs.size ||
+    pluginsBefore.unreadable.size ||
+    pluginsAfter.unreadable.size
+      ? {
+          plugins: {
+            beforePlugins: refsBefore.size,
+            afterPlugins: refsAfter.size,
+            deltaPlugins: refsAfter.size - refsBefore.size,
+            beforeUnresolved: pluginsBefore.unreadable.size,
+            afterUnresolved: pluginsAfter.unreadable.size,
+            added: [...refsAfter].flatMap(([key, ref]) => (refsBefore.has(key) ? [] : [ref])).sort(byPlugin),
+            removed: [...refsBefore].flatMap(([key, ref]) => (refsAfter.has(key) ? [] : [ref])).sort(byPlugin),
+            changed: [...refsAfter]
+              .flatMap(([key, ref]) => {
+                const before = refsBefore.get(key);
+                if (!before) return [];
+                const same =
+                  before.state === ref.state &&
+                  before.listed?.local === ref.listed?.local &&
+                  before.listed?.external === ref.listed?.external;
+                if (same) return [];
+                return [
+                  {
+                    name: ref.name,
+                    path: ref.path,
+                    provider: ref.provider,
+                    before: before.state,
+                    after: ref.state,
+                    ...(before.listed ? { beforeListed: before.listed } : {}),
+                    ...(ref.listed ? { afterListed: ref.listed } : {}),
+                  },
+                ];
+              })
+              .sort(byPlugin),
           },
         }
       : {}),

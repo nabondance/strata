@@ -1,4 +1,4 @@
-import type { Report } from "./model.js";
+import type { Component, Report } from "./model.js";
 
 /**
  * Path pieces a shareable report keeps as they are, because they are public tool conventions rather
@@ -23,6 +23,9 @@ export const shareableConventions = {
     "settings.local.json",
     "mcp.json",
     "hooks.json",
+    "plugin.json",
+    "marketplace.json",
+    "gemini-extension.json",
     "config.toml",
     "system.md",
     "copilot-instructions.md",
@@ -33,6 +36,12 @@ export const shareableConventions = {
     ".mcp.json",
     // Recognized folders.
     ".claude",
+    ".claude-plugin",
+    ".codex-plugin",
+    ".cursor-plugin",
+    ".plugin",
+    "plugin",
+    "plugins",
     ".codex",
     ".gemini",
     ".agents",
@@ -210,6 +219,20 @@ export function redactReport(report: Report): Report {
     ),
     "server",
   );
+  // Numbered as the history first names them, like paths, so an alias reveals no alphabetical order.
+  const plugins = new Map<string, string>();
+  const aliasPlugins = (component: Component | undefined) => {
+    if (component?.plugins?.status !== "listed") return;
+    for (const { name } of component.plugins.plugins) {
+      if (!plugins.has(name)) plugins.set(name, `plugin-${String(plugins.size + 1).padStart(5, "0")}`);
+    }
+  };
+  for (const revision of report.revisions) {
+    for (const change of revision.changes ?? []) {
+      aliasPlugins(change.component === null ? undefined : report.components[change.component]);
+    }
+  }
+  for (const component of report.components) aliasPlugins(component);
   const blobs = sortedAliases(
     report.components.map((component) => component.blob),
     "blob",
@@ -234,6 +257,14 @@ export function redactReport(report: Report): Report {
           mcp: {
             ...component.mcp,
             servers: component.mcp.servers.map((server) => ({ ...server, name: servers.get(server.name)! })),
+          },
+        }
+      : {}),
+    ...(component.plugins?.status === "listed"
+      ? {
+          plugins: {
+            ...component.plugins,
+            plugins: component.plugins.plugins.map((plugin) => ({ ...plugin, name: plugins.get(plugin.name)! })),
           },
         }
       : {}),

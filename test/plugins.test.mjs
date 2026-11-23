@@ -1,0 +1,778 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import test from "node:test";
+import { classify } from "../dist/adapters.js";
+import { analyzeRepository } from "../dist/analyze.js";
+import { compareRevisions } from "../dist/compare.js";
+import { expandRevisions } from "../dist/expand.js";
+import { importLinks } from "../dist/import-links.js";
+import { pluginFormat, pluginRefs } from "../dist/plugins.js";
+import { compareGitCommits, renderPullRequestDelta } from "../dist/pr-delta.js";
+import { redactReport } from "../dist/privacy.js";
+import { viewRevision } from "../dist/provider-view.js";
+import { renderHtml } from "../dist/report.js";
+import { inspectSubmodules } from "../dist/submodules.js";
+import { loadReportUi } from "./report-ui.mjs";
+import { syntheticRepo } from "./synthetic-repo.mjs";
+
+test("shows Claude plugins through time by state, without their sources or content", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-plugins-");
+  const secret = "private-org/secret-plugins";
+  // A plugin name is repository text: Markdown and HTML must escape it.
+  const hostile = "a|b<i>\u001b[31m@tools";
+  const at = (revision) =>
+    Object.fromEntries(
+      revision.components
+        .filter((component) => component.plugins)
+        .map((component) => [
+          component.path,
+          component.plugins.status === "listed"
+            ? component.plugins.plugins.map(
+                (plugin) =>
+                  `${plugin.name}:${plugin.state}${plugin.listed ? `:${plugin.listed.local}+${plugin.listed.external}` : ""}`,
+              )
+            : component.plugins.status,
+        ]),
+    );
+  try {
+    put("CLAUDE.md", "Project memory.\n");
+    put(".claude/settings.json", '{"model":"example"}\n');
+    const first = commit("No plugins");
+
+    put("plugins/fmt/.claude-plugin/plugin.json", '{"name":"fmt"}\n');
+    put(
+      "plugins/fmt/skills/lint/SKILL.md",
+      `---\nname: lint\ndescription: Lint.\n---\n${"Plugin text. ".repeat(50)}\n`,
+    );
+    put(
+      ".claude-plugin/marketplace.json",
+      JSON.stringify({
+        name: "tools",
+        owner: { name: "Example" },
+        plugins: [
+          { name: "fmt", source: "./plugins/fmt" },
+          { name: "remote", source: { source: "github", repo: secret } },
+        ],
+      }),
+    );
+    put(".claude/skills/pack/.claude-plugin/plugin.json", '{"name":"pack"}\n');
+    put(".claude/skills/off/.claude-plugin/plugin.json", '{"name":"off","defaultEnabled":false}\n');
+    put(
+      ".claude/settings.json",
+      JSON.stringify({
+        enabledPlugins: { "fmt@tools": true, "old@tools": true, [hostile]: false },
+        extraKnownMarketplaces: { tools: { source: { source: "github", repo: secret } } },
+      }),
+    );
+    const second = commit("Add plugins");
+
+    put(".claude/settings.json", JSON.stringify({ enabledPlugins: { "fmt@tools": false, [hostile]: false } }));
+    put(".claude-plugin/marketplace.json", "{ not json");
+    const third = commit("Turn one off and break the marketplace");
+
+    const report = await analyzeRepository(repo);
+    const revisions = expandRevisions(report);
+    assert.equal(report.schemaVersion, 23);
+    assert.deepEqual(at(revisions[0]), {});
+    assert.deepEqual(at(revisions[1]), {
+      ".claude-plugin/marketplace.json": ["tools:catalog:1+1"],
+      ".claude/settings.json": ["fmt@tools:enabled", "old@tools:enabled", `${hostile}:disabled`, "tools:marketplace"],
+      ".claude/skills/off/.claude-plugin/plugin.json": ["off@skills-dir:defined"],
+      ".claude/skills/pack/.claude-plugin/plugin.json": ["pack@skills-dir:skills-folder"],
+      "plugins/fmt/.claude-plugin/plugin.json": ["fmt:defined"],
+    });
+    assert.equal(at(revisions[2])[".claude-plugin/marketplace.json"], "unresolved");
+
+    // Naming a plugin adds no tokens, and its own files are not counted as this repository's context.
+    assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
+    assert.ok(!revisions[1].components.some((component) => component.path.endsWith("lint/SKILL.md")));
+    assert.ok(!JSON.stringify(report).includes(secret));
+
+    const change = compareRevisions(revisions[1], revisions[2]).plugins;
+    assert.deepEqual([change.beforePlugins, change.afterPlugins, change.afterUnresolved], [7, 5, 1]);
+    assert.deepEqual(
+      change.changed.map((ref) => `${ref.name}:${ref.before}>${ref.after}`),
+      ["fmt@tools:enabled>disabled"],
+    );
+
+    // A file that stops parsing may still name its plugins, so none of them count as removed.
+    assert.ok(!change.removed.some((ref) => ref.path === ".claude-plugin/marketplace.json"));
+
+    const delta = compareGitCommits(repo, second, third);
+    assert.equal(delta.schemaVersion, 15);
+    const markdown = renderPullRequestDelta(delta);
+    assert.match(markdown, /Agent plugin references in tracked files: \*\*-2\*\* \(7 → 5\)/);
+    assert.match(markdown, /Changed: `fmt@tools`, enabled → turned off \(`\.claude\/settings\.json`\)/);
+    assert.match(markdown, /Enabled is not installed, and defined is not active/);
+    assert.ok(!markdown.includes("\u001b"));
+    assert.equal(compareGitCommits(repo, first, first).comparison.plugins, undefined);
+    assert.ok(renderPullRequestDelta(compareGitCommits(repo, first, second)).includes("`a|b<i> [31m@tools`"));
+
+    // A shareable export aliases names, the same name to the same alias.
+    const shared = JSON.stringify(redactReport(report));
+    assert.ok(!shared.includes("fmt@tools") && !shared.includes("pack@skills-dir") && shared.includes("plugin-00001"));
+
+    const html = renderHtml(report);
+    assert.ok(!html.includes(secret) && !html.includes("b<i>"));
+    const ui = loadReportUi(html);
+    assert.equal(ui.get("plugins-panel").hidden, false);
+    assert.equal(ui.get("plugins-count").textContent, "5 references · 5 files · 1 unresolved");
+    assert.equal(ui.get("compare-plugins-wrap").hidden, false);
+    const flat = (node) => (node.textContent ?? "") + node.children.map(flat).join("");
+    assert.ok(
+      ui
+        .get("compare-plugin-names")
+        .children.some((group) => flat(group).includes("fmt@tools, enabled → turned off .claude/settings.json")),
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("covers every tool's plugin files, and only confirmed ones among common file names", async () => {
+  const { repo, put, commit, cleanup } = syntheticRepo("strata-plugins-tools-");
+  const schema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+  const states = (revision) =>
+    Object.fromEntries(
+      revision.components
+        .filter((component) => component.plugins?.status === "listed")
+        .map((component) => [
+          component.path,
+          component.plugins.plugins.map((plugin) =>
+            [plugin.name, plugin.state, ...(plugin.listed ? [plugin.listed.local, plugin.listed.external] : [])].join(
+              ":",
+            ),
+          ),
+        ]),
+    );
+  try {
+    put("AGENTS.md", "Shared instructions.\n");
+    // Other projects use these names too, so without the documented format they are not plugins.
+    put("plugin.json", '{"name":"webpack-thing"}\n');
+    put("src/plugin.json", "not json\n");
+    const first = commit("No plugins");
+
+    const owner = { name: "Example" };
+    put(
+      ".github/plugin/marketplace.json",
+      JSON.stringify({ name: "co", owner, plugins: [{ name: "x", source: { source: "github", repo: "o/r" } }] }),
+    );
+    put(".github/copilot/settings.json", '{"enabledPlugins":{"x@co":true}}\n');
+    put(
+      ".agents/plugins/marketplace.json",
+      JSON.stringify({ name: "local-repo", plugins: [{ name: "a", source: { source: "local", path: "./a" } }] }),
+    );
+    put(".codex/config.toml", '[plugins."a@local-repo"]\nenabled = true\n\n[plugins."b@other"]\nenabled = false\n');
+    put("a/.codex-plugin/plugin.json", '{"name":"a"}\n');
+    put(
+      ".cursor-plugin/marketplace.json",
+      JSON.stringify({ name: "cur", owner, plugins: [{ name: "c", source: { path: "./c" } }] }),
+    );
+    put("c/.cursor-plugin/plugin.json", '{"name":"c"}\n');
+    put("ext/gemini-extension.json", '{"name":"ext"}\n');
+    put("std/plugin.json", JSON.stringify({ $schema: schema, name: "std" }));
+    put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: [] }));
+    const second = commit("Add each tool's plugins");
+
+    // A version that stops parsing is still a package, whose plugins are unknown rather than removed.
+    put("std/plugin.json", `{"$schema":"${schema}","name":"std",}`);
+    const broken = commit("Break the manifest");
+    const unreadable = compareGitCommits(repo, second, broken).comparison.plugins;
+    assert.deepEqual([unreadable.removed.length, unreadable.afterUnresolved], [0, 1]);
+    // JSON can write the schema's slashes with escapes, and a broken file is still recognized by it.
+    put("escaped/plugin.json", `{"$schema":"${schema.replaceAll("/", "\\/")}","name":"escaped"}`);
+    const escapedValid = commit("Escaped slashes");
+    put("escaped/plugin.json", `{"$schema":"${schema.replaceAll("/", "\\/")}","name":"escaped",}`);
+    const escapedBroken = compareGitCommits(repo, escapedValid, commit("Escaped and broken")).comparison.plugins;
+    assert.ok(
+      !escapedBroken.removed.some((ref) => ref.path === "escaped/plugin.json") && escapedBroken.afterUnresolved > 0,
+    );
+    put("escaped/plugin.json", `{"$schema":"${schema}","name":"escaped"}`);
+    // A broken file must carry the same exact schema URL as a valid one to count.
+    put("loose/plugin.json", `{"$schema":"https://agent-plugins.org/schemas/latest/plugin.schema.json","name":"x",}`);
+    assert.ok(
+      !compareGitCommits(repo, second, commit("Unversioned schema")).comparison.components.some(
+        (c) => c.path === "loose/plugin.json",
+      ),
+    );
+    // So is one that still declares the schema but breaks a required field.
+    put("std/plugin.json", JSON.stringify({ $schema: schema, name: "" }));
+    const badField = commit("Break a field");
+    const fieldBroken = compareGitCommits(repo, second, badField).comparison.plugins;
+    assert.deepEqual([fieldBroken.removed.length, fieldBroken.afterUnresolved], [0, 1]);
+
+    // A root marketplace with a damaged field is unknown too, not removed.
+    put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: { a: {} } }));
+    const badCatalog = commit("Break the catalog");
+    const catalogBroken = compareGitCommits(repo, second, badCatalog).comparison.plugins;
+    assert.ok(!catalogBroken.removed.some((ref) => ref.path === "marketplace.json"));
+    put("marketplace.json", JSON.stringify({ name: "root", owner, plugins: [] }));
+
+    put("std/plugin.json", '{"name":"std"}\n');
+    const third = commit("Drop the schema");
+
+    const report = await analyzeRepository(repo);
+    const revisions = expandRevisions(report);
+    assert.deepEqual(states(revisions[0]), {});
+    assert.deepEqual(states(revisions[1]), {
+      ".agents/plugins/marketplace.json": ["local-repo:catalog:1:0"],
+      ".codex/config.toml": ["a@local-repo:enabled", "b@other:disabled"],
+      ".cursor-plugin/marketplace.json": ["cur:catalog:1:0"],
+      ".github/copilot/settings.json": ["x@co:enabled"],
+      ".github/plugin/marketplace.json": ["co:catalog:0:1"],
+      "a/.codex-plugin/plugin.json": ["a:defined"],
+      "c/.cursor-plugin/plugin.json": ["c:defined"],
+      "ext/gemini-extension.json": ["ext:defined"],
+      "marketplace.json": ["root:catalog:0:0"],
+      "std/plugin.json": ["std:defined"],
+    });
+    const paths = (revision) => revision.components.map((component) => component.path);
+    assert.ok(!paths(revisions[1]).includes("plugin.json") && !paths(revisions[1]).includes("src/plugin.json"));
+    // A file that stops being a package leaves the inventory.
+    assert.ok(!paths(revisions.at(-1)).includes("std/plugin.json"));
+    assert.equal(revisions[1].estimatedTokens, revisions[0].estimatedTokens);
+
+    // Packaging a Cursor plugin does not show the repository uses Cursor; Copilot's settings do.
+    const agents = revisions[1].components.find((component) => component.path === "AGENTS.md");
+    assert.ok(agents.readers.includes("copilot") && !agents.readers.includes("cursor"));
+    assert.deepEqual(revisions[1].components.find((c) => c.path === "std/plugin.json").readers, [
+      "codex",
+      "copilot",
+      "cursor",
+    ]);
+
+    // `strata diff` confirms packages the same way.
+    assert.equal(compareGitCommits(repo, first, second).comparison.plugins.afterPlugins, 11);
+    assert.match(renderPullRequestDelta(compareGitCommits(repo, first, second)), /marketplace file, 1 plugin \(/);
+    const dropped = compareGitCommits(repo, second, third).comparison.plugins;
+    assert.deepEqual(
+      dropped.removed.map((ref) => ref.path),
+      ["std/plugin.json"],
+    );
+    assert.ok(redactReport(report).components.every((component) => component.path !== "std/plugin.json"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("keeps packages exact through imports, renames, partial clones, and tool detection", async (t) => {
+  const { repo, git, put, commit, cleanup } = syntheticRepo("strata-plugins-edges-");
+  t.after(cleanup);
+  const manifest = (name) =>
+    JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name });
+  const packaged = (revision) =>
+    revision.components.filter((component) => component.pluginPackage).map((component) => component.path);
+  put("CLAUDE.md", "Memory.\n");
+  put("plugin.json", manifest("root"));
+  // A marketplace can place a plugin in an agent's own folder; the file keeps its label there.
+  put(".agents/plugins/foo/plugin.json", manifest("foo"));
+  const ids = [commit("Manifest first")];
+  put("CLAUDE.md", "Memory.\n@plugin.json\n");
+  ids.push(commit("Import it"));
+  put("CLAUDE.md", "Memory.\n");
+  ids.push(commit("Stop importing it"));
+  git("mv", "plugin.json", "moved-plugin.json");
+  git("mv", "moved-plugin.json", "pkg-plugin.json");
+  git("mv", "pkg-plugin.json", "plugin.json");
+  put("sub/x.txt", "x\n");
+  git("mv", "plugin.json", "sub/plugin.json");
+  ids.push(commit("Move it"));
+
+  const report = await analyzeRepository(repo);
+  const revisions = expandRevisions(report);
+  // A package keeps its label while an import reaches it, and `strata diff` agrees.
+  const agent = ".agents/plugins/foo/plugin.json";
+  assert.deepEqual(revisions.map(packaged), [
+    [agent, "plugin.json"],
+    [agent, "plugin.json"],
+    [agent, "plugin.json"],
+    [agent, "sub/plugin.json"],
+  ]);
+  const reached = revisions[1].components.find((component) => component.path === "plugin.json");
+  assert.ok(!reached.imported && reached.plugins.status === "listed");
+  const links = importLinks(revisions[1].components);
+  assert.ok(links.some((link) => link.target === "plugin.json" && link.status === "resolved"));
+  for (let index = 1; index < ids.length; index += 1) {
+    assert.deepEqual(
+      compareGitCommits(repo, ids[index - 1], ids[index]).comparison.plugins,
+      compareRevisions(revisions[index - 1], revisions[index]).plugins,
+    );
+  }
+  assert.ok(
+    revisions[3].changes.some(
+      (change) =>
+        change.kind === "renamed" && change.previousPath === "plugin.json" && change.path === "sub/plugin.json",
+    ),
+  );
+  const inAgentFolder = revisions[0].components.find((c) => c.path === ".agents/plugins/foo/plugin.json");
+  assert.deepEqual(inAgentFolder.plugins, { status: "listed", plugins: [{ name: "foo", state: "defined" }] });
+  assert.deepEqual(inAgentFolder.readers, ["codex", "copilot", "cursor"]);
+
+  // Publishing for a tool neither adds it to session context nor gives it a report tab.
+  const published = syntheticRepo("strata-plugins-published-");
+  t.after(published.cleanup);
+  published.put("AGENTS.md", "Shared instructions.\n");
+  const base = published.commit("Instructions");
+  published.put(".cursor-plugin/plugin.json", '{"name":"pub"}\n');
+  published.put(".claude-plugin/plugin.json", '{"name":"pub"}\n');
+  const head = published.commit("Publish plugins");
+  assert.ok(!compareGitCommits(published.repo, base, head).upFront.some((row) => row.provider === "cursor"));
+  const tabs = loadReportUi(renderHtml(await analyzeRepository(published.repo)))
+    .get("provider-tabs")
+    .children.map((tab) => tab.textContent);
+  assert.ok(!tabs.some((tab) => /^(?:Copilot|Cursor)/.test(tab)), tabs.join(", "));
+  published.put(".codex/tools/plugin.json", '{"name":"not a plugin"}\n');
+  published.commit("An unrelated file");
+  const codexTabs = loadReportUi(renderHtml(await analyzeRepository(published.repo)))
+    .get("provider-tabs")
+    .children.map((tab) => tab.textContent);
+  assert.ok(
+    codexTabs.some((tab) => tab.startsWith("Codex")),
+    codexTabs.join(", "),
+  );
+
+  // A partial clone leaves plugin packages out, whichever blobs it holds, and downloads nothing for them.
+  const remote = syntheticRepo("strata-plugins-partial-");
+  t.after(remote.cleanup);
+  remote.git("config", "uploadpack.allowFilter", "true");
+  remote.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  remote.put("CLAUDE.md", "Memory.\n@.claude-plugin/plugin.json\n");
+  remote.put(".claude-plugin/plugin.json", '{"name":"imported"}\n');
+  remote.put("a/plugin.json", manifest("held"));
+  remote.put("b/plugin.json", manifest("old"));
+  const oldCommit = remote.commit("First");
+  remote.put("b/plugin.json", manifest("new"));
+  const newCommit = remote.commit("Second");
+  const clone = `${remote.repo}-clone`;
+  t.after(() => rmSync(clone, { recursive: true, force: true }));
+  const inClone = (...args) => execFileSync("git", ["-C", clone, ...args], { stdio: "ignore" });
+  execFileSync(
+    "git",
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${remote.repo}`, clone],
+    {
+      stdio: "ignore",
+    },
+  );
+  inClone("cat-file", "-p", `${newCommit}:CLAUDE.md`);
+  inClone("cat-file", "-p", `${newCommit}:a/plugin.json`);
+  const read = async () => {
+    const notices = [];
+    const report = await analyzeRepository(clone, { onNotice: (line) => notices.push(line) });
+    return { report, notices, components: expandRevisions(report).at(-1).components };
+  };
+  const first = await read();
+  assert.ok(first.report.pluginPackagesLeftOut);
+  assert.match(first.notices[0], /This is a partial clone/);
+  // A left-out file an import reaches is an ordinary imported file, with no plugin entry.
+  assert.deepEqual(
+    first.components.map((component) => [component.path, Boolean(component.imported), component.plugins ?? null]),
+    [
+      [".claude-plugin/plugin.json", true, null],
+      ["CLAUDE.md", false, null],
+    ],
+  );
+  // A root marketplace without an owner stays tracked when it is damaged or emptied; an unrelated one is not tracked.
+  const catalog = syntheticRepo("strata-plugins-catalog-");
+  t.after(catalog.cleanup);
+  catalog.put("marketplace.json", '{"name":"market","plugins":[{"name":"a","source":"./a"}]}');
+  const catalogBase = catalog.commit("A marketplace");
+  catalog.put("marketplace.json", '{"name":"market","plugins":[{"name":"a","source":"./a"}],}');
+  const catalogDamaged = compareGitCommits(catalog.repo, catalogBase, catalog.commit("Damaged")).comparison.plugins;
+  assert.deepEqual([catalogDamaged.removed.length, catalogDamaged.afterUnresolved], [0, 1]);
+  // A broken file with only a list of strings does not read like a marketplace.
+  catalog.put("marketplace.json", '{"name":"shop","plugins":["a","b"],}');
+  assert.equal(
+    compareGitCommits(catalog.repo, catalogBase, catalog.commit("Broken app data")).comparison.plugins.afterUnresolved,
+    0,
+  );
+  // An ownerless file with an empty list could be anything, so it is not a marketplace.
+  catalog.put("marketplace.json", '{"name":"Acme store","plugins":[]}');
+  assert.equal(
+    compareGitCommits(catalog.repo, catalogBase, catalog.commit("App data")).comparison.plugins.afterPlugins,
+    0,
+  );
+  catalog.put("marketplace.json", '{"name":"shop","plugins":["payments"]}');
+  assert.equal(
+    compareGitCommits(catalog.repo, catalogBase, catalog.commit("Unrelated")).comparison.plugins.afterPlugins,
+    0,
+  );
+
+  // A Codex overlay beside a root manifest adds no identity of its own; alone, it must name the plugin.
+  const overlay = syntheticRepo("strata-plugins-overlay-");
+  t.after(overlay.cleanup);
+  overlay.put("tool/plugin.json", manifest("real-identity"));
+  overlay.put("tool/.codex-plugin/plugin.json", '{"name":"overlay-name"}\n');
+  overlay.put("alone/.codex-plugin/plugin.json", '{"name":"kept"}\n');
+  const overlayBase = overlay.commit("Overlay and standalone");
+  overlay.put("alone/.codex-plugin/plugin.json", '{"version":"1.0.1"}\n');
+  const overlayDelta = compareGitCommits(overlay.repo, overlayBase, overlay.commit("Lost its name")).comparison.plugins;
+  assert.deepEqual([overlayDelta.removed.length, overlayDelta.afterUnresolved], [0, 1]);
+  assert.equal(overlayDelta.afterPlugins, 1);
+
+  // An unrelated plugin.json beside a Codex overlay is not its root manifest.
+  const besideOverlay = syntheticRepo("strata-plugins-beside-overlay-");
+  t.after(besideOverlay.cleanup);
+  besideOverlay.put("CLAUDE.md", "@plugin.json\n");
+  besideOverlay.put("plugin.json", '{"name":"webpack-thing"}\n');
+  const noOverlay = besideOverlay.commit("An unrelated file");
+  besideOverlay.put(".codex-plugin/plugin.json", '{"name":"real-codex-plugin"}\n');
+  const addedOverlay = compareGitCommits(besideOverlay.repo, noOverlay, besideOverlay.commit("A Codex plugin"))
+    .comparison.plugins;
+  assert.deepEqual(
+    addedOverlay.added.map((ref) => ref.name),
+    ["real-codex-plugin"],
+  );
+
+  // Only an Agent Plugins root manifest supersedes a Codex overlay, not a Copilot-only one.
+  const copilotSibling = syntheticRepo("strata-plugins-copilot-sibling-");
+  t.after(copilotSibling.cleanup);
+  copilotSibling.put("CLAUDE.md", "Memory.\n");
+  const noPlugins = copilotSibling.commit("No plugins");
+  copilotSibling.put("pkg/.plugin/plugin.json", '{"name":"copilot-one"}\n');
+  copilotSibling.put("pkg/.plugin/.codex-plugin/plugin.json", '{"name":"codex-one"}\n');
+  const bothAdded = compareGitCommits(copilotSibling.repo, noPlugins, copilotSibling.commit("Both")).comparison.plugins;
+  assert.deepEqual(bothAdded.added.map((ref) => ref.name).sort(), ["codex-one", "copilot-one"]);
+
+  // A settings file in another encoding that names no plugins raises nothing, and a parser failure stops nothing.
+  const latin = syntheticRepo("strata-plugins-latin-");
+  t.after(latin.cleanup);
+  latin.put("CLAUDE.md", "Memory.\n");
+  const beforeLatin = latin.commit("Memory");
+  latin.put(".claude/settings.json", Buffer.from('{"note":"caf\xe9"}', "latin1"));
+  latin.put(".codex/config.toml", Buffer.from('note = "caf\xe9"\n', "latin1"));
+  assert.equal(compareGitCommits(latin.repo, beforeLatin, latin.commit("Latin-1")).comparison.plugins, undefined);
+  latin.put(".codex/config.toml", `# plugins\n"${"k".repeat(20_000_000)}" = 1\n`);
+  assert.doesNotThrow(() => compareGitCommits(latin.repo, beforeLatin, latin.commit("A huge key")));
+
+  // A partial clone whose only configuration is a plugin does not claim it has none.
+  const onlyPlugin = syntheticRepo("strata-plugins-only-");
+  const onlyClone = `${onlyPlugin.repo}-clone`;
+  t.after(onlyPlugin.cleanup);
+  t.after(() => rmSync(onlyClone, { recursive: true, force: true }));
+  onlyPlugin.git("config", "uploadpack.allowFilter", "true");
+  onlyPlugin.put(".claude-plugin/plugin.json", '{"name":"only"}\n');
+  onlyPlugin.commit("A plugin");
+  execFileSync(
+    "git",
+    ["clone", "-q", "--no-local", "--no-checkout", "--filter=blob:none", `file://${onlyPlugin.repo}`, onlyClone],
+    {
+      stdio: "ignore",
+    },
+  );
+  const onlyReport = await analyzeRepository(onlyClone);
+  const emptyCard = loadReportUi(renderHtml(onlyReport)).get("empty-state");
+  assert.match(emptyCard.children[0].textContent, /did not read the possible plugin files/);
+
+  // That import's download does not change the next run.
+  assert.deepEqual((await read()).components, first.components);
+  const partialDelta = compareGitCommits(clone, oldCommit, newCommit);
+  assert.equal(partialDelta.comparison.plugins, undefined);
+  assert.ok(partialDelta.pluginPackagesLeftOut);
+  assert.match(renderPullRequestDelta(partialDelta), /This is a partial clone/);
+  // Git also marks a partial clone with `extensions.partialClone`.
+  inClone("config", "--unset", "remote.origin.promisor");
+  inClone("config", "core.repositoryformatversion", "1");
+  inClone("config", "extensions.partialClone", "origin");
+  assert.ok((await read()).report.pluginPackagesLeftOut);
+
+  // An imported file that happens to be called plugin.json is not reported as renamed.
+  const importedMove = syntheticRepo("strata-plugins-imported-move-");
+  t.after(importedMove.cleanup);
+  importedMove.put("CLAUDE.md", "@docs/plugin.json\n");
+  importedMove.put("docs/plugin.json", '{"name":"not a package"}\n');
+  importedMove.commit("Import it");
+  importedMove.put("conf/.keep", "");
+  importedMove.git("mv", "docs/plugin.json", "conf/plugin.json");
+  importedMove.put("CLAUDE.md", "@conf/plugin.json\n");
+  importedMove.commit("Move it");
+  const moved = expandRevisions(await analyzeRepository(importedMove.repo)).at(-1);
+  assert.ok(!moved.changes.some((change) => change.kind === "renamed"));
+  // It stays an ordinary imported file, and an unrelated plugin.json still gives its tool a tab.
+  const importedFile = moved.components.find((component) => component.path === "conf/plugin.json");
+  assert.ok(importedFile.imported && !importedFile.plugins && !importedFile.pluginPackage);
+
+  // An Agent Plugins manifest in Claude's folder is a plugin to the tools that read that format, not to Claude.
+  const inClaudeFolder = syntheticRepo("strata-plugins-claude-folder-");
+  t.after(inClaudeFolder.cleanup);
+  inClaudeFolder.put("CLAUDE.md", "Memory.\n");
+  inClaudeFolder.put(".claude/plugins/forcodex/plugin.json", manifest("forcodex"));
+  inClaudeFolder.commit("A manifest for other tools");
+  const folderManifest = await analyzeRepository(inClaudeFolder.repo);
+  const claudeView = viewRevision(
+    expandRevisions(folderManifest).at(-1),
+    "claude",
+    undefined,
+    folderManifest.components,
+  );
+  assert.ok(!claudeView.components.some((component) => component.plugins));
+
+  // A name from the repository cannot become a link in the job summary.
+  const linked = syntheticRepo("strata-plugins-linked-");
+  t.after(linked.cleanup);
+  linked.put("CLAUDE.md", "Memory.\n");
+  const unlinked = linked.commit("No plugins");
+  linked.put(
+    ".claude/settings.json",
+    '{"enabledPlugins":{"https://evil.example/x":true,"a@evil.example":true,"_www.evil.example":true}}',
+  );
+  const withLink = renderPullRequestDelta(compareGitCommits(linked.repo, unlinked, linked.commit("A link")));
+  for (const value of ["https://evil.example/x", "a@evil.example", "_www.evil.example"]) {
+    assert.ok(withLink.includes(`\`${value}\``), value);
+  }
+  // Escaping stays linear on a long name.
+  const manyAts = syntheticRepo("strata-plugins-long-name-");
+  t.after(manyAts.cleanup);
+  manyAts.put("CLAUDE.md", "Memory.\n");
+  const shortName = manyAts.commit("No plugins");
+  manyAts.put(".claude/settings.json", JSON.stringify({ enabledPlugins: { ["@`".repeat(128)]: true } }));
+  const longDelta = compareGitCommits(manyAts.repo, shortName, manyAts.commit("A long name"));
+  const started = Date.now();
+  renderPullRequestDelta(longDelta);
+  assert.ok(Date.now() - started < 5000);
+
+  assert.equal(classify(".github/hooks/gemini-extension.json").provider, "copilot");
+  assert.equal(classify(".github/hooks/sub/gemini-extension.json").provider, "gemini");
+  assert.equal(classify(".cursor/gemini-extension.json").provider, "cursor");
+
+  // A plugin.json in an agent folder never makes a tool count as used, in a full or a partial clone.
+  const agentFolder = syntheticRepo("strata-plugins-agent-folder-");
+  t.after(agentFolder.cleanup);
+  agentFolder.put("AGENTS.md", "Shared instructions.\n");
+  const beforeManifest = agentFolder.commit("Instructions");
+  agentFolder.put(".cursor/plugin.json", manifest("pub"));
+  const afterManifest = agentFolder.commit("Publish from an agent folder");
+  assert.ok(
+    !compareGitCommits(agentFolder.repo, beforeManifest, afterManifest).upFront.some(
+      (row) => row.provider === "cursor",
+    ),
+  );
+
+  // A Copilot hooks file that happens to be called plugin.json is real Copilot configuration.
+  const hooks = syntheticRepo("strata-plugins-hooks-");
+  t.after(hooks.cleanup);
+  hooks.put("AGENTS.md", "Shared instructions.\n");
+  const noHooks = hooks.commit("Instructions");
+  hooks.put(".github/hooks/plugin.json", '{"version":1,"hooks":{}}\n');
+  const withHooks = hooks.commit("Hooks");
+  assert.ok(compareGitCommits(hooks.repo, noHooks, withHooks).upFront.some((row) => row.provider === "copilot"));
+
+  // A huge file with a common name is not loaded to check it.
+  const huge = syntheticRepo("strata-plugins-huge-");
+  t.after(huge.cleanup);
+  huge.put("CLAUDE.md", "Memory.\n");
+  huge.put("vendor/plugin.json", Buffer.alloc(65 * 1024 * 1024, 0xff));
+  huge.commit("A large unrelated file");
+  assert.deepEqual(
+    expandRevisions(await analyzeRepository(huge.repo))
+      .at(-1)
+      .components.map((component) => component.path),
+    ["CLAUDE.md"],
+  );
+
+  // A template inside a skill is one of the skill's files, not a plugin the repository defines.
+  assert.equal(
+    pluginFormat(".claude/skills/scaffold/assets/template/.claude-plugin/plugin.json", {
+      provider: "claude",
+      category: "skills",
+      skillRole: "resource",
+    }),
+    null,
+  );
+
+  // A partial-clone submodule keeps its known count and says what it did not read.
+  const parent = syntheticRepo("strata-plugins-parent-");
+  const library = syntheticRepo("strata-plugins-library-");
+  t.after(parent.cleanup);
+  t.after(library.cleanup);
+  library.git("config", "uploadpack.allowFilter", "true");
+  library.put("src/plugin.json", '{"name":"unrelated"}\n');
+  const libraryCommit = library.commit("A library");
+  parent.put("README.md", "Parent.\n");
+  parent.commit("Parent");
+  execFileSync(
+    "git",
+    [
+      "clone",
+      "-q",
+      "--no-local",
+      "--no-checkout",
+      "--filter=blob:none",
+      `file://${library.repo}`,
+      `${parent.repo}/vendor`,
+    ],
+    {
+      stdio: "ignore",
+    },
+  );
+  assert.deepEqual(inspectSubmodules(parent.repo, new Map([["vendor", libraryCommit]])), [
+    { path: "vendor", configFiles: 0, pluginFilesUnread: true },
+  ]);
+
+  // A settings file saved in another encoding may still name its plugins.
+  const encoded = syntheticRepo("strata-plugins-encoded-");
+  t.after(encoded.cleanup);
+  const settings = '{"enabledPlugins":{"fmt@tools":true}}';
+  encoded.put(".claude/settings.json", settings);
+  const utf8 = encoded.commit("UTF-8");
+  encoded.put(".claude/settings.json", Buffer.from(`\uFEFF${settings}`, "utf16le"));
+  const utf16 = encoded.commit("UTF-16");
+  const reencoded = compareGitCommits(encoded.repo, utf8, utf16).comparison.plugins;
+  assert.deepEqual([reencoded.removed.length, reencoded.afterUnresolved], [0, 1]);
+
+  // Only Claude Code loads a plugin from a skill folder.
+  const skillFolder = syntheticRepo("strata-plugins-skill-");
+  t.after(skillFolder.cleanup);
+  skillFolder.put(".cursor/rules/a.mdc", "---\nalwaysApply: true\n---\nRule.\n");
+  skillFolder.put(".claude/skills/pack/.claude-plugin/plugin.json", '{"name":"pack"}\n');
+  skillFolder.commit("A plugin in a skill folder");
+  const folderReport = await analyzeRepository(skillFolder.repo);
+  const latest = expandRevisions(folderReport).at(-1);
+  const inView = (view) =>
+    viewRevision(latest, view, undefined, folderReport.components).components.find((component) => component.skill);
+  assert.ok(inView("claude").plugins);
+  assert.ok(inView("cursor") && !inView("cursor").plugins);
+});
+
+test("reads only the documented plugin shapes, and marks anything else unresolved", () => {
+  const unresolved = { status: "unresolved" };
+  assert.equal(pluginRefs('{"theme":"enabledPlugins"}', "settings"), null);
+  assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@b":"yes"}}', "settings"), unresolved);
+  assert.deepEqual(pluginRefs('{"enabledPlugins":[]}', "settings"), unresolved);
+  assert.deepEqual(pluginRefs('{"extraKnownMarketplaces":{"m":{}}}', "settings"), unresolved);
+  // Claude's schema allows a list of strings, which Copilot does not document.
+  assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "settings").plugins, [
+    { name: "a@m", state: "configured" },
+  ]);
+  assert.deepEqual(pluginRefs('{"enabledPlugins":{"a@m":["^1.0.0"]}}', "copilot-settings"), unresolved);
+  // A URL is not a path in this repository, whichever way it is written.
+  for (const source of ['"https://example.invalid/p.git"', '"git@example.invalid:o/p.git"', '"/opt/p"', '"~/p"']) {
+    const catalog = pluginRefs(`{"name":"m","plugins":[{"name":"p","source":${source}}]}`, "marketplace");
+    assert.deepEqual(catalog.plugins[0].listed, { local: 0, external: 1 }, source);
+  }
+  assert.deepEqual(pluginRefs('[plugins.""]\nenabled = true\n', "codex-config"), unresolved);
+  // A key written with a JSON escape is the same key.
+  assert.deepEqual(pluginRefs('{"enabled\\u0050lugins":{"a@b":true}}', "settings").plugins, [
+    { name: "a@b", state: "enabled" },
+  ]);
+  // An escape can hide the key in a file that does not parse, so its plugins are unknown.
+  assert.deepEqual(pluginRefs('{"enabled\\u0050lugins":{"a@m":true},}', "settings"), unresolved);
+  assert.deepEqual(pluginRefs('["plugin\\U00000073"."caf\\u00e9@m"]\nenabled = true\n', "codex-config"), unresolved);
+  // Cursor documents only `name` as required for a marketplace entry; Claude also requires `source`.
+  assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "cursor-marketplace").plugins[0].listed, {
+    local: 0,
+    external: 1,
+  });
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"10.0.0.1:o/r"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 0,
+      external: 1,
+    },
+  );
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"github.com/o/r"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 0,
+      external: 1,
+    },
+  );
+  // A local folder can have a dot in its name, and only Cursor documents a source of `{ path }`.
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"my.plugin/fmt"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 1,
+      external: 0,
+    },
+  );
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":{"path":"./x"}}]}', "marketplace"),
+    unresolved,
+  );
+  assert.deepEqual(
+    pluginRefs('{"name":"m","plugins":[{"name":"p","source":"www.github.com/o/r"}]}', "marketplace").plugins[0].listed,
+    {
+      local: 0,
+      external: 1,
+    },
+  );
+  // The Agent Plugins schema limits names, and clients must refuse a manifest that breaks the rule.
+  const schemaUrl = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+  assert.deepEqual(pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "My Plugin" }), "agent-manifest"), unresolved);
+  assert.equal(
+    pluginRefs(JSON.stringify({ $schema: schemaUrl, name: "my-plugin" }), "agent-manifest").status,
+    "listed",
+  );
+  // Claude reads an alias for the marketplace key, and the canonical key wins.
+  const marketplace = { source: { source: "github", repo: "o/r" } };
+  assert.deepEqual(pluginRefs(JSON.stringify({ additionalMarketplaces: { alias: marketplace } }), "settings").plugins, [
+    { name: "alias", state: "marketplace" },
+  ]);
+  assert.deepEqual(
+    pluginRefs(
+      JSON.stringify({ additionalMarketplaces: { alias: marketplace }, extraKnownMarketplaces: { main: marketplace } }),
+      "settings",
+    ).plugins,
+    [{ name: "main", state: "marketplace" }],
+  );
+  // The Agent Plugins name rule is for root manifests, and a long source path is still a path.
+  assert.equal(
+    pluginRefs(
+      JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "My_Plugin" }),
+      "manifest",
+    ).status,
+    "listed",
+  );
+  assert.deepEqual(
+    pluginRefs(JSON.stringify({ name: "m", plugins: [{ name: "p", source: `./${"d/".repeat(200)}x` }] }), "marketplace")
+      .plugins[0].listed,
+    { local: 1, external: 0 },
+  );
+  // A key that is present with the wrong shape is unknown, and does not fall through to its alias.
+  assert.deepEqual(pluginRefs('{"extraKnownMarketplaces":null}', "settings"), unresolved);
+  assert.deepEqual(
+    pluginRefs(
+      JSON.stringify({ extraKnownMarketplaces: null, additionalMarketplaces: { alias: marketplace } }),
+      "settings",
+    ),
+    unresolved,
+  );
+  assert.deepEqual(pluginRefs('[plugins."a@m".enabled]\nfoo = 1\n', "codex-config"), unresolved);
+  assert.deepEqual(pluginRefs('[plugins."a@m"]\nenabled.x = 1\n', "codex-config"), unresolved);
+  // A long value is file text, not a name, and stays out of the report.
+  assert.deepEqual(pluginRefs(JSON.stringify({ name: "x".repeat(257) }), "manifest"), unresolved);
+  assert.deepEqual(pluginRefs(JSON.stringify({ enabledPlugins: { ["x".repeat(257)]: true } }), "settings"), unresolved);
+  // A table Strata cannot read matters only under `plugins`.
+  assert.equal(
+    pluginRefs('[features]\nplugins = true\n[projects."caf\\u00e9"]\ntrust = "yes"\n', "codex-config"),
+    null,
+  );
+  assert.deepEqual(pluginRefs('[plugins."caf\\u00e9@m"]\nenabled = true\n', "codex-config"), unresolved);
+  assert.equal(pluginRefs('[features]\n"plugin\\u0073" = true\n', "codex-config"), null);
+  assert.deepEqual(pluginRefs('{"version":"1"}', "manifest"), unresolved);
+  assert.deepEqual(pluginRefs('{"name":"m","plugins":[{"name":"p"}]}', "marketplace"), unresolved);
+  assert.equal(pluginRefs('model = "plugins"\n', "codex-config"), null);
+  // A Codex table of MCP policy does not say whether the plugin is on, and leaves the others readable.
+  assert.deepEqual(
+    pluginRefs('[plugins."a@b"]\nenabled = false\n[plugins."c@d".mcp_servers.docs]\nenabled = true\n', "codex-config")
+      .plugins,
+    [
+      { name: "a@b", state: "disabled" },
+      { name: "c@d", state: "configured" },
+    ],
+  );
+  // Copilot documents JSON with comments; Claude's settings stay strict.
+  const commented = '// team defaults\n{"enabledPlugins":{"a@b":true,},}';
+  assert.deepEqual(pluginRefs(commented, "copilot-settings").plugins, [{ name: "a@b", state: "enabled" }]);
+  assert.deepEqual(pluginRefs(commented, "settings"), unresolved);
+  // A standalone Codex manifest needs a name, and Codex skips a marketplace entry it cannot resolve.
+  assert.deepEqual(pluginRefs('{"extensions":{}}', "codex-manifest"), unresolved);
+  assert.deepEqual(
+    pluginRefs(
+      '{"name":"m","plugins":[{"name":"ok","source":"./ok"},{"name":"bad","source":{"source":"local"}}]}',
+      "codex-marketplace",
+    ).plugins[0].listed,
+    { local: 1, external: 0 },
+  );
+  assert.deepEqual(pluginRefs('[plugins]\n"a@b" = { enabled = true }\n', "codex-config"), unresolved);
+});

@@ -1,7 +1,8 @@
 /** The provider tabs, switching views and measures, and the file filters. */
 export const viewsScript = `    const allComponents = data.components;
-    // A provider that only reads shared files, such as Codex with only .agents/skills, still gets a view.
-    const providers = [...new Set(allComponents.flatMap((component) => [component.provider, ...(component.readers ?? [])]))].sort();
+    // A provider that only reads shared files, such as Codex with only .agents/skills, still gets a view. A plugin
+    // package is written for others to install, so it does not show the repository uses a tool.
+    const providers = [...new Set(allComponents.flatMap((component) => component.pluginPackage || (component.category === 'other' && component.path.endsWith('/plugin.json') && (data.pluginPackagesLeftOut || component.provider === 'cursor' || component.provider === 'copilot')) ? [] : [component.provider, ...(component.readers ?? [])]))].sort();
     /**
      * Whether a view holds every component at every revision, so its tab would repeat All files. A Gemini context file
      * depends on the settings at each revision, and Cursor and Copilot read other tools' files only at revisions that
@@ -67,7 +68,7 @@ export const viewsScript = `    const allComponents = data.components;
           ? 'Files labeled shared because more than one tool reads them by convention, such as AGENTS.md. Each also appears in the view of every provider that reads it. Files Cursor or Copilot reads from another tool, such as .claude/skills or CLAUDE.md, keep the label of the tool that owns them.'
           : activeView === 'unknown'
             ? 'Files not assigned to a supported provider; source-only unless recognized.'
-            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : activeView === 'cursor' ? '. Cursor also reads AGENTS.md, .agents/skills, and .claude/skills, which it includes only at revisions that track Cursor configuration' : activeView === 'copilot' ? '. Copilot also reads AGENTS.md, CLAUDE.md, REVIEW.md, GEMINI.md, .claude/agents, .claude/rules, .claude/skills, .agents/skills, and .mcp.json, which it includes only at revisions that track Copilot configuration. Which Copilot client (chat, cloud agent, code review, CLI, or an IDE) reads a file is not resolved' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
+            : activeView[0].toUpperCase() + activeView.slice(1) + ' files plus the shared files it reads' + (activeView === 'gemini' ? '; .gemini/settings.json context.fileName decides whether AGENTS.md and GEMINI.md are included, GEMINI.md alone by default' : activeView === 'cursor' ? '. Cursor also reads AGENTS.md, .agents/skills, .claude/skills, and Agent Plugins manifests, which it includes only at revisions that track Cursor configuration' : activeView === 'copilot' ? '. Copilot also reads AGENTS.md, CLAUDE.md, REVIEW.md, GEMINI.md, .claude/agents, .claude/rules, .claude/skills, .claude/settings.json, .claude/settings.local.json, .agents/skills, .mcp.json, .claude-plugin files, and Agent Plugins manifests, which it includes only at revisions that track Copilot configuration. Which Copilot client (chat, cloud agent, code review, CLI, or an IDE) reads a file is not resolved' : '') + '. Shared files can appear in more than one provider view, so view totals do not add up.';
       $('view-note').hidden = activeView === 'all';
     }
     /** Adds the view tabs and category options, and wires the file filters. */

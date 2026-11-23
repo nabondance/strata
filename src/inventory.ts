@@ -1,7 +1,7 @@
-import { type Classification, categories, classify, type UpFront } from "./adapters.js";
+import { type Classification, categories, classify, type Provider, pluginCandidate, type UpFront } from "./adapters.js";
 import type { ContentUse } from "./content-pass.js";
 import type { Measurer } from "./measurement.js";
-import type { CategoryTotals, ClaudeImport, Component, FilledRevision, McpServers } from "./model.js";
+import type { CategoryTotals, ClaudeImport, Component, FilledRevision, McpServers, PluginRefs } from "./model.js";
 import type { SkillListing } from "./skill-listing.js";
 
 export interface TrackedFile {
@@ -28,6 +28,13 @@ export function byPath<T extends { path: string }>(a: T, b: T): number {
 export function trackedFile(mode: string, blob: string, path: string): TrackedFile | null {
   if (mode !== "100644" && mode !== "100755") return null;
   const classification = classify(path);
+  return classification ? { path, blob, classification } : null;
+}
+
+/** A regular file that may be a plugin package, to be confirmed from its content. */
+export function pluginCandidateFile(mode: string, blob: string, path: string): TrackedFile | null {
+  if (mode !== "100644" && mode !== "100755") return null;
+  const classification = pluginCandidate(path);
   return classification ? { path, blob, classification } : null;
 }
 
@@ -94,17 +101,24 @@ export function toComponent(
   imports?: ClaudeImport[],
   ruleUpFront?: UpFront,
   mcp?: McpServers,
+  plugins?: PluginRefs,
 ): Component {
   const { classification } = file;
   const upFront = classification.upFront ?? ruleUpFront;
+  // A `plugin.json` in an agent's folder that names a plugin is the shared Agent Plugins format.
+  // A file tracked only because a Claude import reaches it is not a plugin file, whatever it holds.
+  const pluginList = classification.imported ? undefined : plugins;
+  const agentManifest = classification.category === "other" && Boolean(pluginList);
+  const readers = agentManifest ? (["codex", "copilot", "cursor"] satisfies Provider[]) : classification.readers;
   return {
     path: file.path,
     blob: file.blob,
     provider: classification.provider,
-    ...(classification.readers ? { readers: classification.readers } : {}),
+    ...(readers ? { readers } : {}),
     ...(classification.contextFile ? { contextFile: classification.contextFile } : {}),
     category: classification.category,
     ...(classification.legacy ? { legacy: true as const } : {}),
+    ...(classification.pluginPackage || agentManifest ? { pluginPackage: true as const } : {}),
     ...(classification.imported ? { imported: true as const } : {}),
     ...(imports?.length ? { imports, ...(classification.importRoot ? { importRoot: true as const } : {}) } : {}),
     ...(upFront ? { upFront } : {}),
@@ -121,6 +135,7 @@ export function toComponent(
         }
       : {}),
     ...(mcp ? { mcp } : {}),
+    ...(pluginList ? { plugins: pluginList } : {}),
   };
 }
 

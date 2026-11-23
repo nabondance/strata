@@ -1,17 +1,18 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { ContextFile } from "./adapters.js";
-import { classify, conditionalReaders, withoutReader } from "./adapters.js";
+import { classify, conditionalReaders, pluginCandidate, withoutReader } from "./adapters.js";
 import { addImportedFiles, type SymlinkEvent } from "./claude-imports.js";
 import { ContentPass } from "./content-pass.js";
 import { compactRevisions } from "./expand.js";
 import { geminiSettingsPath } from "./gemini-settings.js";
-import { blobSizes, git, gitText, gitTokens } from "./git.js";
+import { blobSizes, git, gitText, gitTokens, isPartialClone } from "./git.js";
 import { type Ignored, ignoreMatcher } from "./ignore.js";
 import {
   byPath,
   distinctBlobs,
   measureBlobs,
+  pluginCandidateFile,
   summarize,
   TokenCounts,
   type TrackedFile,
@@ -22,6 +23,7 @@ import {
 import { McpServerLists } from "./mcp-servers.js";
 import { createMeasurer } from "./measurement.js";
 import type { Change, Component, CountedProvider, FilledRevision, Report } from "./model.js";
+import { confirmedPackages, isPluginPackageFile, PluginLists, packagesLeftOutNotice } from "./plugins.js";
 import type { ProviderCountPlan, ProviderTextCount } from "./provider-count.js";
 import { countedProviders, countProviderBlobs, countsLocally, GeminiSettings, TextCheck } from "./provider-counting.js";
 import { providerReads } from "./provider-view.js";
@@ -56,6 +58,8 @@ interface CommitDelta {
   removed: string[];
   written: TrackedFile[];
   renames: Map<string, string>;
+  /** What this commit did to paths that may be plugin packages; `file` is null when one is gone. */
+  candidates: Array<{ path: string; file: TrackedFile | null }>;
   /** Recognized paths that became, stayed, or stopped being a symlink, for following Claude imports. */
   links?: SymlinkEvent[];
 }
@@ -120,6 +124,7 @@ async function readHistory(
         const source = paths[0]!;
         if ((status === "D" || status[0] === "R") && !ignored(source)) {
           if (classify(source)) current.removed.push(source);
+          if (pluginCandidate(source)) current.candidates.push({ path: source, file: null });
           submodules.delete(source);
           if (links.delete(source)) linkEvent(current, source, null);
         }
@@ -129,7 +134,17 @@ async function readHistory(
           const file = trackedFile(mode, blob, path);
           if (file) current.written.push(file);
           else if (classify(path)) current.removed.push(path);
-          if (file && status[0] === "R" && classify(source) && !ignored(source)) current.renames.set(source, path);
+          const candidate = pluginCandidate(path) ? pluginCandidateFile(mode, blob, path) : null;
+          if (pluginCandidate(path)) current.candidates.push({ path, file: candidate });
+          // `buildChanges` reports a rename only when both paths end up tracked, as a candidate may not.
+          if (
+            (file || candidate) &&
+            status[0] === "R" &&
+            (classify(source) || pluginCandidate(source)) &&
+            !ignored(source)
+          ) {
+            current.renames.set(source, path);
+          }
           // An import may name a recognized path that is a symlink; only links are kept.
           if (mode === symlinkMode && classify(path)) {
             links.add(path);
@@ -150,6 +165,7 @@ async function readHistory(
           removed: [],
           written: [],
           renames: new Map(),
+          candidates: [],
         };
         deltas.push(current);
         onCommit(deltas.length);
@@ -246,6 +262,61 @@ function geminiReadBlobs(deltas: CommitDelta[], configured: Map<string, ContextF
   return read;
 }
 
+/**
+ * In a partial clone, leave every plugin package out of every commit. Which of their blobs a clone
+ * holds changes as Git fetches, so reading only some would make results depend on earlier runs.
+ * Returns the paths left out.
+ */
+function leaveOutPackages(deltas: CommitDelta[]): Set<string> {
+  const paths = new Set<string>();
+  for (const delta of deltas) {
+    for (const file of delta.written) if (file.classification.pluginPackage) paths.add(file.path);
+    for (const { path, file } of delta.candidates) if (file) paths.add(path);
+  }
+  for (const delta of deltas) {
+    delta.written = delta.written.filter((file) => !paths.has(file.path));
+    delta.removed = delta.removed.filter((path) => !paths.has(path));
+    delta.candidates = [];
+    for (const [from, to] of delta.renames) if (paths.has(from) || paths.has(to)) delta.renames.delete(from);
+  }
+  return paths;
+}
+
+/**
+ * Add the plugin packages whose names alone could not show them, once their content confirms them.
+ * A version that is not a package counts as the file being absent. A package keeps its label while a
+ * Claude import reaches it, as in `strata diff`, because the report holds one label per file version.
+ * A rename stays only between paths tracked by their name or as a package, so an imported file that
+ * happens to be called `plugin.json` is never reported as renamed.
+ */
+function addPluginPackages(root: string, deltas: CommitDelta[], pass: ContentPass): void {
+  const candidates = deltas.flatMap((delta) => delta.candidates.flatMap(({ file }) => file ?? []));
+  const confirmed = confirmedPackages(root, candidates, undefined, pass);
+  const packages = new Map<string, string>();
+  for (const delta of deltas) {
+    const wasPackage = new Set([...delta.renames.keys()].filter((path) => packages.has(path)));
+    const written: TrackedFile[] = [];
+    const gone: string[] = [];
+    for (const { path, file } of delta.candidates) {
+      if (file && confirmed.has(versionKey(file.path, file.blob))) {
+        if (packages.get(path) !== file.blob) written.push(file);
+        packages.set(path, file.blob);
+      } else if (packages.delete(path)) {
+        gone.push(path);
+      }
+    }
+    for (const [from, to] of delta.renames) {
+      if (!(classify(from) || wasPackage.has(from)) || !(classify(to) || packages.has(to))) delta.renames.delete(from);
+    }
+    // What import tracking did to a path that holds a package does not apply.
+    delta.removed = [...delta.removed.filter((path) => !packages.has(path) && !gone.includes(path)), ...gone];
+    delta.written = [
+      ...delta.written.filter((file) => !file.classification.imported || !packages.has(file.path)),
+      ...written,
+    ];
+  }
+}
+
 export async function analyzeRepository(repoPath: string, options: AnalysisOptions = {}): Promise<Report> {
   const { onProgress, onNotice } = options;
   const plan = options.providerPlan;
@@ -276,16 +347,47 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const skills = new SkillListings(measurer);
   const ruleLoading = new RuleLoading();
   const mcpLists = new McpServerLists();
+  const partialClone = isPartialClone(root);
+  const pluginLists = new PluginLists(partialClone);
   const text = plan ? new TextCheck(countsLocally(plan)) : null;
-  const pass = new ContentPass([tokens, lineCounter, gemini, skills, ruleLoading, mcpLists, ...(text ? [text] : [])]);
+  const pass = new ContentPass([
+    tokens,
+    lineCounter,
+    gemini,
+    skills,
+    ruleLoading,
+    mcpLists,
+    pluginLists,
+    ...(text ? [text] : []),
+  ]);
+  const packagesLeftOut = partialClone ? leaveOutPackages(deltas) : new Set<string>();
+  const packagesUnread =
+    packagesLeftOut.size > 0 ||
+    (partialClone && deltas.some((delta) => delta.written.some((file) => isPluginPackageFile(file))));
+  if (packagesUnread) onNotice?.(packagesLeftOutNotice);
   for (const delta of deltas) pass.add(delta.written);
   // Files Claude imports join the deltas here, so every later step treats them as components.
-  const imports = await addImportedFiles(root, deltas, (blob, body) => pass.offer(blob, body), ignored);
+  const imports = await addImportedFiles(
+    root,
+    deltas,
+    (blob, body) => pass.offer(blob, body),
+    ignored,
+    packagesLeftOut,
+  );
+
+  addPluginPackages(root, deltas, pass);
 
   const written = deltas.flatMap((delta) => delta.written);
+  // A plugin package is written for others to install, so it does not show the repository uses a tool.
   for (const reader of conditionalReaders) {
-    if (written.some((file) => file.classification.provider === reader)) continue;
-    for (const file of written) withoutReader(file.classification, reader);
+    const usesTool = (file: TrackedFile) =>
+      file.classification.provider === reader &&
+      !file.classification.pluginPackage &&
+      !(file.classification.category === "other" && file.path.endsWith("/plugin.json"));
+    if (written.some(usesTool)) {
+      continue;
+    }
+    for (const file of written) if (!file.classification.pluginPackage) withoutReader(file.classification, reader);
   }
   pass.add(written);
   const sizes = blobSizes(root, distinctBlobs(written));
@@ -295,6 +397,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
   const listings = skills.listings;
   const rules = ruleLoading.upFront;
   const mcp = mcpLists.lists;
+  const plugins = pluginLists.lists;
   const counted = lineCounter.done();
   const ages = new LineAges(counted.lines, counted.weights);
   const geminiBlobs = plan ? geminiReadBlobs(deltas, configured) : new Set<string>();
@@ -326,6 +429,7 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
             imports.get(key),
             rules.get(key),
             mcp.get(key),
+            plugins.get(key),
           ),
         ) - 1;
       tableIndex.set(key, index);
@@ -396,9 +500,10 @@ export async function analyzeRepository(repoPath: string, options: AnalysisOptio
 
   const shallow = shallowRepository && startsAtShallowBoundary(root, revisions[0]?.id);
   return {
-    schemaVersion: 22,
+    schemaVersion: 23,
     repository: basename(root),
     branch,
+    ...(packagesUnread ? { pluginPackagesLeftOut: true as const } : {}),
     shallow,
     ...(ignore.length ? { ignore: [...ignore] } : {}),
     ...(submodules.size ? { submodules: inspectSubmodules(root, submodules, ignored) } : {}),

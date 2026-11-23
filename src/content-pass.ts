@@ -7,6 +7,9 @@ export interface ContentUse {
   wants(file: TrackedFile): boolean;
   /** Use a blob's content, given the file versions holding it that this use asked for. */
   read(blob: string, body: Buffer, files: TrackedFile[]): void;
+  /** The largest blob this use reads. A larger one is not loaded for it, and goes to `tooLarge`. */
+  readonly maxBytes?: number;
+  tooLarge?(files: TrackedFile[]): void;
 }
 
 /**
@@ -53,6 +56,14 @@ export class ContentPass {
 
   /** Read every blob still waited on, in bounded batches sized from `sizes`. */
   run(repo: string, sizes: Map<string, number>): void {
+    for (const [blob, waiting] of this.pending) {
+      for (const [use, files] of waiting) {
+        if (use.maxBytes === undefined || (sizes.get(blob) ?? 0) <= use.maxBytes) continue;
+        use.tooLarge?.(files);
+        waiting.delete(use);
+      }
+      if (!waiting.size) this.pending.delete(blob);
+    }
     for (const [blob, body] of readBlobs(repo, [...this.pending.keys()], (id) => sizes.get(id) ?? 0)) {
       this.offer(blob, body);
     }

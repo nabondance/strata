@@ -153,7 +153,7 @@ A shortened, illustrative JSON shape:
 
 ```json
 {
-  "schemaVersion": 22,
+  "schemaVersion": 23,
   "repository": "example",
   "branch": "main",
   "shallow": false,
@@ -217,12 +217,13 @@ The second revision touched no recognized file, so it keeps only its `id` and `d
 
 ### Shareable reports
 
-`--shareable` produces schema version 22 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
+`--shareable` produces schema version 23 with `privacy.mode: "shareable"`. It replaces these values with deterministic aliases local to that report, and does not embed the alias maps:
 
 - repository and branch names;
 - commit and first-parent IDs;
 - folder names and file stems in component and change paths, `previousPath`s, import targets and `symlinkTarget`s (including targets no file has, such as a package name), skill roots, and submodule paths;
 - MCP server names;
+- plugin names;
 - blob IDs.
 
 Paths are aliased one segment at a time, so a shareable report keeps the folder tree: which folder holds the weight, how deep a skill sits, which files are nested `AGENTS.md`. `redactReport` in `src/privacy.ts` applies one rule to every path the report holds:
@@ -267,6 +268,7 @@ The default local report is unchanged. Shareable means reduced identifier exposu
 | 20      | Codex provider counts on every run; `measurement` always the byte estimate                                                                                                                                                                     |
 | 21      | `categoryTotals` and `firstParent` left out when they repeat the previous revision; import `target` kept for paths no file has; `symlinkTarget`; trailing punctuation dropped from import paths; shareable paths aliased per segment; `ignore` |
 | 22      | every revision total, and empty `changes`, left out when they repeat the previous revision; the last revision keeps every field                                                                                                                |
+| 23      | agent plugins: `plugins` and `pluginPackage`, and each tool's manifests and marketplace files as source-only settings                                                                                                                          |
 
 #### Version 8: provider counts
 
@@ -303,12 +305,14 @@ Each entry's `configFiles` counts the regular files in the submodule, at the com
 - inside the submodule, such as a template with its own `.claude/`; or
 - where it is mounted in the parent, such as a skill kept as a submodule at `.claude/skills/<name>`.
 
+A submodule that is a partial clone is not read for plugin packages, so `configFiles` counts only the files recognized by path, and `pluginFilesUnread` marks one that also has a `plugin.json` or root `marketplace.json` that could be a package.
+
 Strata finds them by listing that commit's tree in the submodule's own checkout. `configFiles` is `null` when the submodule is not checked out or lacks that commit.
 
 Safeguards:
 
 - The checkout must resolve inside the parent, and its top level must be the submodule directory itself, so an empty directory is not mistaken for the parent repository.
-- These Git commands run without the parent's `GIT_DIR`-style variables and with `GIT_NO_LAZY_FETCH=1`, so with Git 2.44 or newer a partial clone is never fetched from. Older Git ignores that variable.
+- These Git commands run without the parent's `GIT_DIR`-style variables and with `GIT_NO_LAZY_FETCH=1`, so with Git 2.45 or newer a partial clone is never fetched from. Older Git ignores that variable.
 
 The count says only that the submodule holds files matching the path rules. Strata does not analyze them; the user can run Strata on the submodule instead. The result depends on which submodules are checked out, so the same commit can give different counts on different machines.
 
@@ -386,9 +390,9 @@ Notes on this table:
 
 - `REVIEW.md` is newly recognized as Claude instructions because [Claude Code's Code Review](https://code.claude.com/docs/en/code-review-customize) reads it.
 - Gemini CLI's `context.fileName` still decides only Gemini's reading of `GEMINI.md`.
-- Where no revision has Copilot configuration, `readers` is exactly as in version 14.
+- Where no revision has Copilot configuration, `readers` is exactly as in version 14, except on [plugin packages](#agent-plugins) from version 23, which keep the tools they are written for.
 - A file keeps its owner's label rather than becoming `shared`, so adopting Copilot does not move tokens out of the Claude or Gemini CLI totals.
-- `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot reads only hooks, gain no reader.
+- `CLAUDE.local.md` and `.claude/settings.json`, from which Copilot then read only hooks, gain no reader. [Version 23](#version-23-agent-plugins) makes Copilot a reader of the root `.claude/settings.json` and `.claude/settings.local.json`, for their plugin settings.
 
 The `copilot` label means at least one Copilot client (GitHub.com chat, the cloud agent, code review, Copilot CLI, or an IDE) is documented as reading the path; the report does not say which. Copilot has no `--precise` count: its files keep the report's measurement and their text is never sent. Reports from version 14 and earlier recognize no Copilot files and no `REVIEW.md`. [The Copilot adapter study](copilot-adapter.md) records the evidence for each pattern.
 
@@ -484,6 +488,10 @@ On two public repositories, analyzed with the estimate and Codex's local count:
 
 Compression already removed most of the repetition, so a served report transfers about as many bytes as before; the gain is in the file on disk and in the JSON a browser or a script has to parse.
 
+#### Version 23: agent plugins
+
+Version 23 recognizes each tool's plugin manifests and marketplace files as source-only settings, labels them `pluginPackage`, and adds `plugins` to them and to Claude, Copilot, and Codex settings that name plugins; see [Agent plugins](#agent-plugins). Stored token totals do not change. A repository whose only Cursor or Copilot file is a plugin package or a `plugin.json` no longer counts as using that tool, which can remove that tool's view and session-start totals. `strata diff` schema version 15 adds `comparison.plugins` and `pluginPackagesLeftOut`.
+
 ## MCP servers
 
 An MCP file's JSON is configuration, not prompt text. Its size says nothing about the tool definitions a server sends once it starts, and Strata never starts a server, so it does not measure those. What the file does state is which servers the project defines.
@@ -525,6 +533,37 @@ A defined server is not a loaded one:
 - User and global configuration is outside Git.
 
 The HTML report lists the servers in a collapsed panel that follows the provider tab. The comparison counts servers by file and name, so a server moved to another file is a removal and an addition, and one server defined for two tools counts twice.
+
+## Agent plugins
+
+Strata records what tracked files say about plugins for Claude Code, Codex, GitHub Copilot, Cursor, and Gemini CLI, and no more. The paths and evidence are in [the agent plugin study](plugin-study.md).
+
+Each file's `plugins` has a `status` of `listed`, with `name` and `state` for each entry, or `unresolved` when the file does not parse or its plugin fields do not have the documented shape. The states are:
+
+- `defined`: a manifest names it. Nothing enables it. A Codex `.codex-plugin/plugin.json` beside a root `plugin.json` is an overlay of settings, so the root manifest alone gives the plugin's identity.
+- `skills-folder`: a manifest in Claude's root `.claude/skills`, which Claude Code loads unless it is turned off.
+- `catalog`: a marketplace file, by its name, with `listed` counting its plugins whose source is a relative path (`local`), which Claude Code and Codex resolve from the marketplace root and Copilot from the repository root, or anything else, such as a URL (`external`). A source naming `github.com`, `gitlab.com`, or `bitbucket.org` without a scheme counts as external. A relative path is not checked against the tree, `metadata.pluginRoot`, or each tool's own source rules, so it does not prove the plugin is in this repository. Codex documents skipping a marketplace entry it cannot resolve, so such an entry is not counted there; elsewhere it makes the file unresolved. It stores counts because a marketplace can list hundreds of plugins across thousands of versions.
+- `enabled` and `disabled`: `enabledPlugins` in Claude or Copilot settings, or `[plugins."<id>"]` in a Codex `config.toml`.
+- `configured`: settings that do not say whether the plugin is on. This is a list of strings as a Claude `enabledPlugins` value, which [Claude's settings schema](https://json.schemastore.org/claude-code-settings.json) allows but its documentation does not explain, or a Codex plugin table with no `enabled`, such as [MCP policy](https://developers.openai.com/codex/plugins/build).
+- `marketplace`: a name in `extraKnownMarketplaces`, or in Claude's alias `additionalMarketplaces` when the canonical key is absent.
+
+Readers say which tools document a path. When a tool checks several manifest or marketplace locations in order, Strata does not resolve which one it picks, as it does not for skills of the same name.
+
+These stay separate because Git cannot show which plugins a session loaded:
+
+- Enabled does not prove installed. Claude Code leaves installation to each person, for example.
+- A plugin's content can be outside Git, so Strata does not fetch it or estimate it.
+- Source URLs can name private repositories or carry credentials, so they are never read into a report.
+- A plugin name longer than 256 characters is file text rather than a name, so its file is `unresolved` and the value stays out of the report.
+- Plugin content the path rules do not recognize, such as `plugins/foo/skills/`, is not added to the repository's stored or up-front totals. A recognized file inside a plugin folder, such as an `AGENTS.md`, is counted as it always was.
+
+`plugin.json` and a root `marketplace.json` are common file names, so Strata reads them and tracks only the documented format: the Agent Plugins `$schema`, or a `plugins` key beside `owner`, or a non-empty list of objects beside `name`. A root manifest that declares that schema with a name the schema forbids is `unresolved`, because clients must refuse it. A manifest in a tool's own folder follows that tool's rules. A version whose fields are wrong, or that no longer parses but still reads like one, stays tracked as `unresolved`. Any other version counts as the file being absent. A confirmed package keeps its label while a Claude import reaches it, so it is not tracked twice, and the import still resolves to it.
+
+Manifests and marketplace files carry `pluginPackage`. They are written for others to install, so they do not count as a repository using Cursor or Copilot when Strata decides whether those tools read other tools' files, and they add no report tab for a tool. A marketplace can place a plugin anywhere inside its root, including an agent's own folder such as `.codex/plugins/foo/`. A `plugin.json` there keeps its label, and if it declares the Agent Plugins `$schema` it also names a plugin, counts as a package, and is for Codex, Copilot, and Cursor. Such a file does not count as a repository using Cursor or Copilot, whatever its content, so tool detection does not depend on whether it could be read. A `plugin.json` that is a skill's file or a Copilot hooks file keeps that meaning and is not read as a plugin. A plugin file over 64 MB is not loaded: a known plugin path is then unresolved, and a common file name is not treated as a package.
+
+A partial clone may lack any version of a plugin file, and which blobs it holds changes as Git fetches them. Strata therefore does not read plugin manifests or marketplace files in a partial clone, at any commit, so results do not depend on earlier runs and a missing version is never read as a change. The report and the delta set `pluginPackagesLeftOut`, and the CLI, the Markdown, and the HTML report say the plugin results may be incomplete. Because an unread `plugin.json` cannot be told from a package, it adds no report tab there, so a partial clone can show fewer tabs than a full one. Settings that name plugins are still read. A left-out file that a Claude import reaches is read as any imported file, with no plugin entry.
+
+A comparison identifies a reference by its file and name. The same plugin defined in one file and enabled in another is two references, and a plugin that goes from enabled to turned off is a change rather than a removal and an addition. A file unreadable at either commit is left out of the counts and lists at both, because it may still name the plugins it named, and is counted only as unresolved.
 
 ## Skill listings
 
@@ -926,7 +965,7 @@ The badge is a stored-configuration figure like every other Strata total, not lo
 
 `strata diff` compares two supplied commits, each any revision Git resolves to a commit (`git rev-parse --verify --end-of-options <rev>^{commit}`, which is read-only), by reading their tracked Git trees directly. Its output names both by full commit ID. It does not check out revisions or write into the target repository. It uses the same path classification, instructional-text boundary, and measurement as the history report.
 
-Its JSON has its own schema version, currently 14. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
+Its JSON has its own schema version, currently 15. Compared components carry the report's provider labels (so `.agents/skills` files are `shared`), and there are no provider views.
 
 | Version | Adds                                                                                                                                                                                                                                                                                                                                                    |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -940,6 +979,7 @@ Its JSON has its own schema version, currently 14. Compared components carry the
 | 12      | `limits` when a [limit](#limits) is set.                                                                                                                                                                                                                                                                                                                |
 | 13      | `providerMeasurements` and `providerTotals` for Codex without `--precise`, counted locally with `o200k_base`; the Markdown adds the provider table on every comparison that has Codex files. `--tokenizer` and `--model` are removed, so `measurement` is always the byte estimate.                                                                     |
 | 14      | Claude imports read without trailing punctuation and followed through symlinks in each tree, as in history version 21, so more imported files can be compared and totals can be larger than under version 13. `ignore` when `--ignore` is given, with both trees leaving out the paths it matches; the Markdown adds a line naming the patterns.        |
+| 15      | `comparison.plugins` when either commit [names a plugin](#agent-plugins) or has a file whose plugins could not be read: the references at both, the files that could not be read, and those added, removed, or changed. Top-level `pluginPackagesLeftOut` on a partial clone whose plugin manifests and marketplace files were not read.                |
 
 `strata diff` resolves each commit's Gemini settings to decide which context files Gemini reads, for its up-front totals and, with `--precise`, its provider totals.
 

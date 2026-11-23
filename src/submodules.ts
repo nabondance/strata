@@ -1,9 +1,10 @@
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { git, listTree } from "./git.js";
+import { git, isPartialClone, listTree } from "./git.js";
 import { type Ignored, ignoreNothing } from "./ignore.js";
-import { trackedFile } from "./inventory.js";
+import { pluginCandidateFile, trackedFile, versionKey } from "./inventory.js";
 import type { Submodule } from "./model.js";
+import { confirmedPackages } from "./plugins.js";
 
 /**
  * Git commands in a submodule run with the parent's Git variables removed, so they read the
@@ -44,7 +45,8 @@ function checkout(root: string, path: string, env: NodeJS.ProcessEnv): string | 
 
 /**
  * Regular files whose path is recognized inside the submodule or where it is mounted in the parent,
- * leaving out those whose path in the parent `ignored` accepts.
+ * or that their content shows are plugin packages, leaving out those whose path in the parent
+ * `ignored` accepts.
  */
 function countConfigFiles(
   repo: string,
@@ -52,11 +54,21 @@ function countConfigFiles(
   mount: string,
   env: NodeJS.ProcessEnv,
   ignored: Ignored,
-): number {
-  return listTree(repo, commit, env).filter(
-    ({ mode, blob, path }) =>
-      !ignored(`${mount}/${path}`) && (trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`)),
-  ).length;
+): Pick<Submodule, "configFiles" | "pluginFilesUnread"> {
+  const tree = listTree(repo, commit, env).filter(({ path }) => !ignored(`${mount}/${path}`));
+  const recognized = ({ mode, blob, path }: (typeof tree)[number]) =>
+    Boolean(trackedFile(mode, blob, path) || trackedFile(mode, blob, `${mount}/${path}`));
+  const candidates = tree.flatMap((entry) =>
+    recognized(entry) ? [] : (pluginCandidateFile(entry.mode, entry.blob, entry.path) ?? []),
+  );
+  // A partial clone is not read for packages, so files that may be one are reported apart from the count.
+  if (candidates.length && isPartialClone(repo, env)) {
+    return { configFiles: tree.filter(recognized).length, pluginFilesUnread: true };
+  }
+  const confirmed = confirmedPackages(repo, candidates, env);
+  return {
+    configFiles: tree.filter((entry) => recognized(entry) || confirmed.has(versionKey(entry.path, entry.blob))).length,
+  };
 }
 
 /**
@@ -78,7 +90,7 @@ export function inspectSubmodules(
       if (!repo) return { path, configFiles: null };
       try {
         git(repo, ["cat-file", "-e", `${commit}^{commit}`], undefined, env);
-        return { path, configFiles: countConfigFiles(repo, commit, path, env, ignored) };
+        return { path, ...countConfigFiles(repo, commit, path, env, ignored) };
       } catch {
         return { path, configFiles: null };
       }

@@ -434,7 +434,10 @@ export async function addImportedFiles(
   deltas: ImportDelta[],
   onRead?: OnRead,
   ignored: Ignored = ignoreNothing,
+  /** Plugin files left out of the deltas because a partial clone lacks them: an import can still reach them. */
+  leftOut: ReadonlySet<string> = new Set(),
 ): Promise<Map<string, ClaudeImport[]>> {
+  const recognizedPath = (path: string) => Boolean(classify(path)) && !leftOut.has(path);
   const parsed = new Map<string, ClaudeImport[]>();
   const recognized = new Map<string, TrackedFile[]>();
   for (const delta of deltas) {
@@ -468,7 +471,7 @@ export async function addImportedFiles(
    */
   const lookUp = async (paths: Iterable<string>) => {
     const fresh = [...new Set(paths)]
-      .filter((path) => fileLike(path) && !classify(path) && !ignored(path) && !looked.has(path))
+      .filter((path) => fileLike(path) && !recognizedPath(path) && !ignored(path) && !looked.has(path))
       .sort();
     for (const path of fresh) looked.add(path);
     for (const [id, events] of await pathHistory(repo, fresh)) {
@@ -553,7 +556,7 @@ export async function addImportedFiles(
         !shaped.has(target) &&
         !targets.has(target) &&
         fileLike(target) &&
-        !classify(target) &&
+        !recognizedPath(target) &&
         !ignored(target)
       )
         beyond.add(target);

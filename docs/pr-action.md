@@ -279,13 +279,14 @@ strata diff /path/to/repo --base <full-commit-id> --head <full-commit-id> --outp
 
 The last form writes both files from one comparison, as the Action does.
 
-The JSON delta has its own schema version, 14, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
+The JSON delta has its own schema version, 15, and includes the report's measurement metadata. Both commits are measured the same way. The delta compares stored configuration in Git, not the context an agent loads in a session or the tokens you are billed for.
 
 ### What the delta contains
 
 - **Listed skill tokens.** When either commit has a skill manifest, the summary gives the change in listed skill tokens: the names and descriptions an agent keeps in context before a skill is used. Changed manifests get a `Δ listed` column. These are measured separately from the stored-text change, so do not add the two. The summary also counts manifests whose frontmatter Strata could not read; the listing total leaves them out.
 - **Up-front and on-demand text.** For each agent whose figures changed, a table gives the stored text it reads up front, at a session started at the repository root, and the rest it reads on demand.
 - **MCP servers.** When either commit has a file that can define MCP servers, a line gives the servers the tracked files define at both commits and names those added or removed. A defined server is not necessarily a loaded one, and its tool definitions are not measured.
+- **Agent plugins.** When either commit has a file that names a plugin, a line gives the references at both commits and names up to ten added, removed, or changed in each list. Enabled is not installed, and a plugin's content outside Git is not measured.
 - **Renames.** Components are matched by provider, category, and path, so a renamed file can appear as one removal plus one addition.
 - **Imported files.** Files reached through Claude `@path` imports are included. Adding or dropping an import can therefore list a file as added or removed even though the file did not change; the table marks such files "(imported)".
 

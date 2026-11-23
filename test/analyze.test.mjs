@@ -119,7 +119,7 @@ test("tracks configuration across first-parent history without reading untracked
         },
       },
     });
-    assert.equal(providerReport.schemaVersion, 22);
+    assert.equal(providerReport.schemaVersion, 23);
     assert.equal(providerReport.measurement.accuracy, "estimate");
     assert.deepEqual(
       providerReport.providerMeasurements.map(({ provider, model, accuracy }) => [provider, model, accuracy]),
@@ -205,7 +205,7 @@ test("tracks configuration across first-parent history without reading untracked
     assert.equal(revisions.at(-1).id, merge);
     assert.equal(revisions.at(-1).firstParent, beforeMerge);
     const prDelta = compareGitCommits(repo, first, merge);
-    assert.equal(prDelta.schemaVersion, 14);
+    assert.equal(prDelta.schemaVersion, 15);
     assert.deepEqual(prDelta.comparison, compareRevisions(revisions[0], revisions.at(-1)));
     const prMarkdown = renderPullRequestDelta(prDelta);
     assert.match(prMarkdown, /Strata configuration delta/);
@@ -227,7 +227,7 @@ test("tracks configuration across first-parent history without reading untracked
       () => compareGitCommits(repo, "no-such-branch", merge),
       /Base "no-such-branch" does not name a commit/,
     );
-    assert.equal(report.schemaVersion, 22);
+    assert.equal(report.schemaVersion, 23);
     // Each distinct file version is stored once, in path order; revisions carry changes, not inventories.
     assert.equal(
       new Set(report.components.map((component) => `${component.path}\0${component.blob}`)).size,
@@ -955,7 +955,7 @@ test("leaves out totals, first parents, and empty changes that repeat the previo
     ids.push(commit("empty", { flags: ["--allow-empty"] }));
 
     const report = await analyzeRepository(repo);
-    assert.equal(report.schemaVersion, 22);
+    assert.equal(report.schemaVersion, 23);
     const stored = report.revisions;
     assert.equal(stored.length, 6);
     const present = (field) => stored.map((revision) => field in revision);

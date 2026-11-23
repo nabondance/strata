@@ -41,16 +41,35 @@ export function viewRevision(
   table?: readonly Component[],
 ): RevisionSnapshot {
   if (view === "all") return revision;
-  // A revision tracks Cursor or Copilot configuration when it holds any file labeled with that tool.
+  // A revision tracks Cursor or Copilot configuration when it holds a file labeled with that tool, other
+  // than a plugin package or an unclassified `plugin.json`, which is written for others to install.
   const configuredAt = (at: RevisionSnapshot | undefined) =>
-    (view === "cursor" || view === "copilot") && !!at?.components.some((component) => component.provider === view);
+    (view === "cursor" || view === "copilot") &&
+    !!at?.components.some(
+      (component) =>
+        component.provider === view &&
+        !component.pluginPackage &&
+        !(component.category === "other" && component.path.endsWith("/plugin.json")),
+    );
   const configuredNow = configuredAt(revision);
   const configuredBefore = configuredAt(previous);
   const includes = (entry: Readable, at: RevisionSnapshot | undefined) =>
     view === "shared" || view === "unknown"
       ? entry.provider === view
       : providerReads(entry, view, at?.geminiContextFiles, at === revision ? configuredNow : configuredBefore);
-  const components = revision.components.filter((component) => includes(component, revision));
+  // A manifest in a Claude skill folder is only a file to other tools, and an Agent Plugins manifest in an
+  // agent's folder is a plugin only to the tools that read that format.
+  const components = revision.components
+    .filter((component) => includes(component, revision))
+    .map((component) => {
+      if (!component.plugins) return component;
+      const othersFile = component.skill
+        ? view !== "claude"
+        : component.category === "other" && !component.readers?.includes(view);
+      if (!othersFile) return component;
+      const { plugins: _plugins, ...skillFile } = component;
+      return skillFile;
+    });
   const before = new Map(previous?.components.map((component) => [component.path, component]));
   const after = new Map(revision.components.map((component) => [component.path, component]));
   const categoryTotals = Object.fromEntries(

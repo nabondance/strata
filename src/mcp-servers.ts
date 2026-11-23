@@ -46,7 +46,7 @@ export function mcpFormat(path: string, classification: Classification): McpForm
 }
 
 /** Remove commas before a closing bracket or brace, outside strings, as JSONC parsers accept. */
-function stripTrailingCommas(text: string): string {
+export function stripTrailingCommas(text: string): string {
   let output = "";
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index]!;
@@ -140,7 +140,7 @@ function geminiDisabled(settings: Record<string, unknown>): (name: string) => bo
  * Split a TOML key such as `mcp_servers."my server".env` into its parts, or null when it is not a
  * key Strata reads: bare parts, basic strings with simple escapes, and literal strings.
  */
-function keyParts(key: string): string[] | null {
+export function keyParts(key: string): string[] | null {
   const parts: string[] = [];
   let rest = key.trim();
   while (rest) {
@@ -159,7 +159,7 @@ function keyParts(key: string): string[] | null {
 }
 
 /** The index of the `=` that ends a TOML key, outside quoted key parts, or -1. */
-function assignmentAt(line: string): number {
+export function assignmentAt(line: string): number {
   for (let index = 0; index < line.length; index += 1) {
     const char = line[index]!;
     if (char === "=") return index;
@@ -177,7 +177,7 @@ function assignmentAt(line: string): number {
  * table, or triple-quoted string, joins the line that starts it. Comments are dropped. Returns null
  * when a string or bracket is never closed.
  */
-function tomlLines(text: string): string[] | null {
+export function tomlLines(text: string): string[] | null {
   const lines: string[] = [];
   let line = "";
   let depth = 0;
